@@ -1,9 +1,6 @@
 package com.igor.istreamingtv.ui.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,30 +11,141 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.igor.istreamingtv.ui.components.GlassCard
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.igor.istreamingtv.ui.components.MovieCard
+import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.theme.Background
 import com.igor.istreamingtv.ui.theme.TextPrimary
 import com.igor.istreamingtv.ui.theme.TextSecondary
 
 @Composable
-fun HomeScreen() {
+fun HomeScreen(
+    viewModel: HomeViewModel = viewModel()
+) {
+
+    val state by viewModel.uiState.collectAsState()
 
     Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Background)
+    ) {
+
+        when {
+
+            state.isLoading -> {
+
+                LoadingScreen()
+            }
+
+            state.error != null -> {
+
+                ErrorScreen(
+                    message = state.error ?: "Greška",
+                    onRetry = viewModel::loadContent
+                )
+            }
+
+            else -> {
+
+                HomeContent(
+                    movies = state.movies,
+                    series = state.series
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoadingScreen() {
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+
+        CircularProgressIndicator(
+            color = TextPrimary
+        )
+    }
+}
+
+@Composable
+private fun ErrorScreen(
+    message: String,
+    onRetry: () -> Unit
+) {
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+
+        Text(
+            text = "Nije moguće učitati katalog",
+            color = TextPrimary,
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
+        Text(
+            text = message,
+            color = TextSecondary,
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        Spacer(
+            modifier = Modifier.height(24.dp)
+        )
+
+        TvFocusableButton(
+            modifier = Modifier
+                .width(150.dp)
+                .height(52.dp),
+            onClick = onRetry
+        ) {
+
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+
+                Text(
+                    text = "Pokušaj ponovo",
+                    color = TextPrimary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeContent(
+    movies: List<com.igor.istreamingtv.data.remote.TmdbMovie>,
+    series: List<com.igor.istreamingtv.data.remote.TmdbMovie>
+) {
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(
@@ -49,41 +157,49 @@ fun HomeScreen() {
                     )
                 )
             )
+            .padding(
+                start = 52.dp,
+                end = 52.dp,
+                top = 28.dp,
+                bottom = 28.dp
+            )
     ) {
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    start = 52.dp,
-                    end = 52.dp,
-                    top = 28.dp,
-                    bottom = 28.dp
-                )
-        ) {
+        TopNavigation()
 
-            TopNavigation()
+        Spacer(
+            modifier = Modifier.height(30.dp)
+        )
 
-            Spacer(
-                modifier = Modifier.height(28.dp)
+        if (movies.isNotEmpty()) {
+
+            Hero(
+                movie = movies.first()
             )
 
-            HeroSection()
+        }
 
-            Spacer(
-                modifier = Modifier.height(32.dp)
+        Spacer(
+            modifier = Modifier.height(32.dp)
+        )
+
+        if (movies.isNotEmpty()) {
+
+            MovieSection(
+                title = "Trending filmovi",
+                movies = movies
             )
+        }
 
-            ContentSection(
-                title = "Nastavi gledanje"
-            )
+        Spacer(
+            modifier = Modifier.height(28.dp)
+        )
 
-            Spacer(
-                modifier = Modifier.height(28.dp)
-            )
+        if (series.isNotEmpty()) {
 
-            ContentSection(
-                title = "Popularno"
+            MovieSection(
+                title = "Popularne serije",
+                movies = series
             )
         }
     }
@@ -104,75 +220,108 @@ private fun TopNavigation() {
         )
 
         Spacer(
-            modifier = Modifier.width(52.dp)
+            modifier = Modifier.width(45.dp)
         )
 
-        NavigationItem("Home")
+        TvFocusableButton(
+            modifier = Modifier
+                .width(90.dp)
+                .height(46.dp),
+            onClick = {}
+        ) {
 
-        NavigationItem("Movies")
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
 
-        NavigationItem("Series")
+                Text(
+                    text = "Home",
+                    color = TextPrimary
+                )
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.width(10.dp)
+        )
+
+        TvFocusableButton(
+            modifier = Modifier
+                .width(100.dp)
+                .height(46.dp),
+            onClick = {}
+        ) {
+
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+
+                Text(
+                    text = "Movies",
+                    color = TextPrimary
+                )
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.width(10.dp)
+        )
+
+        TvFocusableButton(
+            modifier = Modifier
+                .width(100.dp)
+                .height(46.dp),
+            onClick = {}
+        ) {
+
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+
+                Text(
+                    text = "Series",
+                    color = TextPrimary
+                )
+            }
+        }
 
         Spacer(
             modifier = Modifier.weight(1f)
         )
 
-        NavigationItem("Search")
+        TvFocusableButton(
+            modifier = Modifier
+                .width(110.dp)
+                .height(46.dp),
+            onClick = {}
+        ) {
+
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+
+                Text(
+                    text = "Search",
+                    color = TextPrimary
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun NavigationItem(
-    title: String
+private fun Hero(
+    movie: com.igor.istreamingtv.data.remote.TmdbMovie
 ) {
 
-    var focused by remember {
-        mutableStateOf(false)
-    }
-
-    Text(
-        text = title,
-        color = if (focused) {
-            TextPrimary
-        } else {
-            TextSecondary
-        },
-        style = MaterialTheme.typography.labelLarge,
-
-        modifier = Modifier
-            .padding(
-                horizontal = 14.dp,
-                vertical = 10.dp
-            )
-            .clip(
-                RoundedCornerShape(14.dp)
-            )
-            .background(
-                if (focused) {
-                    Color.White.copy(alpha = 0.10f)
-                } else {
-                    Color.Transparent
-                }
-            )
-            .border(
-                width = if (focused) {
-                    1.dp
-                } else {
-                    0.dp
-                },
-                color = Color.White.copy(alpha = 0.22f),
-                shape = RoundedCornerShape(14.dp)
-            )
-            .onFocusChanged {
-                focused = it.isFocused
-            }
-            .focusable()
-            .clickable { }
-    )
-}
-
-@Composable
-private fun HeroSection() {
+    val backdrop =
+        movie.backdropPath?.let {
+            "https://image.tmdb.org/t/p/w1280$it"
+        }
 
     Box(
         modifier = Modifier
@@ -182,15 +331,32 @@ private fun HeroSection() {
                 RoundedCornerShape(28.dp)
             )
             .background(
-                Brush.horizontalGradient(
-                    listOf(
-                        Color(0xFF242936),
-                        Color(0xFF111318),
-                        Color(0xFF090A0D)
-                    )
-                )
+                Color(0xFF20232A)
             )
     ) {
+
+        if (backdrop != null) {
+
+            coil.compose.AsyncImage(
+                model = backdrop,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.90f),
+                            Color.Black.copy(alpha = 0.55f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
 
         Column(
             modifier = Modifier
@@ -199,17 +365,17 @@ private fun HeroSection() {
         ) {
 
             Text(
-                text = "FEATURED",
+                text = "TRENDING",
                 color = TextSecondary,
                 style = MaterialTheme.typography.labelLarge
             )
 
             Spacer(
-                modifier = Modifier.height(12.dp)
+                modifier = Modifier.height(10.dp)
             )
 
             Text(
-                text = "The Next Journey",
+                text = movie.displayTitle,
                 color = TextPrimary,
                 style = MaterialTheme.typography.displayLarge
             )
@@ -219,65 +385,31 @@ private fun HeroSection() {
             )
 
             Text(
-                text = "2026  •  2h 14m  •  Drama  •  16+",
+                text = movie.displayDate,
                 color = TextSecondary,
                 style = MaterialTheme.typography.bodyMedium
             )
 
             Spacer(
-                modifier = Modifier.height(18.dp)
+                modifier = Modifier.height(24.dp)
             )
 
-            Text(
-                text = "A new story begins where everything you know comes to an end.",
-                color = TextSecondary,
-                style = MaterialTheme.typography.bodyLarge
-            )
-
-            Spacer(
-                modifier = Modifier.height(26.dp)
-            )
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            TvFocusableButton(
+                modifier = Modifier
+                    .width(150.dp)
+                    .height(52.dp),
+                onClick = {}
             ) {
 
-                GlassCard(
-                    modifier = Modifier
-                        .width(150.dp)
-                        .height(52.dp)
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
 
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-
-                        Text(
-                            text = "▶  Gledaj",
-                            color = TextPrimary,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
-                }
-
-                GlassCard(
-                    modifier = Modifier
-                        .width(150.dp)
-                        .height(52.dp)
-                ) {
-
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-
-                        Text(
-                            text = "＋  Moja lista",
-                            color = TextPrimary,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
+                    Text(
+                        text = "▶  Gledaj",
+                        color = TextPrimary
+                    )
                 }
             }
         }
@@ -285,8 +417,9 @@ private fun HeroSection() {
 }
 
 @Composable
-private fun ContentSection(
-    title: String
+private fun MovieSection(
+    title: String,
+    movies: List<com.igor.istreamingtv.data.remote.TmdbMovie>
 ) {
 
     Column {
@@ -298,34 +431,29 @@ private fun ContentSection(
         )
 
         Spacer(
-            modifier = Modifier.height(14.dp)
+            modifier = Modifier.height(16.dp)
         )
 
-        Row(
+        LazyRow(
             horizontalArrangement = Arrangement.spacedBy(18.dp)
         ) {
 
-            repeat(6) {
+            items(
+                items = movies,
+                key = {
+                    it.id
+                }
+            ) { movie ->
 
-                GlassCard(
+                MovieCard(
+                    posterPath = movie.posterPath,
+                    onClick = {
+                        // Detalji filma dolaze u sledećem koraku.
+                    },
                     modifier = Modifier
                         .width(150.dp)
-                        .height(210.dp)
-                ) {
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color(0xFF303541),
-                                        Color(0xFF14161B)
-                                    )
-                                )
-                            )
-                    )
-                }
+                        .height(220.dp)
+                )
             }
         }
     }
