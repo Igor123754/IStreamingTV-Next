@@ -17,7 +17,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -47,10 +46,10 @@ fun MovieDetailsScreen(
             .background(Background)
     ) {
 
-        if (movie.backdropPath != null) {
+        movie.backdropPath?.let { path ->
 
             AsyncImage(
-                model = BACKDROP_URL + movie.backdropPath,
+                model = BACKDROP_URL + path,
                 contentDescription = movie.displayTitle,
                 modifier = Modifier.fillMaxSize()
             )
@@ -117,18 +116,14 @@ fun MovieDetailsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(
-                        bottom = 30.dp
-                    )
+                    .padding(bottom = 30.dp)
             ) {
 
                 Box(
                     modifier = Modifier
-                        .clip(
-                            RoundedCornerShape(12.dp)
-                        )
                         .background(
-                            Color.White.copy(alpha = 0.10f)
+                            Color.White.copy(alpha = 0.10f),
+                            RoundedCornerShape(12.dp)
                         )
                         .padding(
                             horizontal = 14.dp,
@@ -155,20 +150,17 @@ fun MovieDetailsScreen(
                     modifier = Modifier.height(12.dp)
                 )
 
-                if (movie.displayDate.isNotEmpty()) {
-
-                    Text(
-                        text = movie.displayDate,
-                        color = TextSecondary
-                    )
-                }
+                Text(
+                    text = movie.displayDate,
+                    color = TextSecondary
+                )
 
                 Spacer(
                     modifier = Modifier.height(26.dp)
                 )
 
                 Text(
-                    text = "Film je dostupan kroz izvore povezane sa aplikacijom.",
+                    text = movie.overview,
                     color = TextSecondary
                 )
 
@@ -185,7 +177,7 @@ fun MovieDetailsScreen(
                             .width(160.dp)
                             .height(56.dp),
                         onClick = {
-                            // Stremio addon/player dolazi u sledećem koraku.
+                            // Stremio player dolazi kasnije.
                         }
                     ) {
 
