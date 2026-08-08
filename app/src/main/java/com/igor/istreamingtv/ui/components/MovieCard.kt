@@ -27,6 +27,7 @@ private const val IMAGE_BASE_URL =
 @Composable
 fun MovieCard(
     posterPath: String?,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     var focused by remember {
@@ -43,14 +44,10 @@ fun MovieCard(
     )
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .scale(scale)
-            .clip(
-                RoundedCornerShape(18.dp)
-            )
-            .background(
-                Color(0xFF17191F)
-            )
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xFF17191F))
             .onFocusChanged {
                 focused = it.isFocused
             }
@@ -73,9 +70,7 @@ fun MovieCard(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Color(0xFF20232A)
-                    )
+                    .background(Color(0xFF20232A))
             )
         }
     }
