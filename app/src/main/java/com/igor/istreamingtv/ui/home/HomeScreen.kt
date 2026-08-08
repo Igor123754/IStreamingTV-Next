@@ -23,7 +23,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -227,25 +226,33 @@ private fun TopNavigation() {
             modifier = Modifier.width(40.dp)
         )
 
-        NavigationButton("Home")
+        NavigationButton(
+            text = "Home"
+        )
 
         Spacer(
             modifier = Modifier.width(10.dp)
         )
 
-        NavigationButton("Movies")
+        NavigationButton(
+            text = "Movies"
+        )
 
         Spacer(
             modifier = Modifier.width(10.dp)
         )
 
-        NavigationButton("Series")
+        NavigationButton(
+            text = "Series"
+        )
 
         Spacer(
             modifier = Modifier.weight(1f)
         )
 
-        NavigationButton("Search")
+        NavigationButton(
+            text = "Search"
+        )
     }
 }
 
@@ -285,11 +292,9 @@ private fun Hero(
             .fillMaxWidth()
             .padding(horizontal = 48.dp)
             .height(360.dp)
-            .clip(
-                RoundedCornerShape(28.dp)
-            )
             .background(
-                Color(0xFF1A1C22)
+                Color(0xFF1A1C22),
+                RoundedCornerShape(28.dp)
             )
     ) {
 
