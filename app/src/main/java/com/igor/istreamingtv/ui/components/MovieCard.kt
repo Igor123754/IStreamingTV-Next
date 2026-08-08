@@ -30,6 +30,7 @@ fun MovieCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+
     var focused by remember {
         mutableStateOf(false)
     }
@@ -40,14 +41,18 @@ fun MovieCard(
             dampingRatio = 0.75f,
             stiffness = 400f
         ),
-        label = "movieCardScale"
+        label = "posterScale"
     )
 
     Box(
         modifier = modifier
             .scale(scale)
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFF17191F))
+            .clip(
+                RoundedCornerShape(18.dp)
+            )
+            .background(
+                Color(0xFF17191F)
+            )
             .onFocusChanged {
                 focused = it.isFocused
             }
@@ -70,7 +75,9 @@ fun MovieCard(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF20232A))
+                    .background(
+                        Color(0xFF24262D)
+                    )
             )
         }
     }
