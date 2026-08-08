@@ -23,7 +23,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -41,6 +41,7 @@ private const val BACKDROP_URL =
 
 @Composable
 fun HomeScreen(
+    onMovieClick: (TmdbMovie) -> Unit,
     viewModel: HomeViewModel = viewModel()
 ) {
 
@@ -68,7 +69,8 @@ fun HomeScreen(
             else -> {
                 HomeContent(
                     movies = state.movies,
-                    series = state.series
+                    series = state.series,
+                    onMovieClick = onMovieClick
                 )
             }
         }
@@ -143,7 +145,8 @@ private fun ErrorScreen(
 @Composable
 private fun HomeContent(
     movies: List<TmdbMovie>,
-    series: List<TmdbMovie>
+    series: List<TmdbMovie>,
+    onMovieClick: (TmdbMovie) -> Unit
 ) {
 
     val scrollState = rememberLazyListState()
@@ -155,7 +158,6 @@ private fun HomeContent(
     ) {
 
         item {
-
             TopNavigation()
         }
 
@@ -164,7 +166,8 @@ private fun HomeContent(
             item {
 
                 Hero(
-                    movie = movies.first()
+                    movie = movies.first(),
+                    onMovieClick = onMovieClick
                 )
             }
         }
@@ -175,7 +178,8 @@ private fun HomeContent(
 
                 MovieSection(
                     title = "Trending filmovi",
-                    movies = movies
+                    movies = movies,
+                    onMovieClick = onMovieClick
                 )
             }
         }
@@ -186,7 +190,8 @@ private fun HomeContent(
 
                 MovieSection(
                     title = "Popularne serije",
-                    movies = series
+                    movies = series,
+                    onMovieClick = onMovieClick
                 )
             }
         }
@@ -222,33 +227,25 @@ private fun TopNavigation() {
             modifier = Modifier.width(40.dp)
         )
 
-        NavigationButton(
-            text = "Home"
-        )
+        NavigationButton("Home")
 
         Spacer(
             modifier = Modifier.width(10.dp)
         )
 
-        NavigationButton(
-            text = "Movies"
-        )
+        NavigationButton("Movies")
 
         Spacer(
             modifier = Modifier.width(10.dp)
         )
 
-        NavigationButton(
-            text = "Series"
-        )
+        NavigationButton("Series")
 
         Spacer(
             modifier = Modifier.weight(1f)
         )
 
-        NavigationButton(
-            text = "Search"
-        )
+        NavigationButton("Search")
     }
 }
 
@@ -261,9 +258,7 @@ private fun NavigationButton(
         modifier = Modifier
             .width(100.dp)
             .height(48.dp),
-        onClick = {
-            // Navigacija dolazi u sledećem koraku.
-        }
+        onClick = {}
     ) {
 
         Box(
@@ -281,10 +276,9 @@ private fun NavigationButton(
 
 @Composable
 private fun Hero(
-    movie: TmdbMovie
+    movie: TmdbMovie,
+    onMovieClick: (TmdbMovie) -> Unit
 ) {
-
-    val backdropPath = movie.backdropPath
 
     Box(
         modifier = Modifier
@@ -299,10 +293,10 @@ private fun Hero(
             )
     ) {
 
-        if (backdropPath != null) {
+        movie.backdropPath?.let { path ->
 
             AsyncImage(
-                model = BACKDROP_URL + backdropPath,
+                model = BACKDROP_URL + path,
                 contentDescription = movie.displayTitle,
                 modifier = Modifier.fillMaxSize()
             )
@@ -346,13 +340,10 @@ private fun Hero(
                 modifier = Modifier.height(10.dp)
             )
 
-            if (movie.displayDate.isNotEmpty()) {
-
-                Text(
-                    text = movie.displayDate,
-                    color = TextSecondary
-                )
-            }
+            Text(
+                text = movie.displayDate,
+                color = TextSecondary
+            )
 
             Spacer(
                 modifier = Modifier.height(24.dp)
@@ -363,7 +354,7 @@ private fun Hero(
                     .width(150.dp)
                     .height(52.dp),
                 onClick = {
-                    // Player dolazi kasnije.
+                    onMovieClick(movie)
                 }
             ) {
 
@@ -385,7 +376,8 @@ private fun Hero(
 @Composable
 private fun MovieSection(
     title: String,
-    movies: List<TmdbMovie>
+    movies: List<TmdbMovie>,
+    onMovieClick: (TmdbMovie) -> Unit
 ) {
 
     Column(
@@ -420,7 +412,7 @@ private fun MovieSection(
                         .width(155.dp)
                         .height(230.dp),
                     onClick = {
-                        // Detalji filma dolaze u sledećem koraku.
+                        onMovieClick(movie)
                     }
                 )
             }
