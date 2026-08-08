@@ -32,9 +32,13 @@ class HomeViewModel : ViewModel() {
         loadContent()
     }
 
-    private fun loadContent() {
+    fun loadContent() {
 
         viewModelScope.launch {
+
+            _uiState.value = HomeUiState(
+                isLoading = true
+            )
 
             try {
 
@@ -54,7 +58,7 @@ class HomeViewModel : ViewModel() {
 
                 _uiState.value = HomeUiState(
                     isLoading = false,
-                    error = e.message
+                    error = e.message ?: "Unknown error"
                 )
             }
         }
