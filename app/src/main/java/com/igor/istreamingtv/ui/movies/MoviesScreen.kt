@@ -30,6 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.igor.istreamingtv.data.remote.TmdbMovie
+import com.igor.istreamingtv.data.remote.displayDate
+import com.igor.istreamingtv.data.remote.displayTitle
+import com.igor.istreamingtv.data.remote.posterPath
 import com.igor.istreamingtv.ui.components.MovieCard
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.home.HomeViewModel
@@ -44,9 +47,7 @@ fun MoviesScreen(
     viewModel: HomeViewModel = viewModel()
 ) {
 
-    BackHandler {
-        onBack()
-    }
+    BackHandler { onBack() }
 
     val state by viewModel.uiState.collectAsState()
 
@@ -55,25 +56,18 @@ fun MoviesScreen(
             .fillMaxSize()
             .background(Background)
     ) {
-
         when {
-
             state.isLoading -> {
-
                 LoadingMovies()
             }
-
             state.error != null -> {
-
                 ErrorMovies(
                     message = state.error ?: "Nepoznata greška",
                     onRetry = viewModel::loadContent,
                     onBack = onBack
                 )
             }
-
             else -> {
-
                 MoviesContent(
                     movies = state.movies,
                     onMovieClick = onMovieClick,
@@ -86,24 +80,13 @@ fun MoviesScreen(
 
 @Composable
 private fun LoadingMovies() {
-
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-
-            CircularProgressIndicator(
-                color = TextPrimary
-            )
-
-            Spacer(
-                modifier = Modifier.height(18.dp)
-            )
-
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = TextPrimary)
+            Spacer(modifier = Modifier.height(18.dp))
             Text(
                 text = "Učitavanje filmova...",
                 color = TextSecondary,
@@ -119,75 +102,48 @@ private fun ErrorMovies(
     onRetry: () -> Unit,
     onBack: () -> Unit
 ) {
-
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = "Nije moguće učitati filmove",
                 color = TextPrimary,
                 fontSize = 24.sp
             )
-
-            Spacer(
-                modifier = Modifier.height(12.dp)
-            )
-
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = message,
                 color = TextSecondary,
                 fontSize = 15.sp
             )
-
-            Spacer(
-                modifier = Modifier.height(26.dp)
-            )
-
-            androidx.compose.foundation.layout.Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-
+            Spacer(modifier = Modifier.height(26.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TvFocusableButton(
                     modifier = Modifier
                         .width(170.dp)
                         .height(52.dp),
                     onClick = onRetry
                 ) {
-
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-
-                        Text(
-                            text = "Pokušaj ponovo",
-                            color = TextPrimary
-                        )
+                        Text(text = "Pokušaj ponovo", color = TextPrimary)
                     }
                 }
-
                 TvFocusableButton(
                     modifier = Modifier
                         .width(130.dp)
                         .height(52.dp),
                     onClick = onBack
                 ) {
-
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-
-                        Text(
-                            text = "Nazad",
-                            color = TextPrimary
-                        )
+                        Text(text = "Nazad", color = TextPrimary)
                     }
                 }
             }
@@ -201,38 +157,28 @@ private fun MoviesContent(
     onMovieClick: (TmdbMovie) -> Unit,
     onBack: () -> Unit
 ) {
-
     val gridState = rememberLazyGridState()
 
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
-
+    Column(modifier = Modifier.fillMaxSize()) {
         MoviesHeader(
             movieCount = movies.size,
             onBack = onBack
         )
 
         if (movies.isEmpty()) {
-
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-
                 Text(
                     text = "Nema dostupnih filmova.",
                     color = TextSecondary,
                     fontSize = 18.sp
                 )
             }
-
         } else {
-
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(
-                    minSize = 160.dp
-                ),
+                columns = GridCells.Adaptive(minSize = 160.dp),
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
@@ -244,19 +190,13 @@ private fun MoviesContent(
                 horizontalArrangement = Arrangement.spacedBy(20.dp),
                 verticalArrangement = Arrangement.spacedBy(28.dp)
             ) {
-
                 items(
                     items = movies,
-                    key = { movie ->
-                        movie.id
-                    }
+                    key = { movie -> movie.id }
                 ) { movie ->
-
                     MovieGridItem(
                         movie = movie,
-                        onClick = {
-                            onMovieClick(movie)
-                        }
+                        onClick = { onMovieClick(movie) }
                     )
                 }
             }
@@ -269,53 +209,37 @@ private fun MoviesHeader(
     movieCount: Int,
     onBack: () -> Unit
 ) {
-
-    androidx.compose.foundation.layout.Row(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                horizontal = 48.dp,
-                vertical = 28.dp
-            ),
+            .padding(horizontal = 48.dp, vertical = 28.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-
         TvFocusableButton(
             modifier = Modifier
                 .width(110.dp)
                 .height(48.dp),
             onClick = onBack
         ) {
-
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-
                 Text(
-                    text = "‹  Nazad",
+                    text = "‹ Nazad",
                     color = TextPrimary,
                     fontSize = 15.sp
                 )
             }
         }
-
-        Spacer(
-            modifier = Modifier.width(26.dp)
-        )
-
+        Spacer(modifier = Modifier.width(26.dp))
         Column {
-
             Text(
                 text = "Filmovi",
                 color = TextPrimary,
                 fontSize = 30.sp
             )
-
-            Spacer(
-                modifier = Modifier.height(3.dp)
-            )
-
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = "$movieCount dostupnih filmova",
                 color = TextSecondary,
@@ -330,12 +254,7 @@ private fun MovieGridItem(
     movie: TmdbMovie,
     onClick: () -> Unit
 ) {
-
-    Column(
-        modifier = Modifier
-            .width(160.dp)
-    ) {
-
+    Column(modifier = Modifier.width(160.dp)) {
         Box(
             modifier = Modifier
                 .width(160.dp)
@@ -349,32 +268,23 @@ private fun MovieGridItem(
                     color = Color.White.copy(alpha = 0.08f),
                     shape = RoundedCornerShape(16.dp)
                 )
-    ) {
-
+        ) {
             MovieCard(
                 posterPath = movie.posterPath,
                 modifier = Modifier.fillMaxSize(),
                 onClick = onClick
             )
         }
-
-        Spacer(
-            modifier = Modifier.height(10.dp)
-        )
-
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
-            text = movie.displayTitle.orEmpty(),
+            text = movie.displayTitle,
             color = TextPrimary,
             fontSize = 15.sp,
             maxLines = 2
         )
-
-        Spacer(
-            modifier = Modifier.height(4.dp)
-        )
-
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = movie.displayDate.orEmpty(),
+            text = movie.displayDate,
             color = TextSecondary,
             fontSize = 13.sp
         )
