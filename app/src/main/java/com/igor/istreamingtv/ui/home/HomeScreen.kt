@@ -23,7 +23,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -40,6 +39,7 @@ import com.igor.istreamingtv.ui.theme.Background
 import com.igor.istreamingtv.ui.theme.TextPrimary
 import com.igor.istreamingtv.ui.theme.TextSecondary
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.snapshotFlow
 
 private const val IMAGE_URL =
     "https://image.tmdb.org/t/p/"
@@ -83,7 +83,8 @@ fun HomeScreen(
                     movies = state.movies,
                     series = state.series,
                     onMovieClick = onMovieClick,
-                    onMoviesClick = onMoviesClick
+                    onMoviesClick = onMoviesClick,
+                    viewModel = viewModel
                 )
             }
         }
@@ -169,34 +170,66 @@ private fun HomeContent(
     movies: List<TmdbMovie>,
     series: List<TmdbMovie>,
     onMovieClick: (TmdbMovie) -> Unit,
-    onMoviesClick: () -> Unit
+    onMoviesClick: () -> Unit,
+    viewModel: HomeViewModel
 ) {
 
     /*
-     * LazyListState ostaje vezan za Home ekran.
-     *
-     * Kada otvorimo Details, MainActivity sada pamti
-     * da smo došli sa Home ekrana.
+     * LazyColumn stanje.
      */
     val scrollState = rememberLazyListState()
 
     /*
-     * Posmatramo skrolovanje.
+     * Kada se Home ponovo prikaže:
      *
-     * Ovo je važno za kasnije:
-     * možemo koristiti ovu poziciju za pametno vraćanje
-     * korisnika tamo gde je bio.
+     * 1. uzimamo prethodni index
+     * 2. uzimamo prethodni offset
+     * 3. vraćamo listu na isto mesto
+     *
+     * Nakon toga nastavljamo da pratimo novo skrolovanje.
      */
-    LaunchedEffect(scrollState) {
+    LaunchedEffect(movies.size, series.size) {
 
-        snapshotFlow {
-            Pair(
-                scrollState.firstVisibleItemIndex,
-                scrollState.firstVisibleItemScrollOffset
+        if (
+            movies.isNotEmpty() ||
+            series.isNotEmpty()
+        ) {
+
+            val savedIndex =
+                viewModel.getHomeScrollIndex()
+
+            val savedOffset =
+                viewModel.getHomeScrollOffset()
+
+            val safeIndex =
+                savedIndex.coerceAtMost(
+                    scrollState.layoutInfo.totalItemsCount
+                        .coerceAtLeast(1) - 1
+                )
+
+            scrollState.scrollToItem(
+                index = safeIndex,
+                scrollOffset = savedOffset
             )
-        }.collectLatest {
-            // Pozicija se prati i LazyListState je čuva
-            // dok je Home ekran aktivan.
+
+            /*
+             * Od ovog trenutka pratimo svako novo
+             * pomeranje Home ekrana.
+             */
+            snapshotFlow {
+
+                Pair(
+                    scrollState.firstVisibleItemIndex,
+                    scrollState.firstVisibleItemScrollOffset
+                )
+
+            }.collectLatest { position ->
+
+                viewModel.saveHomeScrollPosition(
+                    index = position.first,
+                    offset = position.second
+                )
+            }
         }
     }
 
