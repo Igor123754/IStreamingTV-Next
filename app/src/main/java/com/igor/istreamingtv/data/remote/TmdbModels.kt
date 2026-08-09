@@ -17,7 +17,12 @@ data class TmdbMovie(
     val genre_ids: List<Int>
 )
 
-// NOVO: Detalji filma
+// Extension properties — UI koristi ova imena
+val TmdbMovie.displayTitle: String get() = title
+val TmdbMovie.displayDate: String get() = release_date ?: ""
+val TmdbMovie.posterPath: String? get() = poster_path
+val TmdbMovie.backdropPath: String? get() = backdrop_path
+
 data class TmdbMovieDetails(
     val id: Int,
     val title: String,
@@ -27,8 +32,8 @@ data class TmdbMovieDetails(
     val release_date: String?,
     val vote_average: Double,
     val genres: List<Genre>,
-    val imdb_id: String?,        // KLJUČNO za Stremio
-    val runtime: Int?,           // Trajanje u minutama
+    val imdb_id: String?,
+    val runtime: Int?,
     val tagline: String?
 )
 
