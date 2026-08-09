@@ -39,7 +39,7 @@ import com.igor.istreamingtv.ui.theme.Background
 import com.igor.istreamingtv.ui.theme.TextPrimary
 import com.igor.istreamingtv.ui.theme.TextSecondary
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.snapshotFlow
+import androidx.compose.runtime.snapshotFlow
 
 private const val IMAGE_URL =
     "https://image.tmdb.org/t/p/"
