@@ -1,25 +1,33 @@
 package com.igor.istreamingtv.data.repository
 
+import com.igor.istreamingtv.data.remote.TmdbApi
 import com.igor.istreamingtv.data.remote.TmdbClient
 import com.igor.istreamingtv.data.remote.TmdbMovie
+import com.igor.istreamingtv.data.remote.TmdbMovieDetails
 
 class ContentRepository(
-    private val tmdbToken: String
+    private val apiKey: String
 ) {
 
+    private val api = TmdbClient.retrofit.create(TmdbApi::class.java)
+
+    suspend fun getPopularMovies(page: Int = 1): List<TmdbMovie> {
+        return api.getPopularMovies(page, apiKey).results
+    }
+
+    suspend fun getTopRatedMovies(page: Int = 1): List<TmdbMovie> {
+        return api.getTopRatedMovies(page, apiKey).results
+    }
+
     suspend fun getTrendingMovies(): List<TmdbMovie> {
-        return TmdbClient.api
-            .getTrendingMovies(
-                token = "Bearer $tmdbToken"
-            )
-            .results
+        return api.getTrendingMovies(apiKey).results
     }
 
     suspend fun getTrendingSeries(): List<TmdbMovie> {
-        return TmdbClient.api
-            .getTrendingSeries(
-                token = "Bearer $tmdbToken"
-            )
-            .results
+        return api.getTrendingSeries(apiKey).results
+    }
+
+    suspend fun getMovieDetails(movieId: Int): TmdbMovieDetails {
+        return api.getMovieDetails(movieId, apiKey)
     }
 }
