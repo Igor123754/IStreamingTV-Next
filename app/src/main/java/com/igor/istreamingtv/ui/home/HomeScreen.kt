@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -38,8 +39,6 @@ import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.theme.Background
 import com.igor.istreamingtv.ui.theme.TextPrimary
 import com.igor.istreamingtv.ui.theme.TextSecondary
-import kotlinx.coroutines.flow.collectLatest
-import androidx.compose.runtime.snapshotFlow
 
 private const val IMAGE_URL =
     "https://image.tmdb.org/t/p/"
@@ -175,68 +174,60 @@ private fun HomeContent(
 ) {
 
     /*
-     * LazyColumn stanje.
+     * Glavni vertikalni Home scroll.
      */
-    val scrollState = rememberLazyListState()
+    val verticalState =
+        rememberLazyListState()
 
     /*
-     * Kada se Home ponovo prikaže:
-     *
-     * 1. uzimamo prethodni index
-     * 2. uzimamo prethodni offset
-     * 3. vraćamo listu na isto mesto
-     *
-     * Nakon toga nastavljamo da pratimo novo skrolovanje.
+     * Vraćamo Home na prethodnu vertikalnu poziciju.
      */
-    LaunchedEffect(movies.size, series.size) {
+    LaunchedEffect(
+        movies.size,
+        series.size
+    ) {
 
         if (
             movies.isNotEmpty() ||
             series.isNotEmpty()
         ) {
 
-            val savedIndex =
-                viewModel.getHomeScrollIndex()
+            val saved =
+                viewModel.getHomeVerticalPosition()
 
-            val savedOffset =
-                viewModel.getHomeScrollOffset()
+            verticalState.scrollToItem(
+                index = saved.index.coerceAtLeast(0),
+                scrollOffset = saved.offset
+            )
+        }
+    }
 
-            val safeIndex =
-                savedIndex.coerceAtMost(
-                    scrollState.layoutInfo.totalItemsCount
-                        .coerceAtLeast(1) - 1
-                )
+    /*
+     * Pamtimo svako pomeranje Home ekrana.
+     */
+    LaunchedEffect(verticalState) {
 
-            scrollState.scrollToItem(
-                index = safeIndex,
-                scrollOffset = savedOffset
+        snapshotFlow {
+
+            Pair(
+                verticalState.firstVisibleItemIndex,
+                verticalState.firstVisibleItemScrollOffset
             )
 
-            /*
-             * Od ovog trenutka pratimo svako novo
-             * pomeranje Home ekrana.
-             */
-            snapshotFlow {
+        }.collect { position ->
 
-                Pair(
-                    scrollState.firstVisibleItemIndex,
-                    scrollState.firstVisibleItemScrollOffset
-                )
-
-            }.collectLatest { position ->
-
-                viewModel.saveHomeScrollPosition(
-                    index = position.first,
-                    offset = position.second
-                )
-            }
+            viewModel.saveHomeVerticalPosition(
+                index = position.first,
+                offset = position.second
+            )
         }
     }
 
     LazyColumn(
-        state = scrollState,
+        state = verticalState,
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(34.dp)
+        verticalArrangement =
+            Arrangement.spacedBy(34.dp)
     ) {
 
         item {
@@ -262,9 +253,11 @@ private fun HomeContent(
             item {
 
                 MovieRow(
+                    catalogId = "trending_movies",
                     title = "Trending",
                     movies = movies,
-                    onMovieClick = onMovieClick
+                    onMovieClick = onMovieClick,
+                    viewModel = viewModel
                 )
             }
         }
@@ -274,9 +267,11 @@ private fun HomeContent(
             item {
 
                 MovieRow(
+                    catalogId = "trending_series",
                     title = "Popularne serije",
                     movies = series,
-                    onMovieClick = onMovieClick
+                    onMovieClick = onMovieClick,
+                    viewModel = viewModel
                 )
             }
         }
@@ -286,9 +281,11 @@ private fun HomeContent(
             item {
 
                 MovieRow(
+                    catalogId = "movies",
                     title = "Filmovi",
                     movies = movies.drop(2),
-                    onMovieClick = onMovieClick
+                    onMovieClick = onMovieClick,
+                    viewModel = viewModel
                 )
             }
         }
@@ -383,11 +380,12 @@ private fun NavigationItem(
 
             Text(
                 text = text,
-                color = if (selected) {
-                    TextPrimary
-                } else {
-                    TextSecondary
-                },
+                color =
+                    if (selected) {
+                        TextPrimary
+                    } else {
+                        TextSecondary
+                    },
                 fontSize = 15.sp
             )
         }
@@ -418,46 +416,66 @@ private fun HeroSection(
         movie.backdropPath?.let { path ->
 
             AsyncImage(
-                model = IMAGE_URL + BACKDROP_SIZE + path,
-                contentDescription = movie.displayTitle,
-                modifier = Modifier.fillMaxSize()
+                model =
+                    IMAGE_URL +
+                    BACKDROP_SIZE +
+                    path,
+                contentDescription =
+                    movie.displayTitle,
+                modifier =
+                    Modifier.fillMaxSize()
             )
         }
 
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.96f),
-                            Color.Black.copy(alpha = 0.76f),
-                            Color.Black.copy(alpha = 0.35f),
-                            Color.Transparent
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color.Black.copy(
+                                    alpha = 0.96f
+                                ),
+                                Color.Black.copy(
+                                    alpha = 0.76f
+                                ),
+                                Color.Black.copy(
+                                    alpha = 0.35f
+                                ),
+                                Color.Transparent
+                            )
                         )
                     )
-                )
         )
 
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.15f),
-                            Background.copy(alpha = 0.82f)
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(
+                                    alpha = 0.15f
+                                ),
+                                Background.copy(
+                                    alpha = 0.82f
+                                )
+                            )
                         )
                     )
-                )
         )
 
         Column(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .width(520.dp)
-                .padding(start = 48.dp)
+            modifier =
+                Modifier
+                    .align(
+                        Alignment.CenterStart
+                    )
+                    .width(520.dp)
+                    .padding(start = 48.dp)
         ) {
 
             GlassLabel(
@@ -465,32 +483,38 @@ private fun HeroSection(
             )
 
             Spacer(
-                modifier = Modifier.height(18.dp)
+                modifier =
+                    Modifier.height(18.dp)
             )
 
             Text(
-                text = movie.displayTitle.orEmpty(),
+                text =
+                    movie.displayTitle.orEmpty(),
                 color = TextPrimary,
                 fontSize = 36.sp,
                 lineHeight = 42.sp
             )
 
             Spacer(
-                modifier = Modifier.height(10.dp)
+                modifier =
+                    Modifier.height(10.dp)
             )
 
             Text(
-                text = movie.displayDate.orEmpty(),
+                text =
+                    movie.displayDate.orEmpty(),
                 color = TextSecondary,
                 fontSize = 15.sp
             )
 
             Spacer(
-                modifier = Modifier.height(14.dp)
+                modifier =
+                    Modifier.height(14.dp)
             )
 
             Text(
-                text = movie.overview.orEmpty(),
+                text =
+                    movie.overview.orEmpty(),
                 color = TextSecondary,
                 fontSize = 15.sp,
                 lineHeight = 22.sp,
@@ -498,25 +522,30 @@ private fun HeroSection(
             )
 
             Spacer(
-                modifier = Modifier.height(24.dp)
+                modifier =
+                    Modifier.height(24.dp)
             )
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement =
+                    Arrangement.spacedBy(12.dp)
             ) {
 
                 TvFocusableButton(
-                    modifier = Modifier
-                        .width(145.dp)
-                        .height(52.dp),
+                    modifier =
+                        Modifier
+                            .width(145.dp)
+                            .height(52.dp),
                     onClick = {
                         onMovieClick(movie)
                     }
                 ) {
 
                     Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                        modifier =
+                            Modifier.fillMaxSize(),
+                        contentAlignment =
+                            Alignment.Center
                     ) {
 
                         Text(
@@ -528,17 +557,20 @@ private fun HeroSection(
                 }
 
                 TvFocusableButton(
-                    modifier = Modifier
-                        .width(145.dp)
-                        .height(52.dp),
+                    modifier =
+                        Modifier
+                            .width(145.dp)
+                            .height(52.dp),
                     onClick = {
                         onMovieClick(movie)
                     }
                 ) {
 
                     Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                        modifier =
+                            Modifier.fillMaxSize(),
+                        contentAlignment =
+                            Alignment.Center
                     ) {
 
                         Text(
@@ -559,20 +591,26 @@ private fun GlassLabel(
 ) {
 
     Box(
-        modifier = Modifier
-            .background(
-                Color.White.copy(alpha = 0.10f),
-                RoundedCornerShape(50.dp)
-            )
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.16f),
-                shape = RoundedCornerShape(50.dp)
-            )
-            .padding(
-                horizontal = 15.dp,
-                vertical = 7.dp
-            )
+        modifier =
+            Modifier
+                .background(
+                    Color.White.copy(
+                        alpha = 0.10f
+                    ),
+                    RoundedCornerShape(50.dp)
+                )
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(
+                        alpha = 0.16f
+                    ),
+                    shape =
+                        RoundedCornerShape(50.dp)
+                )
+                .padding(
+                    horizontal = 15.dp,
+                    vertical = 7.dp
+                )
     ) {
 
         Text(
@@ -585,20 +623,78 @@ private fun GlassLabel(
 
 @Composable
 private fun MovieRow(
+    catalogId: String,
     title: String,
     movies: List<TmdbMovie>,
-    onMovieClick: (TmdbMovie) -> Unit
+    onMovieClick: (TmdbMovie) -> Unit,
+    viewModel: HomeViewModel
 ) {
 
+    /*
+     * Svaki katalog dobija svoj LazyRow state.
+     */
+    val rowState =
+        rememberLazyListState()
+
+    /*
+     * Vraćamo ovaj konkretan katalog
+     * na njegovu prethodnu poziciju.
+     */
+    LaunchedEffect(
+        catalogId,
+        movies.size
+    ) {
+
+        val saved =
+            viewModel.getCatalogPosition(
+                catalogId
+            )
+
+        rowState.scrollToItem(
+            index =
+                saved.index.coerceAtLeast(0),
+            scrollOffset =
+                saved.offset
+        )
+    }
+
+    /*
+     * Svaki horizontalni katalog zasebno
+     * pamti svoje pomeranje.
+     */
+    LaunchedEffect(rowState) {
+
+        snapshotFlow {
+
+            Pair(
+                rowState.firstVisibleItemIndex,
+                rowState.firstVisibleItemScrollOffset
+            )
+
+        }.collect { position ->
+
+            viewModel.saveCatalogPosition(
+                catalogId = catalogId,
+                index = position.first,
+                offset = position.second
+            )
+        }
+    }
+
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 48.dp)
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 48.dp
+                )
     ) {
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            modifier =
+                Modifier.fillMaxWidth(),
+            verticalAlignment =
+                Alignment.CenterVertically
         ) {
 
             Text(
@@ -608,7 +704,8 @@ private fun MovieRow(
             )
 
             Spacer(
-                modifier = Modifier.weight(1f)
+                modifier =
+                    Modifier.weight(1f)
             )
 
             Text(
@@ -619,11 +716,14 @@ private fun MovieRow(
         }
 
         Spacer(
-            modifier = Modifier.height(18.dp)
+            modifier =
+                Modifier.height(18.dp)
         )
 
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(18.dp)
+            state = rowState,
+            horizontalArrangement =
+                Arrangement.spacedBy(18.dp)
         ) {
 
             items(
@@ -634,16 +734,19 @@ private fun MovieRow(
             ) { movie ->
 
                 Box(
-                    modifier = Modifier
-                        .width(155.dp)
-                        .height(232.dp)
+                    modifier =
+                        Modifier
+                            .width(155.dp)
+                            .height(232.dp)
                 ) {
 
                     MovieCard(
-                        posterPath = movie.posterPath,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .focusable(),
+                        posterPath =
+                            movie.posterPath,
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .focusable(),
                         onClick = {
                             onMovieClick(movie)
                         }
