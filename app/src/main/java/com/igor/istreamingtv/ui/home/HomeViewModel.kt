@@ -28,11 +28,54 @@ class HomeViewModel : ViewModel() {
     val uiState: StateFlow<HomeUiState> =
         _uiState.asStateFlow()
 
+    /*
+     * Home scroll position.
+     *
+     * Ovo čuvamo u ViewModel-u zato što se HomeScreen
+     * uklanja iz Composition kada otvorimo Details.
+     *
+     * Kada se vratimo na Home, HomeScreen će pročitati
+     * ove vrednosti i vratiti LazyColumn na isto mesto.
+     */
+    private var homeScrollIndex: Int = 0
+
+    private var homeScrollOffset: Int = 0
+
+    fun getHomeScrollIndex(): Int {
+        return homeScrollIndex
+    }
+
+    fun getHomeScrollOffset(): Int {
+        return homeScrollOffset
+    }
+
+    fun saveHomeScrollPosition(
+        index: Int,
+        offset: Int
+    ) {
+        homeScrollIndex = index
+        homeScrollOffset = offset
+    }
+
     init {
         loadContent()
     }
 
     fun loadContent() {
+
+        /*
+         * Ako se Home ponovo pojavi nakon Details,
+         * ViewModel je isti i podaci ostaju dostupni.
+         *
+         * Ne resetujemo scroll poziciju ovde.
+         */
+
+        if (
+            _uiState.value.movies.isNotEmpty() ||
+            _uiState.value.series.isNotEmpty()
+        ) {
+            return
+        }
 
         viewModelScope.launch {
 
