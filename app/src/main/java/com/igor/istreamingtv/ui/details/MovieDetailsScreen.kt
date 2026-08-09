@@ -46,6 +46,7 @@ fun MovieDetailsScreen(
             .background(Background)
     ) {
 
+        // BACKDROP
         movie.backdropPath?.let { path ->
 
             AsyncImage(
@@ -55,6 +56,7 @@ fun MovieDetailsScreen(
             )
         }
 
+        // DARK HORIZONTAL GRADIENT
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -70,6 +72,7 @@ fun MovieDetailsScreen(
                 )
         )
 
+        // DARK VERTICAL GRADIENT
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -94,6 +97,7 @@ fun MovieDetailsScreen(
             verticalArrangement = Arrangement.SpaceBetween
         ) {
 
+            // BACK BUTTON
             TvFocusableButton(
                 modifier = Modifier
                     .width(110.dp)
@@ -113,12 +117,14 @@ fun MovieDetailsScreen(
                 }
             }
 
+            // MOVIE INFORMATION
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 30.dp)
             ) {
 
+                // TYPE
                 Box(
                     modifier = Modifier
                         .background(
@@ -141,8 +147,9 @@ fun MovieDetailsScreen(
                     modifier = Modifier.height(18.dp)
                 )
 
+                // TITLE
                 Text(
-                    text = movie.displayTitle,
+                    text = movie.displayTitle.orEmpty(),
                     color = TextPrimary
                 )
 
@@ -150,8 +157,9 @@ fun MovieDetailsScreen(
                     modifier = Modifier.height(12.dp)
                 )
 
+                // RELEASE DATE
                 Text(
-                    text = movie.displayDate,
+                    text = movie.displayDate.orEmpty(),
                     color = TextSecondary
                 )
 
@@ -159,8 +167,9 @@ fun MovieDetailsScreen(
                     modifier = Modifier.height(26.dp)
                 )
 
+                // OVERVIEW
                 Text(
-                    text = movie.overview,
+                    text = movie.overview.orEmpty(),
                     color = TextSecondary
                 )
 
@@ -168,16 +177,18 @@ fun MovieDetailsScreen(
                     modifier = Modifier.height(30.dp)
                 )
 
+                // ACTION BUTTONS
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
 
+                    // WATCH
                     TvFocusableButton(
                         modifier = Modifier
                             .width(160.dp)
                             .height(56.dp),
                         onClick = {
-                            // Stremio player dolazi kasnije.
+                            // Stremio player ćemo povezati kasnije.
                         }
                     ) {
 
@@ -193,6 +204,7 @@ fun MovieDetailsScreen(
                         }
                     }
 
+                    // MY LIST
                     TvFocusableButton(
                         modifier = Modifier
                             .width(160.dp)
