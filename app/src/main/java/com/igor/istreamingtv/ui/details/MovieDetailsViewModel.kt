@@ -29,11 +29,9 @@ class MovieDetailsViewModel(
             _uiState.value = DetailsUiState(isLoading = true)
 
             try {
-                // 1. Učitaj detalje sa TMDB
                 val details = streamRepository.getMovieDetails(movieId)
-
-                // 2. Ako imamo IMDB ID, učitaj i streamove
                 val streams = if (!details.imdb_id.isNullOrEmpty()) {
+                    streamRepository.getStreamsForMovie(details_id.isNullOrEmpty()) {
                     streamRepository.getStreamsForMovie(details.imdb_id)
                 } else {
                     emptyList()
@@ -44,7 +42,6 @@ class MovieDetailsViewModel(
                     movieDetails = details,
                     streams = streams
                 )
-
             } catch (e: Exception) {
                 _uiState.value = DetailsUiState(
                     isLoading = false,
