@@ -28,9 +28,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.igor.istreamingtv.BuildConfig
 import com.igor.istreamingtv.data.remote.stremio.StremioStream
+import com.igor.istreamingtv.data.repository.StreamRepository
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.player.PlayerActivity
 import com.igor.istreamingtv.ui.theme.Background
@@ -41,27 +45,25 @@ private const val BACKDROP_URL = "https://image.tmdb.org/t/p/w1280"
 
 @Composable
 fun MovieDetailsScreen(
-    movieId: Int,                    // Sada prima ID umesto celog objekta
-    onBack: () -> Unit,
-    viewModel: MovieDetailsViewModel = viewModel {
-        // Factory bi trebalo preko Hilt-a, ali za sada ručno:
-        MovieDetailsViewModel(
-            streamRepository = com.igor.istreamingtv.data.repository.StreamRepository(
-                tmdbApi = com.igor.istreamingtv.data.remote.TmdbClient.retrofit.create(
-                    com.igor.istreamingtv.data.remote.TmdbApi::class.java
-                ),
-                addonManager = com.igor.istreamingtv.data.remote.stremio.AddonManager(),
-                apiKey = com.igor.istreamingtv.BuildConfig.TMDB_API_KEY
-            )
-        )
-    }
+    movieId: Int,
+    onBack: () -> Unit
 ) {
+    val viewModel: MovieDetailsViewModel = viewModel(
+        factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return MovieDetailsViewModel(
+                    StreamRepository(BuildConfig.TMDB_API_KEY)
+                ) as T
+            }
+        }
+    )
+
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
     BackHandler { onBack() }
 
-    // Učitaj podatke kada se ekran otvori
     LaunchedEffect(movieId) {
         viewModel.loadMovieDetails(movieId)
     }
@@ -96,7 +98,6 @@ fun MovieDetailsScreen(
             state.movieDetails != null -> {
                 val movie = state.movieDetails!!
 
-                // BACKDROP
                 movie.backdrop_path?.let { path ->
                     AsyncImage(
                         model = BACKDROP_URL + path,
@@ -105,7 +106,6 @@ fun MovieDetailsScreen(
                     )
                 }
 
-                // GRADIENTI
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -135,14 +135,12 @@ fun MovieDetailsScreen(
                         )
                 )
 
-                // SADRŽAJ
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 60.dp, vertical = 42.dp),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // NAZAD DUGME
                     TvFocusableButton(
                         modifier = Modifier
                             .width(110.dp)
@@ -153,27 +151,21 @@ fun MovieDetailsScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "‹ Nazad",
-                                color = TextPrimary
-                            )
+                            Text(text = "‹ Nazad", color = TextPrimary)
                         }
                     }
 
-                    // INFO + STREAMOVI
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 30.dp)
                     ) {
-                        // TAGLINE / ŽANR
                         val genres = movie.genres.joinToString(", ") { it.name }
                         if (genres.isNotEmpty()) {
                             GlassBadge(text = genres)
                             Spacer(modifier = Modifier.height(14.dp))
                         }
 
-                        // NASLOV
                         Text(
                             text = movie.title,
                             color = TextPrimary,
@@ -183,7 +175,6 @@ fun MovieDetailsScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // META INFO
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -207,7 +198,6 @@ fun MovieDetailsScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // OVERVIEW
                         Text(
                             text = movie.overview,
                             color = TextSecondary,
@@ -218,7 +208,6 @@ fun MovieDetailsScreen(
 
                         Spacer(modifier = Modifier.height(28.dp))
 
-                        // STREAMOVI
                         if (state.streams.isNotEmpty()) {
                             Text(
                                 text = "Dostupni izvori (${state.streams.size}):",
@@ -327,17 +316,9 @@ private fun ErrorDetails(
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "Greška",
-                color = TextPrimary,
-                fontSize = 24.sp
-            )
+            Text(text = "Greška", color = TextPrimary, fontSize = 24.sp)
             Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = message,
-                color = TextSecondary,
-                fontSize = 15.sp
-            )
+            Text(text = message, color = TextSecondary, fontSize = 15.sp)
             Spacer(modifier = Modifier.height(24.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TvFocusableButton(
