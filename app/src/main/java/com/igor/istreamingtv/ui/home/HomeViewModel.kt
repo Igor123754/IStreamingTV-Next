@@ -17,6 +17,11 @@ data class HomeUiState(
     val error: String? = null
 )
 
+data class ScrollPosition(
+    val index: Int = 0,
+    val offset: Int = 0
+)
+
 class HomeViewModel : ViewModel() {
 
     private val repository =
@@ -29,47 +34,85 @@ class HomeViewModel : ViewModel() {
         _uiState.asStateFlow()
 
     /*
-     * Home scroll position.
-     *
-     * Ovo čuvamo u ViewModel-u zato što se HomeScreen
-     * uklanja iz Composition kada otvorimo Details.
-     *
-     * Kada se vratimo na Home, HomeScreen će pročitati
-     * ove vrednosti i vratiti LazyColumn na isto mesto.
+     * Vertikalna pozicija Home ekrana.
      */
-    private var homeScrollIndex: Int = 0
+    private var homeVerticalPosition =
+        ScrollPosition()
 
-    private var homeScrollOffset: Int = 0
-
-    fun getHomeScrollIndex(): Int {
-        return homeScrollIndex
-    }
-
-    fun getHomeScrollOffset(): Int {
-        return homeScrollOffset
-    }
-
-    fun saveHomeScrollPosition(
-        index: Int,
-        offset: Int
-    ) {
-        homeScrollIndex = index
-        homeScrollOffset = offset
-    }
+    /*
+     * Horizontalne pozicije pojedinačnih kataloga.
+     *
+     * Svaki katalog ima svoju poziciju.
+     */
+    private val catalogPositions =
+        mutableMapOf<String, ScrollPosition>()
 
     init {
         loadContent()
     }
 
+    /*
+     * ---------------------------------------------------------
+     * HOME VERTICAL SCROLL
+     * ---------------------------------------------------------
+     */
+
+    fun getHomeVerticalPosition(): ScrollPosition {
+        return homeVerticalPosition
+    }
+
+    fun saveHomeVerticalPosition(
+        index: Int,
+        offset: Int
+    ) {
+        homeVerticalPosition =
+            ScrollPosition(
+                index = index,
+                offset = offset
+            )
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * CATALOG HORIZONTAL SCROLL
+     * ---------------------------------------------------------
+     */
+
+    fun getCatalogPosition(
+        catalogId: String
+    ): ScrollPosition {
+
+        return catalogPositions[catalogId]
+            ?: ScrollPosition()
+    }
+
+    fun saveCatalogPosition(
+        catalogId: String,
+        index: Int,
+        offset: Int
+    ) {
+
+        catalogPositions[catalogId] =
+            ScrollPosition(
+                index = index,
+                offset = offset
+            )
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * TMDB CONTENT
+     * ---------------------------------------------------------
+     */
+
     fun loadContent() {
 
         /*
-         * Ako se Home ponovo pojavi nakon Details,
-         * ViewModel je isti i podaci ostaju dostupni.
+         * Ako već imamo podatke, ne učitavamo ponovo
+         * svaki put kada se Home ekran vrati.
          *
-         * Ne resetujemo scroll poziciju ovde.
+         * Time ostaju sačuvane i pozicije skrolovanja.
          */
-
         if (
             _uiState.value.movies.isNotEmpty() ||
             _uiState.value.series.isNotEmpty()
@@ -79,9 +122,10 @@ class HomeViewModel : ViewModel() {
 
         viewModelScope.launch {
 
-            _uiState.value = HomeUiState(
-                isLoading = true
-            )
+            _uiState.value =
+                HomeUiState(
+                    isLoading = true
+                )
 
             try {
 
@@ -91,18 +135,21 @@ class HomeViewModel : ViewModel() {
                 val series =
                     repository.getTrendingSeries()
 
-                _uiState.value = HomeUiState(
-                    isLoading = false,
-                    movies = movies,
-                    series = series
-                )
+                _uiState.value =
+                    HomeUiState(
+                        isLoading = false,
+                        movies = movies,
+                        series = series
+                    )
 
             } catch (e: Exception) {
 
-                _uiState.value = HomeUiState(
-                    isLoading = false,
-                    error = e.message ?: "Unknown error"
-                )
+                _uiState.value =
+                    HomeUiState(
+                        isLoading = false,
+                        error = e.message
+                            ?: "Unknown error"
+                    )
             }
         }
     }
