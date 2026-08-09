@@ -100,8 +100,7 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.6.0")
     implementation("androidx.media3:media3-session:1.6.0")
 
-    // Gson (već imamo preko Retrofit-a, ali eksplicitno za PlayerActivity)
+    // Gson (za PlayerActivity)
     implementation("com.google.code.gson:gson:2.11.0")
-   )
 
 }
