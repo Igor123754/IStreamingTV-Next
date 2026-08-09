@@ -14,7 +14,16 @@ import com.igor.istreamingtv.ui.theme.IStreamingTheme
 
 class MainActivity : ComponentActivity() {
 
-    private var currentScreen by mutableStateOf("home")
+    private var currentScreen by mutableStateOf(Screen.HOME)
+
+    /*
+     * Ekran sa kojeg smo otvorili Details.
+     *
+     * Ovo rešava problem:
+     * Home -> Details -> Nazad mora vratiti Home
+     * Movies -> Details -> Nazad mora vratiti Movies
+     */
+    private var detailsReturnScreen by mutableStateOf(Screen.HOME)
 
     private var selectedMovie by mutableStateOf<TmdbMovie?>(null)
 
@@ -27,33 +36,45 @@ class MainActivity : ComponentActivity() {
 
                 when (currentScreen) {
 
-                    "home" -> {
+                    Screen.HOME -> {
 
                         HomeScreen(
                             onMovieClick = { movie ->
+
                                 selectedMovie = movie
-                                currentScreen = "details"
+
+                                detailsReturnScreen = Screen.HOME
+
+                                currentScreen = Screen.DETAILS
                             },
+
                             onMoviesClick = {
-                                currentScreen = "movies"
+
+                                currentScreen = Screen.MOVIES
                             }
                         )
                     }
 
-                    "movies" -> {
+                    Screen.MOVIES -> {
 
                         MoviesScreen(
                             onMovieClick = { movie ->
+
                                 selectedMovie = movie
-                                currentScreen = "details"
+
+                                detailsReturnScreen = Screen.MOVIES
+
+                                currentScreen = Screen.DETAILS
                             },
+
                             onBack = {
-                                currentScreen = "home"
+
+                                currentScreen = Screen.HOME
                             }
                         )
                     }
 
-                    "details" -> {
+                    Screen.DETAILS -> {
 
                         val movie = selectedMovie
 
@@ -61,15 +82,16 @@ class MainActivity : ComponentActivity() {
 
                             MovieDetailsScreen(
                                 movie = movie,
+
                                 onBack = {
 
-                                    currentScreen = "movies"
+                                    currentScreen = detailsReturnScreen
                                 }
                             )
 
                         } else {
 
-                            currentScreen = "home"
+                            currentScreen = Screen.HOME
                         }
                     }
                 }
@@ -82,17 +104,37 @@ class MainActivity : ComponentActivity() {
 
         when (currentScreen) {
 
-            "details" -> {
-                currentScreen = "movies"
+            Screen.DETAILS -> {
+
+                currentScreen = detailsReturnScreen
             }
 
-            "movies" -> {
-                currentScreen = "home"
+            Screen.MOVIES -> {
+
+                currentScreen = Screen.HOME
             }
 
-            else -> {
+            Screen.HOME -> {
+
                 super.onBackPressed()
             }
         }
     }
+}
+
+/*
+ * Svi ekrani aplikacije.
+ *
+ * Kasnije ćemo ovde dodati:
+ *
+ * SERIES
+ * SEARCH
+ * LIVE_TV
+ * SETTINGS
+ */
+private enum class Screen {
+
+    HOME,
+    MOVIES,
+    DETAILS
 }
