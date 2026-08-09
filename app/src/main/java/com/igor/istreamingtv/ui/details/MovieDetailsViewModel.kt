@@ -29,9 +29,8 @@ class MovieDetailsViewModel(
             _uiState.value = DetailsUiState(isLoading = true)
 
             try {
-                val details = streamRepository.getMovieDetails(movieId)
-                val streams = if (!details.imdb_id.isNullOrEmpty()) {
-                    streamRepository.getStreamsForMovie(details_id.isNullOrEmpty()) {
+                val details: TmdbMovieDetails = streamRepository.getMovieDetails(movieId)
+                val streams: List<StremioStream> = if (!details.imdb_id.isNullOrEmpty()) {
                     streamRepository.getStreamsForMovie(details.imdb_id)
                 } else {
                     emptyList()
