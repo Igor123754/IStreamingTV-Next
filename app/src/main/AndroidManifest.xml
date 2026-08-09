@@ -17,6 +17,12 @@
         android:label="IStreamingTV"
         android:supportsRtl="true"
         android:theme="@style/Theme.IStreamingTV">
+                <activity
+            android:name=".ui.player.PlayerActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
+            android:exported="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
+
 
         <activity
             android:name=".MainActivity"
