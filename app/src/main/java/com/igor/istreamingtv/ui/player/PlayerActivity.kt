@@ -36,10 +36,8 @@ class PlayerActivity : ComponentActivity() {
             Gson().fromJson(it, type)
         }
 
-        // Kreiraj ExoPlayer
         player = ExoPlayer.Builder(this).build()
 
-        // Pripremi MediaSource sa opcionim headerima
         val mediaItem = MediaItem.fromUri(url)
         val dataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("IStreamingTV/1.0")
