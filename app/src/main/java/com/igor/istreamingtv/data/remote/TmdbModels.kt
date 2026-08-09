@@ -1,40 +1,38 @@
 package com.igor.istreamingtv.data.remote
 
-import com.google.gson.annotations.SerializedName
-
-data class TmdbResponse(
-    @SerializedName("results")
-    val results: List<TmdbMovie>
+data class MovieResponse(
+    val results: List<TmdbMovie>,
+    val page: Int,
+    val total_pages: Int
 )
 
 data class TmdbMovie(
-    @SerializedName("id")
     val id: Int,
+    val title: String,
+    val overview: String,
+    val poster_path: String?,
+    val backdrop_path: String?,
+    val release_date: String?,
+    val vote_average: Double,
+    val genre_ids: List<Int>
+)
 
-    @SerializedName("title")
-    val title: String?,
+// NOVO: Detalji filma
+data class TmdbMovieDetails(
+    val id: Int,
+    val title: String,
+    val overview: String,
+    val poster_path: String?,
+    val backdrop_path: String?,
+    val release_date: String?,
+    val vote_average: Double,
+    val genres: List<Genre>,
+    val imdb_id: String?,        // KLJUČNO za Stremio
+    val runtime: Int?,           // Trajanje u minutama
+    val tagline: String?
+)
 
-    @SerializedName("name")
-    val name: String?,
-
-    @SerializedName("overview")
-    val overview: String?,
-
-    @SerializedName("poster_path")
-    val posterPath: String?,
-
-    @SerializedName("backdrop_path")
-    val backdropPath: String?,
-
-    @SerializedName("release_date")
-    val releaseDate: String?,
-
-    @SerializedName("first_air_date")
-    val firstAirDate: String?
-) {
-    val displayTitle: String
-        get() = title ?: name ?: "Unknown"
-
-    val displayDate: String
-        get() = releaseDate ?: firstAirDate ?: ""
-}
+data class Genre(
+    val id: Int,
+    val name: String
+)
