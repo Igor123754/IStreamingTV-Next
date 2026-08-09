@@ -1,8 +1,5 @@
 package com.igor.istreamingtv.data.remote.stremio
 
-/**
- * Stremio Manifest — opisuje šta addon nudi
- */
 data class StremioManifest(
     val id: String,
     val version: String,
@@ -19,30 +16,21 @@ data class StremioCatalog(
     val name: String
 )
 
-/**
- * Stremio Stream — stvarni link za gledanje
- */
 data class StremioStreamResponse(
     val streams: List<StremioStream>
 )
 
 data class StremioStream(
     val name: String?,
-    val title: String?,          // Npr. "1080p", "Torrentio 4K"
-    val url: String?,            // Direktan URL
-    val externalUrl: String?,    // Za eksterne playere
+    val title: String?,
+    val url: String?,
+    val externalUrl: String?,
     val behaviorHints: BehaviorHints?
 ) {
-    /**
-     * Vraća čitljivi naslov streama
-     */
     fun displayTitle(): String {
         return title ?: name ?: "Nepoznat izvor"
     }
 
-    /**
-     * Da li je direktno playable u ExoPlayer-u
-     */
     fun isPlayable(): Boolean {
         return url != null
     }
