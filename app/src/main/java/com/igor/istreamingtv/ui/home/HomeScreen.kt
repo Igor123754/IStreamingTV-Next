@@ -24,7 +24,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -48,6 +47,7 @@ private const val BACKDROP_SIZE =
 @Composable
 fun HomeScreen(
     onMovieClick: (TmdbMovie) -> Unit,
+    onMoviesClick: () -> Unit,
     viewModel: HomeViewModel = viewModel()
 ) {
 
@@ -76,7 +76,8 @@ fun HomeScreen(
                 HomeContent(
                     movies = state.movies,
                     series = state.series,
-                    onMovieClick = onMovieClick
+                    onMovieClick = onMovieClick,
+                    onMoviesClick = onMoviesClick
                 )
             }
         }
@@ -161,7 +162,8 @@ private fun ErrorScreen(
 private fun HomeContent(
     movies: List<TmdbMovie>,
     series: List<TmdbMovie>,
-    onMovieClick: (TmdbMovie) -> Unit
+    onMovieClick: (TmdbMovie) -> Unit,
+    onMoviesClick: () -> Unit
 ) {
 
     val scrollState = rememberLazyListState()
@@ -173,12 +175,16 @@ private fun HomeContent(
     ) {
 
         item {
-            TopBar()
+
+            TopBar(
+                onMoviesClick = onMoviesClick
+            )
         }
 
         if (movies.isNotEmpty()) {
 
             item {
+
                 HeroSection(
                     movie = movies.first(),
                     onMovieClick = onMovieClick
@@ -189,6 +195,7 @@ private fun HomeContent(
         if (movies.isNotEmpty()) {
 
             item {
+
                 MovieRow(
                     title = "Trending",
                     movies = movies,
@@ -200,6 +207,7 @@ private fun HomeContent(
         if (series.isNotEmpty()) {
 
             item {
+
                 MovieRow(
                     title = "Popularne serije",
                     movies = series,
@@ -211,6 +219,7 @@ private fun HomeContent(
         if (movies.size > 2) {
 
             item {
+
                 MovieRow(
                     title = "Filmovi",
                     movies = movies.drop(2),
@@ -220,6 +229,7 @@ private fun HomeContent(
         }
 
         item {
+
             Spacer(
                 modifier = Modifier.height(80.dp)
             )
@@ -228,7 +238,9 @@ private fun HomeContent(
 }
 
 @Composable
-private fun TopBar() {
+private fun TopBar(
+    onMoviesClick: () -> Unit
+) {
 
     Row(
         modifier = Modifier
@@ -256,7 +268,8 @@ private fun TopBar() {
         )
 
         NavigationItem(
-            text = "Movies"
+            text = "Movies",
+            onClick = onMoviesClick
         )
 
         NavigationItem(
@@ -280,7 +293,8 @@ private fun TopBar() {
 @Composable
 private fun NavigationItem(
     text: String,
-    selected: Boolean = false
+    selected: Boolean = false,
+    onClick: () -> Unit = {}
 ) {
 
     TvFocusableButton(
@@ -288,9 +302,13 @@ private fun NavigationItem(
             .padding(horizontal = 4.dp)
             .height(46.dp)
             .width(
-                if (text == "⌕  Search") 120.dp else 92.dp
+                if (text == "⌕  Search") {
+                    120.dp
+                } else {
+                    92.dp
+                }
             ),
-        onClick = {}
+        onClick = onClick
     ) {
 
         Box(
@@ -341,9 +359,6 @@ private fun HeroSection(
             )
         }
 
-        /*
-         * Dark overlay preko fanart slike.
-         */
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -359,9 +374,6 @@ private fun HeroSection(
                 )
         )
 
-        /*
-         * Donji gradient.
-         */
         Box(
             modifier = Modifier
                 .fillMaxSize()
