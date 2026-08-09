@@ -20,8 +20,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -37,6 +39,7 @@ import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.theme.Background
 import com.igor.istreamingtv.ui.theme.TextPrimary
 import com.igor.istreamingtv.ui.theme.TextSecondary
+import kotlinx.coroutines.flow.collectLatest
 
 private const val IMAGE_URL =
     "https://image.tmdb.org/t/p/"
@@ -62,10 +65,12 @@ fun HomeScreen(
         when {
 
             state.isLoading -> {
+
                 LoadingScreen()
             }
 
             state.error != null -> {
+
                 ErrorScreen(
                     message = state.error ?: "Nepoznata greška",
                     onRetry = viewModel::loadContent
@@ -73,6 +78,7 @@ fun HomeScreen(
             }
 
             else -> {
+
                 HomeContent(
                     movies = state.movies,
                     series = state.series,
@@ -166,7 +172,33 @@ private fun HomeContent(
     onMoviesClick: () -> Unit
 ) {
 
+    /*
+     * LazyListState ostaje vezan za Home ekran.
+     *
+     * Kada otvorimo Details, MainActivity sada pamti
+     * da smo došli sa Home ekrana.
+     */
     val scrollState = rememberLazyListState()
+
+    /*
+     * Posmatramo skrolovanje.
+     *
+     * Ovo je važno za kasnije:
+     * možemo koristiti ovu poziciju za pametno vraćanje
+     * korisnika tamo gde je bio.
+     */
+    LaunchedEffect(scrollState) {
+
+        snapshotFlow {
+            Pair(
+                scrollState.firstVisibleItemIndex,
+                scrollState.firstVisibleItemScrollOffset
+            )
+        }.collectLatest {
+            // Pozicija se prati i LazyListState je čuva
+            // dok je Home ekran aktivan.
+        }
+    }
 
     LazyColumn(
         state = scrollState,
