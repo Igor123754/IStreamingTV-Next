@@ -18,7 +18,16 @@ interface TmdbApi {
         @Query("api_key") apiKey: String
     ): MovieResponse
 
-    // NOVO: Detalji filma sa IMDB ID-jem
+    @GET("trending/movie/week")
+    suspend fun getTrendingMovies(
+        @Query("api_key") apiKey: String
+    ): MovieResponse
+
+    @GET("trending/tv/week")
+    suspend fun getTrendingSeries(
+        @Query("api_key") apiKey: String
+    ): MovieResponse
+
     @GET("movie/{movie_id}")
     suspend fun getMovieDetails(
         @Path("movie_id") movieId: Int,
