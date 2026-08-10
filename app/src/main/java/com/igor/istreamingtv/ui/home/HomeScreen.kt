@@ -4,6 +4,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -73,10 +74,6 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 
-// ============================================================
-// BREND BOJE I GRADIJENTI
-// ============================================================
-
 private val AccentCyan = Color(0xFF00C2FF)
 private val AccentViolet = Color(0xFF7A5CFF)
 
@@ -91,11 +88,6 @@ private val AccentGradient =
 private val CardShape =
     RoundedCornerShape(14.dp)
 
-// ============================================================
-// POMOĆNE FUNKCIJE ZA MODEL
-// Usklađeno sa stvarnim TmdbMovie modelom projekta.
-// ============================================================
-
 private fun TmdbMovie.displayBackdropUrl(): String =
     backdropPath ?: posterPath ?: ""
 
@@ -108,10 +100,6 @@ private fun TmdbMovie.displayRating(): String =
 
 private fun TmdbMovie.displayYear(): String =
     displayDate.take(4)
-
-// ============================================================
-// GLAVNI HOME SCREEN
-// ============================================================
 
 @Composable
 fun HomeScreen(
@@ -151,10 +139,6 @@ fun HomeScreen(
     }
 }
 
-// ============================================================
-// HOME CONTENT — HERO + REDOVI
-// ============================================================
-
 @Composable
 private fun HomeContent(
     movies: List<TmdbMovie>,
@@ -179,10 +163,6 @@ private fun HomeContent(
     val featured =
         heroMovies.getOrNull(heroIndex)
 
-    // ========================================================
-    // AUTOMATSKA ROTACIJA HERO CAROUSEL-A
-    // ========================================================
-
     LaunchedEffect(
         heroHasFocus,
         heroMovies.size
@@ -198,10 +178,6 @@ private fun HomeContent(
                 (heroIndex + 1) % heroMovies.size
         }
     }
-
-    // ========================================================
-    // VERTIKALNI SCROLL
-    // ========================================================
 
     val verticalState =
         rememberLazyListState()
@@ -231,7 +207,6 @@ private fun HomeContent(
                 verticalState.firstVisibleItemScrollOffset
             )
         }.collect { position ->
-
             viewModel.saveHomeVerticalPosition(
                 index = position.first,
                 offset = position.second
@@ -243,19 +218,11 @@ private fun HomeContent(
         modifier = Modifier.fillMaxSize()
     ) {
 
-        // ====================================================
-        // HERO POZADINA
-        // ====================================================
-
         if (featured != null) {
             HeroBackdrop(
                 movie = featured
             )
         }
-
-        // ====================================================
-        // GRADIJENTI
-        // ====================================================
 
         Box(
             modifier = Modifier
@@ -291,10 +258,6 @@ private fun HomeContent(
                     )
                 )
         )
-
-        // ====================================================
-        // SADRŽAJ
-        // ====================================================
 
         LazyColumn(
             state = verticalState,
@@ -378,10 +341,6 @@ private fun HomeContent(
     }
 }
 
-// ============================================================
-// HERO BACKDROP
-// ============================================================
-
 @Composable
 private fun HeroBackdrop(
     movie: TmdbMovie
@@ -424,10 +383,6 @@ private fun HeroBackdrop(
     }
 }
 
-// ============================================================
-// HERO INFO
-// ============================================================
-
 @Composable
 private fun HeroInfo(
     movie: TmdbMovie,
@@ -451,10 +406,6 @@ private fun HeroInfo(
             verticalArrangement =
                 Arrangement.spacedBy(16.dp)
         ) {
-
-            // =================================================
-            // METADATA
-            // =================================================
 
             Row(
                 verticalAlignment =
@@ -485,12 +436,8 @@ private fun HeroInfo(
                 QualityBadge("HDR")
             }
 
-            // =================================================
-            // NASLOV
-            // =================================================
-
             Text(
-                text = m.displayTitle(),
+                text = m.displayTitle,
                 color = Color.White,
                 fontSize = 54.sp,
                 fontWeight = FontWeight.Bold,
@@ -512,10 +459,6 @@ private fun HeroInfo(
                 )
             )
 
-            // =================================================
-            // SINOPSIS
-            // =================================================
-
             if (m.overview.isNotEmpty()) {
                 Text(
                     text = m.overview,
@@ -528,10 +471,6 @@ private fun HeroInfo(
                         Modifier.width(560.dp)
                 )
             }
-
-            // =================================================
-            // DUGMAD
-            // =================================================
 
             Row(
                 horizontalArrangement =
@@ -563,10 +502,6 @@ private fun HeroInfo(
                     onClick = {}
                 )
             }
-
-            // =================================================
-            // CAROUSEL DOTS
-            // =================================================
 
             Row(
                 horizontalArrangement =
@@ -611,10 +546,6 @@ private fun HeroInfo(
     }
 }
 
-// ============================================================
-// QUALITY BADGE
-// ============================================================
-
 @Composable
 private fun QualityBadge(
     text: String
@@ -631,7 +562,6 @@ private fun QualityBadge(
                 vertical = 2.dp
             )
     ) {
-
         Text(
             text = text,
             color = TextSecondary,
@@ -641,10 +571,6 @@ private fun QualityBadge(
         )
     }
 }
-
-// ============================================================
-// HERO DUGME
-// ============================================================
 
 @Composable
 private fun HeroButton(
@@ -676,7 +602,6 @@ private fun HeroButton(
                 )
                 .then(
                     if (primary) {
-
                         Modifier.background(
                             if (isFocused) {
                                 Color.White
@@ -686,9 +611,7 @@ private fun HeroButton(
                                 )
                             }
                         )
-
                     } else {
-
                         Modifier
                             .background(
                                 Color.White.copy(
@@ -753,10 +676,6 @@ private fun HeroButton(
         }
     }
 }
-
-// ============================================================
-// TOP BAR
-// ============================================================
 
 @Composable
 private fun TopBar(
@@ -850,10 +769,6 @@ private fun TopBar(
     }
 }
 
-// ============================================================
-// NAVIGATION ITEM
-// ============================================================
-
 @Composable
 private fun NavigationItem(
     text: String,
@@ -927,10 +842,6 @@ private fun NavigationItem(
         }
     }
 }
-
-// ============================================================
-// CONTENT ROW
-// ============================================================
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1071,10 +982,6 @@ private fun ContentRow(
     }
 }
 
-// ============================================================
-// ULAZNA ANIMACIJA
-// ============================================================
-
 @Composable
 private fun entranceModifier(
     index: Int
@@ -1121,10 +1028,6 @@ private fun entranceModifier(
         this.translationY = offsetY
     }
 }
-
-// ============================================================
-// POSTER CARD
-// ============================================================
 
 @Composable
 private fun PosterCard(
@@ -1215,10 +1118,6 @@ private fun PosterCard(
                     ContentScale.Crop
             )
 
-            // =================================================
-            // RATING BADGE
-            // =================================================
-
             if (isFocused) {
 
                 Box(
@@ -1252,10 +1151,6 @@ private fun PosterCard(
                     )
                 }
             }
-
-            // =================================================
-            // DONJI GRADIJENT + NASLOV
-            // =================================================
 
             if (isFocused) {
 
@@ -1297,10 +1192,6 @@ private fun PosterCard(
         }
     }
 }
-
-// ============================================================
-// SHIMMER LOADING EKRAN
-// ============================================================
 
 @Composable
 fun ShimmerHomeScreen() {
@@ -1350,10 +1241,6 @@ fun ShimmerHomeScreen() {
             )
     ) {
 
-        // ====================================================
-        // TOP BAR PLACEHOLDER
-        // ====================================================
-
         Box(
             modifier = Modifier
                 .width(220.dp)
@@ -1369,10 +1256,6 @@ fun ShimmerHomeScreen() {
         Spacer(
             modifier = Modifier.height(48.dp)
         )
-
-        // ====================================================
-        // HERO PLACEHOLDER
-        // ====================================================
 
         Box(
             modifier = Modifier
@@ -1440,10 +1323,6 @@ fun ShimmerHomeScreen() {
             modifier = Modifier.height(56.dp)
         )
 
-        // ====================================================
-        // ROW PLACEHOLDER
-        // ====================================================
-
         Box(
             modifier = Modifier
                 .width(260.dp)
@@ -1480,10 +1359,6 @@ fun ShimmerHomeScreen() {
         }
     }
 }
-
-// ============================================================
-// ERROR EKRAN
-// ============================================================
 
 @Composable
 fun ErrorScreen(
