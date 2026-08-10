@@ -103,4 +103,7 @@ dependencies {
     // Gson (za PlayerActivity)
     implementation("com.google.code.gson:gson:2.11.0")
 
+    // OkHttp (za Bearer token interceptor)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
 }
