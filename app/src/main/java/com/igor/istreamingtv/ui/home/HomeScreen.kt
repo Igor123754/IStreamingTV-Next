@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,8 +40,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.material3.Text
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,7 +59,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.igor.istreamingtv.data.TmdbMovie
+import com.igor.istreamingtv.data.remote.TmdbMovie
+import com.igor.istreamingtv.data.remote.backdropPath
+import com.igor.istreamingtv.data.remote.displayDate
+import com.igor.istreamingtv.data.remote.displayTitle
+import com.igor.istreamingtv.data.remote.posterPath
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.theme.Background
 import com.igor.istreamingtv.ui.theme.TextPrimary
@@ -68,6 +71,7 @@ import com.igor.istreamingtv.ui.theme.TextSecondary
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 // ============================================================
 // BREND BOJE I GRADIJENTI
@@ -75,28 +79,35 @@ import java.util.Locale
 
 private val AccentCyan = Color(0xFF00C2FF)
 private val AccentViolet = Color(0xFF7A5CFF)
+
 private val AccentGradient =
-    Brush.horizontalGradient(listOf(AccentCyan, AccentViolet))
-private val CardShape = RoundedCornerShape(14.dp)
+    Brush.horizontalGradient(
+        listOf(
+            AccentCyan,
+            AccentViolet
+        )
+    )
+
+private val CardShape =
+    RoundedCornerShape(14.dp)
 
 // ============================================================
 // POMOĆNE FUNKCIJE ZA MODEL
+// Usklađeno sa stvarnim TmdbMovie modelom projekta.
 // ============================================================
 
-private fun TmdbMovie.displayTitle(): String =
-    title ?: name ?: "Nepoznat naslov"
-
-private fun TmdbMovie.displayBackdrop(): String =
+private fun TmdbMovie.displayBackdropUrl(): String =
     backdropPath ?: posterPath ?: ""
 
-private fun TmdbMovie.displayOverview(): String =
-    overview ?: ""
-
 private fun TmdbMovie.displayRating(): String =
-    String.format(Locale.US, "%.1f", voteAverage ?: 0.0)
+    String.format(
+        Locale.US,
+        "%.1f",
+        vote_average
+    )
 
 private fun TmdbMovie.displayYear(): String =
-    (releaseDate ?: firstAirDate ?: "").take(4)
+    displayDate.take(4)
 
 // ============================================================
 // GLAVNI HOME SCREEN
@@ -116,20 +127,26 @@ fun HomeScreen(
             .background(Background)
     ) {
         when {
-            state.isLoading -> ShimmerHomeScreen()
+            state.isLoading -> {
+                ShimmerHomeScreen()
+            }
 
-            state.error != null -> ErrorScreen(
-                message = state.error ?: "Nepoznata greška",
-                onRetry = viewModel::loadContent
-            )
+            state.error != null -> {
+                ErrorScreen(
+                    message = state.error ?: "Nepoznata greška",
+                    onRetry = viewModel::loadContent
+                )
+            }
 
-            else -> HomeContent(
-                movies = state.movies,
-                series = state.series,
-                onMovieClick = onMovieClick,
-                onMoviesClick = onMoviesClick,
-                viewModel = viewModel
-            )
+            else -> {
+                HomeContent(
+                    movies = state.movies,
+                    series = state.series,
+                    onMovieClick = onMovieClick,
+                    onMoviesClick = onMoviesClick,
+                    viewModel = viewModel
+                )
+            }
         }
     }
 }
@@ -146,9 +163,10 @@ private fun HomeContent(
     onMoviesClick: () -> Unit,
     viewModel: HomeViewModel
 ) {
-    val heroMovies = remember(movies) {
-        movies.take(5)
-    }
+    val heroMovies =
+        remember(movies) {
+            movies.take(5)
+        }
 
     var heroIndex by remember {
         mutableIntStateOf(0)
@@ -158,9 +176,17 @@ private fun HomeContent(
         mutableStateOf(false)
     }
 
-    val featured = heroMovies.getOrNull(heroIndex)
+    val featured =
+        heroMovies.getOrNull(heroIndex)
 
-    LaunchedEffect(heroHasFocus, heroMovies.size) {
+    // ========================================================
+    // AUTOMATSKA ROTACIJA HERO CAROUSEL-A
+    // ========================================================
+
+    LaunchedEffect(
+        heroHasFocus,
+        heroMovies.size
+    ) {
         if (heroHasFocus || heroMovies.size < 2) {
             return@LaunchedEffect
         }
@@ -173,10 +199,21 @@ private fun HomeContent(
         }
     }
 
-    val verticalState = rememberLazyListState()
+    // ========================================================
+    // VERTIKALNI SCROLL
+    // ========================================================
 
-    LaunchedEffect(movies.size, series.size) {
-        if (movies.isNotEmpty() || series.isNotEmpty()) {
+    val verticalState =
+        rememberLazyListState()
+
+    LaunchedEffect(
+        movies.size,
+        series.size
+    ) {
+        if (
+            movies.isNotEmpty() ||
+            series.isNotEmpty()
+        ) {
             val saved =
                 viewModel.getHomeVerticalPosition()
 
@@ -207,15 +244,17 @@ private fun HomeContent(
     ) {
 
         // ====================================================
-        // HERO BACKDROP
+        // HERO POZADINA
         // ====================================================
 
         if (featured != null) {
-            HeroBackdrop(movie = featured)
+            HeroBackdrop(
+                movie = featured
+            )
         }
 
         // ====================================================
-        // GRADIENT SCRIM
+        // GRADIJENTI
         // ====================================================
 
         Box(
@@ -260,10 +299,12 @@ private fun HomeContent(
         LazyColumn(
             state = verticalState,
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(36.dp),
-            contentPadding = PaddingValues(
-                bottom = 80.dp
-            )
+            verticalArrangement =
+                Arrangement.spacedBy(36.dp),
+            contentPadding =
+                PaddingValues(
+                    bottom = 80.dp
+                )
         ) {
 
             item {
@@ -338,7 +379,7 @@ private fun HomeContent(
 }
 
 // ============================================================
-// HERO POZADINA
+// HERO BACKDROP
 // ============================================================
 
 @Composable
@@ -358,19 +399,22 @@ private fun HeroBackdrop(
         val scale by infinite.animateFloat(
             initialValue = 1.05f,
             targetValue = 1.15f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(
-                    14000,
-                    easing = LinearEasing
+            animationSpec =
+                infiniteRepeatable(
+                    animation =
+                        tween(
+                            14000,
+                            easing = LinearEasing
+                        ),
+                    repeatMode =
+                        RepeatMode.Reverse
                 ),
-                repeatMode = RepeatMode.Reverse
-            ),
             label = "kenburnsScale"
         )
 
         AsyncImage(
             model =
-                "https://image.tmdb.org/t/p/w1280${m.displayBackdrop()}",
+                "https://image.tmdb.org/t/p/w1280${m.displayBackdropUrl()}",
             contentDescription = null,
             modifier = Modifier
                 .fillMaxSize()
@@ -395,8 +439,7 @@ private fun HeroInfo(
     Crossfade(
         targetState = movie,
         animationSpec = tween(700),
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = Modifier.fillMaxWidth()
     ) { m ->
 
         Column(
@@ -456,9 +499,14 @@ private fun HeroInfo(
                 style = TextStyle(
                     shadow = Shadow(
                         color =
-                            Color.Black.copy(alpha = 0.7f),
+                            Color.Black.copy(
+                                alpha = 0.7f
+                            ),
                         offset =
-                            Offset(0f, 4f),
+                            Offset(
+                                0f,
+                                4f
+                            ),
                         blurRadius = 16f
                     )
                 )
@@ -468,14 +516,16 @@ private fun HeroInfo(
             // SINOPSIS
             // =================================================
 
-            if (m.displayOverview().isNotEmpty()) {
+            if (m.overview.isNotEmpty()) {
                 Text(
-                    text = m.displayOverview(),
+                    text = m.overview,
                     color = TextSecondary,
                     fontSize = 15.sp,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(560.dp)
+                    overflow =
+                        TextOverflow.Ellipsis,
+                    modifier =
+                        Modifier.width(560.dp)
                 )
             }
 
@@ -586,7 +636,8 @@ private fun QualityBadge(
             text = text,
             color = TextSecondary,
             fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight =
+                FontWeight.SemiBold
         )
     }
 }
@@ -869,7 +920,9 @@ private fun NavigationItem(
                     .width(underline)
                     .height(3.dp)
                     .clip(CircleShape)
-                    .background(AccentGradient)
+                    .background(
+                        AccentGradient
+                    )
             )
         }
     }
@@ -958,7 +1011,9 @@ private fun ContentRow(
                     .width(4.dp)
                     .height(22.dp)
                     .clip(CircleShape)
-                    .background(AccentGradient)
+                    .background(
+                        AccentGradient
+                    )
             )
 
             Spacer(
@@ -990,7 +1045,8 @@ private fun ContentRow(
 
         LazyRow(
             state = rowState,
-            flingBehavior = snapFlingBehavior,
+            flingBehavior =
+                snapFlingBehavior,
             horizontalArrangement =
                 Arrangement.spacedBy(20.dp),
             contentPadding =
@@ -1152,7 +1208,7 @@ private fun PosterCard(
                 model =
                     "https://image.tmdb.org/t/p/w500${movie.posterPath}",
                 contentDescription =
-                    movie.displayTitle(),
+                    movie.displayTitle,
                 modifier =
                     Modifier.fillMaxSize(),
                 contentScale =
@@ -1167,7 +1223,9 @@ private fun PosterCard(
 
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
+                        .align(
+                            Alignment.TopEnd
+                        )
                         .padding(8.dp)
                         .clip(
                             RoundedCornerShape(6.dp)
@@ -1225,7 +1283,7 @@ private fun PosterCard(
 
                     Text(
                         text =
-                            movie.displayTitle(),
+                            movie.displayTitle,
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight =
@@ -1241,7 +1299,7 @@ private fun PosterCard(
 }
 
 // ============================================================
-// SHIMMER LOADING SCREEN
+// SHIMMER LOADING EKRAN
 // ============================================================
 
 @Composable
@@ -1276,7 +1334,8 @@ fun ShimmerHomeScreen() {
                 Color(0xFF17171D)
             ),
             startX =
-                -600f + progress * 2200f,
+                -600f +
+                    progress * 2200f,
             endX =
                 progress * 2200f
         )
@@ -1291,7 +1350,9 @@ fun ShimmerHomeScreen() {
             )
     ) {
 
-        // Top bar placeholder
+        // ====================================================
+        // TOP BAR PLACEHOLDER
+        // ====================================================
 
         Box(
             modifier = Modifier
@@ -1309,7 +1370,9 @@ fun ShimmerHomeScreen() {
             modifier = Modifier.height(48.dp)
         )
 
-        // Hero placeholder
+        // ====================================================
+        // HERO PLACEHOLDER
+        // ====================================================
 
         Box(
             modifier = Modifier
@@ -1377,7 +1440,9 @@ fun ShimmerHomeScreen() {
             modifier = Modifier.height(56.dp)
         )
 
-        // Row placeholder
+        // ====================================================
+        // ROW PLACEHOLDER
+        // ====================================================
 
         Box(
             modifier = Modifier
@@ -1417,7 +1482,7 @@ fun ShimmerHomeScreen() {
 }
 
 // ============================================================
-// ERROR SCREEN
+// ERROR EKRAN
 // ============================================================
 
 @Composable
