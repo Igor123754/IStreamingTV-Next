@@ -1,5 +1,6 @@
 package com.igor.istreamingtv.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -9,6 +10,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -69,24 +73,26 @@ import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.theme.Background
 import com.igor.istreamingtv.ui.theme.TextPrimary
 import com.igor.istreamingtv.ui.theme.TextSecondary
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.delay
-
-private val AccentCyan = Color(0xFF00C2FF)
-private val AccentViolet = Color(0xFF7A5CFF)
-
-private val AccentGradient =
-    Brush.horizontalGradient(
-        listOf(
-            AccentCyan,
-            AccentViolet
-        )
-    )
+import java.util.Locale
 
 private val CardShape =
-    RoundedCornerShape(14.dp)
+    RoundedCornerShape(12.dp)
+
+private val SoftWhite =
+    Color(0xFFF5F5F5)
+
+private val MutedWhite =
+    Color(0xB3FFFFFF)
+
+private val FocusWhite =
+    Color.White
+
+private val SideBarBackground =
+    Color(0xF20A0A0C)
+
+private val FocusBackground =
+    Color(0x22FFFFFF)
 
 private fun TmdbMovie.displayBackdropUrl(): String =
     backdropPath ?: posterPath ?: ""
@@ -121,7 +127,8 @@ fun HomeScreen(
 
             state.error != null -> {
                 ErrorScreen(
-                    message = state.error ?: "Nepoznata greška",
+                    message = state.error
+                        ?: "Nepoznata greška",
                     onRetry = viewModel::loadContent
                 )
             }
@@ -156,26 +163,24 @@ private fun HomeContent(
         mutableIntStateOf(0)
     }
 
-    var heroHasFocus by remember {
+    var sideBarFocused by remember {
         mutableStateOf(false)
     }
 
     val featured =
         heroMovies.getOrNull(heroIndex)
 
-    LaunchedEffect(
-        heroHasFocus,
-        heroMovies.size
-    ) {
-        if (heroHasFocus || heroMovies.size < 2) {
+    LaunchedEffect(heroMovies.size) {
+        if (heroMovies.size < 2) {
             return@LaunchedEffect
         }
 
         while (true) {
-            delay(8000)
+            delay(8500)
 
             heroIndex =
-                (heroIndex + 1) % heroMovies.size
+                (heroIndex + 1) %
+                    heroMovies.size
         }
     }
 
@@ -194,8 +199,10 @@ private fun HomeContent(
                 viewModel.getHomeVerticalPosition()
 
             verticalState.scrollToItem(
-                index = saved.index.coerceAtLeast(0),
-                scrollOffset = saved.offset
+                index =
+                    saved.index.coerceAtLeast(0),
+                scrollOffset =
+                    saved.offset
             )
         }
     }
@@ -219,60 +226,29 @@ private fun HomeContent(
     ) {
 
         if (featured != null) {
-            HeroBackdrop(
+            PremiumHeroBackdrop(
                 movie = featured
             )
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.7f),
-                            Color.Transparent
-                        ),
-                        startY = 0f,
-                        endY = 320f
-                    )
-                )
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Background
-                        ),
-                        startY = 480f,
-                        endY = 900f
-                    )
-                )
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Background.copy(alpha = 0.85f),
-                            Color.Transparent
-                        ),
-                        startX = 0f,
-                        endX = 700f
-                    )
-                )
-        )
+        PremiumHeroGradient()
 
         LazyColumn(
             state = verticalState,
             modifier = Modifier.fillMaxSize(),
             verticalArrangement =
-                Arrangement.spacedBy(36.dp),
+                Arrangement.spacedBy(44.dp),
             contentPadding =
                 PaddingValues(
-                    bottom = 80.dp
+                    start = 54.dp,
+                    bottom = 100.dp
                 )
         ) {
 
             item {
-                TopBar(
-                    onMoviesClick = onMoviesClick
+                Spacer(
+                    modifier =
+                        Modifier.height(18.dp)
                 )
             }
 
@@ -280,20 +256,16 @@ private fun HomeContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(440.dp)
-                        .onFocusEvent {
-                            heroHasFocus = it.hasFocus
-                        }
+                        .height(560.dp)
                 ) {
                     if (featured != null) {
-                        HeroInfo(
+                        PremiumHero(
                             movie = featured,
                             currentIndex = heroIndex,
-                            totalCount = heroMovies.size,
-                            onMovieClick = onMovieClick,
-                            onIndexChange = {
-                                heroIndex = it
-                            }
+                            totalCount =
+                                heroMovies.size,
+                            onMovieClick =
+                                onMovieClick
                         )
                     }
                 }
@@ -302,11 +274,14 @@ private fun HomeContent(
             if (movies.isNotEmpty()) {
                 item {
                     ContentRow(
-                        catalogId = "trending_movies",
-                        title = "Sada u trendu",
+                        catalogId =
+                            "trending_movies",
+                        title =
+                            "Sada u trendu",
                         movies = movies,
                         entranceIndex = 1,
-                        onMovieClick = onMovieClick,
+                        onMovieClick =
+                            onMovieClick,
                         viewModel = viewModel
                     )
                 }
@@ -315,11 +290,14 @@ private fun HomeContent(
             if (series.isNotEmpty()) {
                 item {
                     ContentRow(
-                        catalogId = "trending_series",
-                        title = "Popularne serije",
+                        catalogId =
+                            "trending_series",
+                        title =
+                            "Popularne serije",
                         movies = series,
                         entranceIndex = 2,
-                        onMovieClick = onMovieClick,
+                        onMovieClick =
+                            onMovieClick,
                         viewModel = viewModel
                     )
                 }
@@ -328,174 +306,264 @@ private fun HomeContent(
             if (movies.size > 2) {
                 item {
                     ContentRow(
-                        catalogId = "movies",
-                        title = "Preporučeno za tebe",
-                        movies = movies.drop(2),
+                        catalogId =
+                            "recommended",
+                        title =
+                            "Preporučeno za tebe",
+                        movies =
+                            movies.drop(2),
                         entranceIndex = 3,
-                        onMovieClick = onMovieClick,
+                        onMovieClick =
+                            onMovieClick,
                         viewModel = viewModel
                     )
                 }
             }
         }
+
+        SideNavigation(
+            expanded = sideBarFocused,
+            onExpandedChange = {
+                sideBarFocused = it
+            },
+            onHomeClick = {},
+            onMoviesClick = onMoviesClick
+        )
     }
 }
 
 @Composable
-private fun HeroBackdrop(
+private fun PremiumHeroBackdrop(
     movie: TmdbMovie
 ) {
     Crossfade(
         targetState = movie,
-        animationSpec = tween(900)
-    ) { m ->
+        animationSpec =
+            tween(1000)
+    ) { currentMovie ->
 
-        val infinite =
+        val transition =
             rememberInfiniteTransition(
-                label = "kenburns"
+                label = "heroMotion"
             )
 
-        val scale by infinite.animateFloat(
-            initialValue = 1.05f,
-            targetValue = 1.15f,
+        val scale by transition.animateFloat(
+            initialValue = 1.02f,
+            targetValue = 1.09f,
             animationSpec =
                 infiniteRepeatable(
                     animation =
                         tween(
-                            14000,
+                            18000,
                             easing = LinearEasing
                         ),
                     repeatMode =
                         RepeatMode.Reverse
                 ),
-            label = "kenburnsScale"
+            label = "heroScale"
         )
 
         AsyncImage(
             model =
-                "https://image.tmdb.org/t/p/w1280${m.displayBackdropUrl()}",
+                "https://image.tmdb.org/t/p/original" +
+                    currentMovie.displayBackdropUrl(),
             contentDescription = null,
             modifier = Modifier
                 .fillMaxSize()
                 .scale(scale),
-            contentScale = ContentScale.Crop
+            contentScale =
+                ContentScale.Crop
         )
     }
 }
 
 @Composable
-private fun HeroInfo(
+private fun PremiumHeroGradient() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.Black.copy(
+                            alpha = 0.92f
+                        ),
+                        Color.Black.copy(
+                            alpha = 0.52f
+                        ),
+                        Color.Transparent
+                    ),
+                    startX = 0f,
+                    endX = 1150f
+                )
+            )
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Black.copy(
+                            alpha = 0.12f
+                        ),
+                        Color.Transparent,
+                        Background
+                    ),
+                    startY = 0f,
+                    endY = 850f
+                )
+            )
+    )
+}
+
+@Composable
+private fun PremiumHero(
     movie: TmdbMovie,
     currentIndex: Int,
     totalCount: Int,
-    onMovieClick: (TmdbMovie) -> Unit,
-    onIndexChange: (Int) -> Unit
+    onMovieClick: (TmdbMovie) -> Unit
 ) {
     Crossfade(
         targetState = movie,
-        animationSpec = tween(700),
-        modifier = Modifier.fillMaxWidth()
-    ) { m ->
+        animationSpec =
+            tween(750)
+    ) { currentMovie ->
 
         Column(
             modifier = Modifier
+                .fillMaxWidth()
                 .padding(
-                    start = 56.dp,
-                    bottom = 12.dp
+                    top = 120.dp,
+                    start = 24.dp
                 ),
             verticalArrangement =
-                Arrangement.spacedBy(16.dp)
+                Arrangement.spacedBy(18.dp)
         ) {
 
             Row(
                 verticalAlignment =
                     Alignment.CenterVertically,
                 horizontalArrangement =
-                    Arrangement.spacedBy(14.dp)
+                    Arrangement.spacedBy(13.dp)
             ) {
 
                 Text(
                     text =
-                        "★ ${m.displayRating()}",
-                    color =
-                        Color(0xFFFFC107),
-                    fontSize = 16.sp,
+                        "★ ${currentMovie.displayRating()}",
+                    color = SoftWhite,
+                    fontSize = 15.sp,
                     fontWeight =
-                        FontWeight.SemiBold
+                        FontWeight.Medium
                 )
 
-                if (m.displayYear().isNotEmpty()) {
+                Text(
+                    text = "•",
+                    color =
+                        Color.White.copy(
+                            alpha = 0.45f
+                        )
+                )
+
+                if (
+                    currentMovie
+                        .displayYear()
+                        .isNotEmpty()
+                ) {
                     Text(
-                        text = m.displayYear(),
-                        color = TextSecondary,
-                        fontSize = 16.sp
+                        text =
+                            currentMovie
+                                .displayYear(),
+                        color = MutedWhite,
+                        fontSize = 15.sp
                     )
                 }
 
-                QualityBadge("4K")
-                QualityBadge("HDR")
+                Text(
+                    text = "•",
+                    color =
+                        Color.White.copy(
+                            alpha = 0.45f
+                        )
+                )
+
+                Text(
+                    text = "HD",
+                    color = MutedWhite,
+                    fontSize = 13.sp,
+                    fontWeight =
+                        FontWeight.Medium
+                )
             }
 
             Text(
-                text = m.displayTitle,
+                text =
+                    currentMovie.displayTitle,
                 color = Color.White,
-                fontSize = 54.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 58.sp,
+                lineHeight = 64.sp,
+                fontWeight =
+                    FontWeight.Bold,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                overflow =
+                    TextOverflow.Ellipsis,
+                modifier =
+                    Modifier.width(650.dp),
                 style = TextStyle(
                     shadow = Shadow(
                         color =
                             Color.Black.copy(
-                                alpha = 0.7f
+                                alpha = 0.55f
                             ),
                         offset =
                             Offset(
                                 0f,
-                                4f
+                                3f
                             ),
-                        blurRadius = 16f
+                        blurRadius = 14f
                     )
                 )
             )
 
-            if (m.overview.isNotEmpty()) {
+            if (
+                currentMovie.overview
+                    .isNotBlank()
+            ) {
                 Text(
-                    text = m.overview,
-                    color = TextSecondary,
-                    fontSize = 15.sp,
-                    maxLines = 2,
+                    text =
+                        currentMovie.overview,
+                    color =
+                        Color.White.copy(
+                            alpha = 0.78f
+                        ),
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp,
+                    maxLines = 3,
                     overflow =
                         TextOverflow.Ellipsis,
                     modifier =
-                        Modifier.width(560.dp)
+                        Modifier.width(590.dp)
                 )
             }
 
+            Spacer(
+                modifier =
+                    Modifier.height(4.dp)
+            )
+
             Row(
                 horizontalArrangement =
-                    Arrangement.spacedBy(14.dp)
+                    Arrangement.spacedBy(12.dp)
             ) {
 
-                HeroButton(
-                    text = "Pogledaj",
+                PremiumActionButton(
+                    text = "Gledaj",
                     icon = "▶",
                     primary = true,
                     onClick = {
-                        onMovieClick(m)
+                        onMovieClick(
+                            currentMovie
+                        )
                     }
                 )
 
-                HeroButton(
-                    text = "Detalji",
-                    icon = "ℹ",
-                    primary = false,
-                    onClick = {
-                        onMovieClick(m)
-                    }
-                )
-
-                HeroButton(
+                PremiumActionButton(
                     text = "Moja lista",
                     icon = "+",
                     primary = false,
@@ -503,163 +571,143 @@ private fun HeroInfo(
                 )
             }
 
+            Spacer(
+                modifier =
+                    Modifier.height(4.dp)
+            )
+
             Row(
                 horizontalArrangement =
-                    Arrangement.spacedBy(8.dp)
+                    Arrangement.spacedBy(7.dp)
             ) {
 
-                repeat(totalCount) { i ->
+                repeat(totalCount) { index ->
 
                     val selected =
-                        i == currentIndex
+                        index == currentIndex
 
-                    val width by animateDpAsState(
-                        targetValue =
-                            if (selected) {
-                                22.dp
-                            } else {
-                                7.dp
-                            },
-                        label = "dot"
-                    )
+                    val width by
+                        animateDpAsState(
+                            targetValue =
+                                if (selected) {
+                                    28.dp
+                                } else {
+                                    6.dp
+                                },
+                            animationSpec =
+                                tween(300),
+                            label =
+                                "heroIndicator"
+                        )
 
                     Box(
                         modifier = Modifier
                             .width(width)
-                            .height(7.dp)
-                            .clip(CircleShape)
+                            .height(5.dp)
+                            .clip(
+                                CircleShape
+                            )
                             .background(
                                 if (selected) {
-                                    AccentCyan
+                                    Color.White
                                 } else {
                                     Color.White.copy(
-                                        alpha = 0.3f
+                                        alpha = 0.32f
                                     )
                                 }
                             )
                     )
                 }
             }
-
-            onIndexChange(currentIndex)
         }
     }
 }
 
 @Composable
-private fun QualityBadge(
-    text: String
-) {
-    Box(
-        modifier = Modifier
-            .border(
-                1.dp,
-                Color.White.copy(alpha = 0.35f),
-                RoundedCornerShape(4.dp)
-            )
-            .padding(
-                horizontal = 8.dp,
-                vertical = 2.dp
-            )
-    ) {
-        Text(
-            text = text,
-            color = TextSecondary,
-            fontSize = 12.sp,
-            fontWeight =
-                FontWeight.SemiBold
-        )
-    }
-}
-
-@Composable
-private fun HeroButton(
+private fun PremiumActionButton(
     text: String,
-    icon: String? = null,
-    primary: Boolean = false,
+    icon: String,
+    primary: Boolean,
     onClick: () -> Unit
 ) {
     TvFocusableButton(
         onClick = onClick
-    ) { isFocused ->
+    ) { focused ->
 
-        val scale by animateFloatAsState(
-            targetValue =
-                if (isFocused) {
-                    1.07f
-                } else {
-                    1f
-                },
-            animationSpec = tween(200),
-            label = "btnScale"
-        )
+        val scale by
+            animateFloatAsState(
+                targetValue =
+                    if (focused) {
+                        1.06f
+                    } else {
+                        1f
+                    },
+                animationSpec =
+                    tween(180),
+                label =
+                    "actionScale"
+            )
 
         Row(
             modifier = Modifier
                 .scale(scale)
                 .clip(
-                    RoundedCornerShape(26.dp)
+                    RoundedCornerShape(
+                        26.dp
+                    )
+                )
+                .background(
+                    if (primary) {
+                        Color.White
+                    } else {
+                        Color.White.copy(
+                            alpha =
+                                if (focused) {
+                                    0.22f
+                                } else {
+                                    0.12f
+                                }
+                        )
+                    }
                 )
                 .then(
-                    if (primary) {
-                        Modifier.background(
-                            if (isFocused) {
-                                Color.White
-                            } else {
-                                Color.White.copy(
-                                    alpha = 0.9f
-                                )
-                            }
+                    if (
+                        !primary &&
+                        focused
+                    ) {
+                        Modifier.border(
+                            1.dp,
+                            Color.White.copy(
+                                alpha = 0.75f
+                            ),
+                            RoundedCornerShape(
+                                26.dp
+                            )
                         )
                     } else {
                         Modifier
-                            .background(
-                                Color.White.copy(
-                                    alpha =
-                                        if (isFocused) {
-                                            0.22f
-                                        } else {
-                                            0.10f
-                                        }
-                                )
-                            )
-                            .then(
-                                if (isFocused) {
-                                    Modifier.border(
-                                        1.5.dp,
-                                        AccentGradient,
-                                        RoundedCornerShape(
-                                            26.dp
-                                        )
-                                    )
-                                } else {
-                                    Modifier
-                                }
-                            )
                     }
                 )
                 .padding(
-                    horizontal = 28.dp,
-                    vertical = 14.dp
+                    horizontal = 25.dp,
+                    vertical = 13.dp
                 ),
             verticalAlignment =
                 Alignment.CenterVertically,
             horizontalArrangement =
-                Arrangement.spacedBy(10.dp)
+                Arrangement.spacedBy(9.dp)
         ) {
 
-            icon?.let {
-                Text(
-                    text = it,
-                    color =
-                        if (primary) {
-                            Color.Black
-                        } else {
-                            Color.White
-                        },
-                    fontSize = 15.sp
-                )
-            }
+            Text(
+                text = icon,
+                color =
+                    if (primary) {
+                        Color.Black
+                    } else {
+                        Color.White
+                    },
+                fontSize = 14.sp
+            )
 
             Text(
                 text = text,
@@ -669,7 +717,7 @@ private fun HeroButton(
                     } else {
                         Color.White
                     },
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 fontWeight =
                     FontWeight.SemiBold
             )
@@ -678,167 +726,239 @@ private fun HeroButton(
 }
 
 @Composable
-private fun TopBar(
+private fun SideNavigation(
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onHomeClick: () -> Unit,
     onMoviesClick: () -> Unit
 ) {
-    var clock by remember {
-        mutableStateOf("")
-    }
+    val width by
+        animateDpAsState(
+            targetValue =
+                if (expanded) {
+                    230.dp
+                } else {
+                    74.dp
+                },
+            animationSpec =
+                tween(260),
+            label = "sidebarWidth"
+        )
 
-    LaunchedEffect(Unit) {
-
-        while (true) {
-
-            clock =
-                SimpleDateFormat(
-                    "HH:mm",
-                    Locale.getDefault()
-                ).format(Date())
-
-            delay(10_000)
-        }
-    }
-
-    Row(
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
+            .fillMaxHeight()
+            .width(width)
+            .onFocusEvent { focusState ->
+                onExpandedChange(
+                    focusState.hasFocus
+                )
+            }
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(
+                        SideBarBackground,
+                        SideBarBackground.copy(
+                            alpha =
+                                if (expanded) {
+                                    0.96f
+                                } else {
+                                    0.68f
+                                }
+                        ),
+                        Color.Transparent
+                    )
+                )
+            )
             .padding(
-                horizontal = 52.dp,
-                vertical = 24.dp
-            ),
-        verticalAlignment =
-            Alignment.CenterVertically
+                start = 14.dp,
+                top = 34.dp,
+                bottom = 34.dp
+            )
     ) {
 
-        Text(
-            text = "IStreaming",
-            color = TextPrimary,
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxHeight(),
+            verticalArrangement =
+                Arrangement.spacedBy(7.dp)
+        ) {
 
-        Text(
-            text = "TV",
-            color = AccentCyan,
-            fontSize = 26.sp,
-            fontWeight =
-                FontWeight.ExtraBold
-        )
+            SideNavItem(
+                icon = "⌂",
+                title = "Početna",
+                selected = true,
+                expanded = expanded,
+                onClick = onHomeClick
+            )
 
-        Spacer(
-            modifier = Modifier.width(45.dp)
-        )
+            SideNavItem(
+                icon = "▣",
+                title = "Filmovi",
+                selected = false,
+                expanded = expanded,
+                onClick = onMoviesClick
+            )
 
-        NavigationItem(
-            text = "Početna",
-            selected = true
-        )
+            SideNavItem(
+                icon = "▤",
+                title = "Serije",
+                selected = false,
+                expanded = expanded,
+                onClick = {}
+            )
 
-        NavigationItem(
-            text = "Filmovi",
-            onClick = onMoviesClick
-        )
+            SideNavItem(
+                icon = "▶",
+                title = "Uživo",
+                selected = false,
+                expanded = expanded,
+                onClick = {}
+            )
 
-        NavigationItem(
-            text = "Serije"
-        )
+            Spacer(
+                modifier =
+                    Modifier.height(12.dp)
+            )
 
-        NavigationItem(
-            text = "Uživo"
-        )
+            SideNavItem(
+                icon = "♡",
+                title = "Moja lista",
+                selected = false,
+                expanded = expanded,
+                onClick = {}
+            )
 
-        Spacer(
-            modifier = Modifier.weight(1f)
-        )
+            SideNavItem(
+                icon = "⌕",
+                title = "Pretraga",
+                selected = false,
+                expanded = expanded,
+                onClick = {}
+            )
 
-        Text(
-            text = clock,
-            color = TextSecondary,
-            fontSize = 15.sp,
-            fontWeight =
-                FontWeight.Medium
-        )
+            Spacer(
+                modifier =
+                    Modifier.weight(1f)
+            )
 
-        Spacer(
-            modifier = Modifier.width(20.dp)
-        )
-
-        NavigationItem(
-            text = "⌕"
-        )
+            SideNavItem(
+                icon = "⚙",
+                title = "Podešavanja",
+                selected = false,
+                expanded = expanded,
+                onClick = {}
+            )
+        }
     }
 }
 
 @Composable
-private fun NavigationItem(
-    text: String,
-    selected: Boolean = false,
-    onClick: () -> Unit = {}
+private fun SideNavItem(
+    icon: String,
+    title: String,
+    selected: Boolean,
+    expanded: Boolean,
+    onClick: () -> Unit
 ) {
     TvFocusableButton(
         onClick = onClick,
         modifier = Modifier
-            .padding(horizontal = 4.dp)
-            .height(46.dp)
-    ) { isFocused ->
+            .width(200.dp)
+            .height(54.dp)
+    ) { focused ->
 
-        val scale by animateFloatAsState(
-            targetValue =
-                if (isFocused) {
-                    1.08f
-                } else {
-                    1f
-                },
-            animationSpec = tween(200),
-            label = "navScale"
-        )
+        val scale by
+            animateFloatAsState(
+                targetValue =
+                    if (focused) {
+                        1.04f
+                    } else {
+                        1f
+                    },
+                animationSpec =
+                    tween(180),
+                label =
+                    "sideItemScale"
+            )
 
-        val underline by animateDpAsState(
-            targetValue =
-                if (selected) {
-                    24.dp
-                } else {
-                    0.dp
-                },
-            label = "underline"
-        )
-
-        Column(
+        Row(
             modifier = Modifier
                 .scale(scale)
-                .padding(horizontal = 12.dp),
-            horizontalAlignment =
-                Alignment.CenterHorizontally,
-            verticalArrangement =
-                Arrangement.spacedBy(6.dp)
+                .clip(
+                    RoundedCornerShape(
+                        10.dp
+                    )
+                )
+                .background(
+                    if (
+                        focused ||
+                        selected
+                    ) {
+                        FocusBackground
+                    } else {
+                        Color.Transparent
+                    }
+                )
+                .padding(
+                    horizontal = 15.dp,
+                    vertical = 11.dp
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically
         ) {
 
             Text(
-                text = text,
+                text = icon,
                 color =
-                    if (selected || isFocused) {
-                        TextPrimary
+                    if (
+                        selected ||
+                        focused
+                    ) {
+                        FocusWhite
                     } else {
-                        TextSecondary
+                        MutedWhite
                     },
-                fontSize = 15.sp,
+                fontSize = 21.sp,
                 fontWeight =
-                    if (selected) {
-                        FontWeight.SemiBold
-                    } else {
-                        FontWeight.Normal
-                    }
+                    FontWeight.Normal,
+                modifier =
+                    Modifier.width(31.dp)
             )
 
-            Box(
-                modifier = Modifier
-                    .width(underline)
-                    .height(3.dp)
-                    .clip(CircleShape)
-                    .background(
-                        AccentGradient
+            AnimatedVisibility(
+                visible = expanded,
+                enter =
+                    fadeIn(
+                        tween(180)
+                    ),
+                exit =
+                    fadeOut(
+                        tween(100)
                     )
-            )
+            ) {
+
+                Text(
+                    text = title,
+                    color =
+                        if (
+                            selected ||
+                            focused
+                        ) {
+                            FocusWhite
+                        } else {
+                            MutedWhite
+                        },
+                    fontSize = 15.sp,
+                    fontWeight =
+                        if (selected) {
+                            FontWeight.SemiBold
+                        } else {
+                            FontWeight.Normal
+                        },
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -858,7 +978,9 @@ private fun ContentRow(
 
     val snappingLayout =
         remember(rowState) {
-            SnapLayoutInfoProvider(rowState)
+            SnapLayoutInfoProvider(
+                rowState
+            )
         }
 
     val snapFlingBehavior =
@@ -870,7 +992,6 @@ private fun ContentRow(
         catalogId,
         movies.size
     ) {
-
         val saved =
             viewModel.getCatalogPosition(
                 catalogId
@@ -879,12 +1000,12 @@ private fun ContentRow(
         rowState.scrollToItem(
             index =
                 saved.index.coerceAtLeast(0),
-            scrollOffset = saved.offset
+            scrollOffset =
+                saved.offset
         )
     }
 
     LaunchedEffect(rowState) {
-
         snapshotFlow {
             Pair(
                 rowState.firstVisibleItemIndex,
@@ -903,7 +1024,6 @@ private fun ContentRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 48.dp)
             .then(
                 entranceModifier(
                     entranceIndex
@@ -912,46 +1032,38 @@ private fun ContentRow(
     ) {
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+                Modifier.fillMaxWidth(),
             verticalAlignment =
                 Alignment.CenterVertically
         ) {
 
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .height(22.dp)
-                    .clip(CircleShape)
-                    .background(
-                        AccentGradient
-                    )
-            )
-
-            Spacer(
-                modifier = Modifier.width(12.dp)
-            )
-
             Text(
                 text = title,
-                color = TextPrimary,
+                color = Color.White,
                 fontSize = 24.sp,
                 fontWeight =
                     FontWeight.SemiBold
             )
 
             Spacer(
-                modifier = Modifier.weight(1f)
+                modifier =
+                    Modifier.weight(1f)
             )
 
             Text(
-                text = "Prikaži sve ›",
-                color = TextSecondary,
+                text = "Prikaži sve  ›",
+                color =
+                    Color.White.copy(
+                        alpha = 0.55f
+                    ),
                 fontSize = 14.sp
             )
         }
 
         Spacer(
-            modifier = Modifier.height(20.dp)
+            modifier =
+                Modifier.height(17.dp)
         )
 
         LazyRow(
@@ -959,9 +1071,11 @@ private fun ContentRow(
             flingBehavior =
                 snapFlingBehavior,
             horizontalArrangement =
-                Arrangement.spacedBy(20.dp),
+                Arrangement.spacedBy(17.dp),
             contentPadding =
-                PaddingValues(end = 48.dp)
+                PaddingValues(
+                    end = 50.dp
+                )
         ) {
 
             items(
@@ -971,7 +1085,7 @@ private fun ContentRow(
                 }
             ) { movie ->
 
-                PosterCard(
+                PremiumPosterCard(
                     movie = movie,
                     onClick = {
                         onMovieClick(movie)
@@ -983,74 +1097,29 @@ private fun ContentRow(
 }
 
 @Composable
-private fun entranceModifier(
-    index: Int
-): Modifier {
-
-    var shown by remember {
-        mutableStateOf(false)
-    }
-
-    LaunchedEffect(Unit) {
-
-        delay(
-            120L * index
-        )
-
-        shown = true
-    }
-
-    val alpha by animateFloatAsState(
-        targetValue =
-            if (shown) {
-                1f
-            } else {
-                0f
-            },
-        animationSpec = tween(550),
-        label = "entranceAlpha"
-    )
-
-    val offsetY by animateFloatAsState(
-        targetValue =
-            if (shown) {
-                0f
-            } else {
-                60f
-            },
-        animationSpec = tween(550),
-        label = "entranceY"
-    )
-
-    return Modifier.graphicsLayer {
-
-        this.alpha = alpha
-        this.translationY = offsetY
-    }
-}
-
-@Composable
-private fun PosterCard(
+private fun PremiumPosterCard(
     movie: TmdbMovie,
     onClick: () -> Unit
 ) {
     TvFocusableButton(
         onClick = onClick,
         modifier = Modifier
-            .width(170.dp)
-            .height(255.dp)
-    ) { isFocused ->
+            .width(178.dp)
+            .height(265.dp)
+    ) { focused ->
 
-        val scale by animateFloatAsState(
-            targetValue =
-                if (isFocused) {
-                    1.08f
-                } else {
-                    1f
-                },
-            animationSpec = tween(250),
-            label = "cardScale"
-        )
+        val scale by
+            animateFloatAsState(
+                targetValue =
+                    if (focused) {
+                        1.075f
+                    } else {
+                        1f
+                    },
+                animationSpec =
+                    tween(220),
+                label = "posterScale"
+            )
 
         Box(
             modifier = Modifier
@@ -1058,58 +1127,27 @@ private fun PosterCard(
                 .scale(scale)
                 .clip(CardShape)
                 .background(
-                    Color(0xFF141419)
+                    Color(0xFF17171A)
                 )
                 .then(
-                    if (isFocused) {
-
-                        Modifier
-                            .border(
-                                2.dp,
-                                AccentGradient,
-                                CardShape
-                            )
-                            .drawWithContent {
-
-                                drawContent()
-
-                                drawRect(
-                                    brush =
-                                        Brush.radialGradient(
-                                            colors =
-                                                listOf(
-                                                    AccentCyan.copy(
-                                                        alpha = 0.22f
-                                                    ),
-                                                    Color.Transparent
-                                                ),
-                                            center =
-                                                Offset(
-                                                    size.width / 2,
-                                                    size.height / 2
-                                                ),
-                                            radius =
-                                                size.width * 0.85f
-                                        )
-                                )
-                            }
-
-                    } else {
-
+                    if (focused) {
                         Modifier.border(
-                            1.dp,
+                            2.dp,
                             Color.White.copy(
-                                alpha = 0.06f
+                                alpha = 0.9f
                             ),
                             CardShape
                         )
+                    } else {
+                        Modifier
                     }
                 )
         ) {
 
             AsyncImage(
                 model =
-                    "https://image.tmdb.org/t/p/w500${movie.posterPath}",
+                    "https://image.tmdb.org/t/p/w500" +
+                        movie.posterPath,
                 contentDescription =
                     movie.displayTitle,
                 modifier =
@@ -1118,51 +1156,15 @@ private fun PosterCard(
                     ContentScale.Crop
             )
 
-            if (isFocused) {
+            if (focused) {
 
                 Box(
                     modifier = Modifier
-                        .align(
-                            Alignment.TopEnd
-                        )
-                        .padding(8.dp)
-                        .clip(
-                            RoundedCornerShape(6.dp)
-                        )
-                        .background(
-                            Color.Black.copy(
-                                alpha = 0.7f
-                            )
-                        )
-                        .padding(
-                            horizontal = 8.dp,
-                            vertical = 4.dp
-                        )
-                ) {
-
-                    Text(
-                        text =
-                            "★ ${movie.displayRating()}",
-                        color =
-                            Color(0xFFFFC107),
-                        fontSize = 12.sp,
-                        fontWeight =
-                            FontWeight.SemiBold
-                    )
-                }
-            }
-
-            if (isFocused) {
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(
-                            Alignment.BottomCenter
-                        )
+                        .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                listOf(
+                                colors = listOf(
+                                    Color.Transparent,
                                     Color.Transparent,
                                     Color.Black.copy(
                                         alpha = 0.85f
@@ -1170,191 +1172,181 @@ private fun PosterCard(
                                 )
                             )
                         )
-                        .padding(
-                            horizontal = 10.dp,
-                            vertical = 8.dp
-                        )
-                ) {
+                )
 
-                    Text(
-                        text =
-                            movie.displayTitle,
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight =
-                            FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow =
-                            TextOverflow.Ellipsis
-                    )
-                }
+                Text(
+                    text =
+                        movie.displayTitle,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight =
+                        FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                    modifier =
+                        Modifier
+                            .align(
+                                Alignment.BottomStart
+                            )
+                            .padding(
+                                12.dp
+                            )
+                )
             }
         }
     }
 }
 
 @Composable
-fun ShimmerHomeScreen() {
+private fun entranceModifier(
+    index: Int
+): Modifier {
+    var shown by remember {
+        mutableStateOf(false)
+    }
 
+    LaunchedEffect(Unit) {
+        delay(
+            130L * index
+        )
+        shown = true
+    }
+
+    val alpha by
+        animateFloatAsState(
+            targetValue =
+                if (shown) {
+                    1f
+                } else {
+                    0f
+                },
+            animationSpec =
+                tween(550),
+            label =
+                "rowAlpha"
+        )
+
+    val offsetY by
+        animateFloatAsState(
+            targetValue =
+                if (shown) {
+                    0f
+                } else {
+                    45f
+                },
+            animationSpec =
+                tween(550),
+            label =
+                "rowOffset"
+        )
+
+    return Modifier.graphicsLayer {
+        this.alpha = alpha
+        this.translationY = offsetY
+    }
+}
+
+@Composable
+fun ShimmerHomeScreen() {
     val infinite =
         rememberInfiniteTransition(
             label = "shimmer"
         )
 
-    val progress by infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec =
-            infiniteRepeatable(
-                animation =
-                    tween<Float>(
-                        1100,
-                        easing = LinearEasing
-                    ),
-                repeatMode =
-                    RepeatMode.Restart
-            ),
-        label = "shimmerProgress"
-    )
+    val progress by
+        infinite.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec =
+                infiniteRepeatable(
+                    animation =
+                        tween<Float>(
+                            1100,
+                            easing = LinearEasing
+                        ),
+                    repeatMode =
+                        RepeatMode.Restart
+                ),
+            label = "shimmerProgress"
+        )
 
     fun shimmerBrush(): Brush =
         Brush.horizontalGradient(
             colors = listOf(
-                Color(0xFF17171D),
-                Color(0xFF2A2A34),
-                Color(0xFF17171D)
+                Color(0xFF111113),
+                Color(0xFF29292D),
+                Color(0xFF111113)
             ),
             startX =
-                -600f +
-                    progress * 2200f,
+                -700f +
+                    progress * 2400f,
             endX =
-                progress * 2200f
+                progress * 2400f
         )
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Background)
-            .padding(
-                horizontal = 48.dp,
-                vertical = 24.dp
+            .background(
+                Background
             )
     ) {
 
         Box(
             modifier = Modifier
-                .width(220.dp)
-                .height(32.dp)
-                .clip(
-                    RoundedCornerShape(8.dp)
-                )
+                .fillMaxWidth()
+                .height(570.dp)
                 .background(
                     shimmerBrush()
                 )
         )
 
-        Spacer(
-            modifier = Modifier.height(48.dp)
-        )
-
-        Box(
+        Column(
             modifier = Modifier
-                .width(520.dp)
-                .height(64.dp)
-                .clip(
-                    RoundedCornerShape(12.dp)
+                .fillMaxSize()
+                .padding(
+                    start = 55.dp,
+                    top = 520.dp
                 )
-                .background(
-                    shimmerBrush()
-                )
-        )
-
-        Spacer(
-            modifier = Modifier.height(16.dp)
-        )
-
-        Box(
-            modifier = Modifier
-                .width(360.dp)
-                .height(20.dp)
-                .clip(
-                    RoundedCornerShape(8.dp)
-                )
-                .background(
-                    shimmerBrush()
-                )
-        )
-
-        Spacer(
-            modifier = Modifier.height(28.dp)
-        )
-
-        Row(
-            horizontalArrangement =
-                Arrangement.spacedBy(14.dp)
         ) {
 
             Box(
                 modifier = Modifier
-                    .width(150.dp)
-                    .height(48.dp)
+                    .width(280.dp)
+                    .height(28.dp)
                     .clip(
-                        RoundedCornerShape(24.dp)
-                    )
-                    .background(
-                        shimmerBrush()
-                    )
-            )
-
-            Box(
-                modifier = Modifier
-                    .width(150.dp)
-                    .height(48.dp)
-                    .clip(
-                        RoundedCornerShape(24.dp)
-                    )
-                    .background(
-                        shimmerBrush()
-                    )
-            )
-        }
-
-        Spacer(
-            modifier = Modifier.height(56.dp)
-        )
-
-        Box(
-            modifier = Modifier
-                .width(260.dp)
-                .height(26.dp)
-                .clip(
-                    RoundedCornerShape(8.dp)
-                )
-                .background(
-                    shimmerBrush()
-                )
-        )
-
-        Spacer(
-            modifier = Modifier.height(20.dp)
-        )
-
-        Row(
-            horizontalArrangement =
-                Arrangement.spacedBy(20.dp)
-        ) {
-
-            repeat(6) {
-
-                Box(
-                    modifier = Modifier
-                        .width(170.dp)
-                        .height(255.dp)
-                        .clip(CardShape)
-                        .background(
-                            shimmerBrush()
+                        RoundedCornerShape(
+                            8.dp
                         )
-                )
+                    )
+                    .background(
+                        shimmerBrush()
+                    )
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(18.dp)
+            )
+
+            Row(
+                horizontalArrangement =
+                    Arrangement.spacedBy(17.dp)
+            ) {
+
+                repeat(6) {
+
+                    Box(
+                        modifier = Modifier
+                            .width(178.dp)
+                            .height(265.dp)
+                            .clip(CardShape)
+                            .background(
+                                shimmerBrush()
+                            )
+                    )
+                }
             }
         }
     }
@@ -1368,7 +1360,9 @@ fun ErrorScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Background),
+            .background(
+                Background
+            ),
         verticalArrangement =
             Arrangement.Center,
         horizontalAlignment =
@@ -1376,12 +1370,14 @@ fun ErrorScreen(
     ) {
 
         Text(
-            text = "⚠️",
-            fontSize = 52.sp
+            text = "⚠",
+            color = Color.White,
+            fontSize = 46.sp
         )
 
         Spacer(
-            modifier = Modifier.height(16.dp)
+            modifier =
+                Modifier.height(18.dp)
         )
 
         Text(
@@ -1394,49 +1390,50 @@ fun ErrorScreen(
         )
 
         Spacer(
-            modifier = Modifier.height(28.dp)
+            modifier =
+                Modifier.height(28.dp)
         )
 
         TvFocusableButton(
             onClick = onRetry
-        ) { isFocused ->
+        ) { focused ->
 
-            val scale by animateFloatAsState(
-                targetValue =
-                    if (isFocused) {
-                        1.07f
-                    } else {
-                        1f
-                    },
-                animationSpec = tween(200),
-                label = "retryScale"
-            )
+            val scale by
+                animateFloatAsState(
+                    targetValue =
+                        if (focused) {
+                            1.06f
+                        } else {
+                            1f
+                        },
+                    animationSpec =
+                        tween(180),
+                    label =
+                        "retryScale"
+                )
 
             Box(
                 modifier = Modifier
                     .scale(scale)
                     .clip(
-                        RoundedCornerShape(26.dp)
+                        RoundedCornerShape(
+                            25.dp
+                        )
                     )
                     .background(
-                        if (isFocused) {
-                            Color.White
-                        } else {
-                            Color.White.copy(
-                                alpha = 0.9f
-                            )
-                        }
+                        Color.White
                     )
                     .padding(
-                        horizontal = 32.dp,
-                        vertical = 14.dp
+                        horizontal = 30.dp,
+                        vertical = 13.dp
                     )
             ) {
 
                 Text(
-                    text = "Pokušaj ponovo",
+                    text =
+                        "Pokušaj ponovo",
                     color = Color.Black,
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     fontWeight =
                         FontWeight.SemiBold
                 )
