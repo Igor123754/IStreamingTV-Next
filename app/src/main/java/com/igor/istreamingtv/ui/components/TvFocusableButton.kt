@@ -45,18 +45,3 @@ fun TvFocusableButton(
         content(isFocused)
     }
 }
-
-// Overload za postojeće pozive bez isFocused parametra
-@Composable
-fun TvFocusableButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    content: @Composable BoxScope.() -> Unit
-) {
-    TvFocusableButton(
-        onClick = onClick,
-        modifier = modifier
-    ) { _ ->
-        content()
-    }
-}
