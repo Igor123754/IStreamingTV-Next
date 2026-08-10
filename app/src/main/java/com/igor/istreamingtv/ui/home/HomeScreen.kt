@@ -1,18 +1,16 @@
 package com.igor.istreamingtv.ui.home
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
@@ -21,12 +19,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -34,12 +30,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -48,36 +44,52 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.igor.istreamingtv.data.remote.TmdbMovie
-import com.igor.istreamingtv.data.remote.backdropPath
-import com.igor.istreamingtv.data.remote.displayDate
-import com.igor.istreamingtv.data.remote.displayTitle
-import com.igor.istreamingtv.data.remote.posterPath
-import com.igor.istreamingtv.ui.components.MovieCard
+import com.igor.istreamingtv.data.TmdbMovie
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.theme.Background
 import com.igor.istreamingtv.ui.theme.TextPrimary
 import com.igor.istreamingtv.ui.theme.TextSecondary
-import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-private const val IMAGE_URL = "https://image.tmdb.org/t/p/"
-private const val BACKDROP_SIZE = "w1280"
-private const val POSTER_SIZE = "w500"
+// ============================================================
+// BREND BOJE I GRADIJENTI (vlastiti identitet aplikacije)
+// ============================================================
+private val AccentCyan = Color(0xFF00C2FF)
+private val AccentViolet = Color(0xFF7A5CFF)
+private val AccentGradient = Brush.horizontalGradient(listOf(AccentCyan, AccentViolet))
+private val CardShape = RoundedCornerShape(14.dp)
+
+// ============================================================
+// POMOĆNE FUNKCIJE ZA MODEL
+// ⚠️ AKO SE POLJA TVOG TmdbMovie MODELA RAZLIKUJU,
+//    PRILAGODI SAMO OVIH 5 FUNKCIJA (sve je na jednom mestu)
+// ============================================================
+private fun TmdbMovie.displayTitle(): String = title ?: name ?: "Nepoznat naslov"
+private fun TmdbMovie.displayBackdrop(): String = backdropPath ?: posterPath ?: ""
+private fun TmdbMovie.displayOverview(): String = overview ?: ""
+private fun TmdbMovie.displayRating(): String =
+    String.format(Locale.US, "%.1f", voteAverage ?: 0.0)
+private fun TmdbMovie.displayYear(): String = (releaseDate ?: firstAirDate ?: "").take(4)
 
 // ============================================================
 // GLAVNI HOME SCREEN
 // ============================================================
-
 @Composable
 fun HomeScreen(
     onMovieClick: (TmdbMovie) -> Unit,
@@ -86,164 +98,27 @@ fun HomeScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Background)
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(Background)) {
         when {
-            state.isLoading -> {
-                ShimmerHomeScreen()
-            }
-            state.error != null -> {
-                ErrorScreen(
-                    message = state.error ?: "Nepoznata greška",
-                    onRetry = viewModel::loadContent
-                )
-            }
-            else -> {
-                HomeContent(
-                    movies = state.movies,
-                    series = state.series,
-                    onMovieClick = onMovieClick,
-                    onMoviesClick = onMoviesClick,
-                    viewModel = viewModel
-                )
-            }
-        }
-    }
-}
-
-// ============================================================
-// SHIMMER LOADING (premium efekat)
-// ============================================================
-
-@Composable
-private fun ShimmerHomeScreen() {
-    val shimmerColors = listOf(
-        Color(0xFF1A1A1A),
-        Color(0xFF2A2A2A),
-        Color(0xFF1A1A1A)
-    )
-
-    val transition = rememberInfiniteTransition(label = "shimmer")
-    val translateAnim = transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1000f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmer"
-    )
-
-    val brush = Brush.linearGradient(
-        colors = shimmerColors,
-        start = Offset.Zero,
-        end = Offset(x = translateAnim.value, y = translateAnim.value),
-        tileMode = TileMode.Clamp
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 48.dp)
-    ) {
-        // TopBar shimmer
-        Spacer(modifier = Modifier.height(24.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(46.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(brush)
-        )
-
-        // Hero shimmer
-        Spacer(modifier = Modifier.height(34.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(420.dp)
-                .clip(RoundedCornerShape(30.dp))
-                .background(brush)
-        )
-
-        // Row 1 shimmer
-        Spacer(modifier = Modifier.height(34.dp))
-        Box(
-            modifier = Modifier
-                .width(200.dp)
-                .height(28.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(brush)
-        )
-        Spacer(modifier = Modifier.height(18.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            repeat(4) {
-                Box(
-                    modifier = Modifier
-                        .width(180.dp)
-                        .height(270.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(brush)
-                )
-            }
-        }
-    }
-}
-
-// ============================================================
-// ERROR SCREEN
-// ============================================================
-
-@Composable
-private fun ErrorScreen(
-    message: String,
-    onRetry: () -> Unit
-) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "Nije moguće učitati katalog",
-                color = TextPrimary,
-                fontSize = 24.sp
+            state.isLoading -> ShimmerHomeScreen()
+            state.error != null -> ErrorScreen(
+                message = state.error ?: "Nepoznata greška",
+                onRetry = viewModel::loadContent
             )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = message,
-                color = TextSecondary,
-                fontSize = 16.sp
+            else -> HomeContent(
+                movies = state.movies,
+                series = state.series,
+                onMovieClick = onMovieClick,
+                onMoviesClick = onMoviesClick,
+                viewModel = viewModel
             )
-            Spacer(modifier = Modifier.height(24.dp))
-            TvFocusableButton(
-                modifier = Modifier
-                    .width(180.dp)
-                    .height(52.dp),
-                onClick = onRetry
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Pokušaj ponovo",
-                        color = TextPrimary,
-                        fontSize = 16.sp
-                    )
-                }
-            }
         }
     }
 }
 
 // ============================================================
-// HOME CONTENT
+// HOME CONTENT — IMERZIVNI HERO + REDOVI
 // ============================================================
-
 @Composable
 private fun HomeContent(
     movies: List<TmdbMovie>,
@@ -252,6 +127,20 @@ private fun HomeContent(
     onMoviesClick: () -> Unit,
     viewModel: HomeViewModel
 ) {
+    val heroMovies = remember(movies) { movies.take(5) }
+    var heroIndex by remember { mutableIntStateOf(0) }
+    var heroHasFocus by remember { mutableStateOf(false) }
+    val featured = heroMovies.getOrNull(heroIndex)
+
+    // Automatska rotacija hero carousel-a (pauzira dok je fokus u hero sekciji)
+    LaunchedEffect(heroHasFocus, heroMovies.size) {
+        if (heroHasFocus || heroMovies.size < 2) return@LaunchedEffect
+        while (true) {
+            delay(8000)
+            heroIndex = (heroIndex + 1) % heroMovies.size
+        }
+    }
+
     val verticalState = rememberLazyListState()
 
     LaunchedEffect(movies.size, series.size) {
@@ -278,90 +167,349 @@ private fun HomeContent(
         }
     }
 
-    LazyColumn(
-        state = verticalState,
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(40.dp),
-        contentPadding = PaddingValues(bottom = 100.dp)
-    ) {
-        item {
-            TopBar(onMoviesClick = onMoviesClick)
+    Box(modifier = Modifier.fillMaxSize()) {
+
+        // 1) IMERZIVNA POZADINA preko celog ekrana (crossfade + Ken Burns)
+        if (featured != null) {
+            HeroBackdrop(movie = featured)
         }
 
-        if (movies.isNotEmpty()) {
-            item {
-                HeroCarousel(
-                    movies = movies.take(5),
-                    onMovieClick = onMovieClick
+        // 2) GRADIJENT SCRIM-ovi za čitljivost teksta
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent),
+                        startY = 0f,
+                        endY = 320f
+                    )
                 )
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Background),
+                        startY = 480f,
+                        endY = 900f
+                    )
+                )
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(Background.copy(alpha = 0.85f), Color.Transparent),
+                        startX = 0f,
+                        endX = 700f
+                    )
+                )
+        )
+
+        // 3) SADRŽAJ
+        LazyColumn(
+            state = verticalState,
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(36.dp),
+            contentPadding = PaddingValues(bottom = 80.dp)
+        ) {
+            item { TopBar(onMoviesClick = onMoviesClick) }
+
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(440.dp)
+                        .onFocusEvent { heroHasFocus = it.hasFocus }
+                ) {
+                    if (featured != null) {
+                        HeroInfo(
+                            movie = featured,
+                            currentIndex = heroIndex,
+                            totalCount = heroMovies.size,
+                            onMovieClick = onMovieClick,
+                            onIndexChange = { heroIndex = it }
+                        )
+                    }
+                }
             }
-        }
 
-        if (movies.isNotEmpty()) {
-            item {
-                MovieRowSnap(
-                    catalogId = "trending_movies",
-                    title = "Sada u trendu",
-                    movies = movies,
-                    onMovieClick = onMovieClick,
-                    viewModel = viewModel
-                )
+            if (movies.isNotEmpty()) {
+                item {
+                    ContentRow(
+                        catalogId = "trending_movies",
+                        title = "Sada u trendu",
+                        movies = movies,
+                        entranceIndex = 1,
+                        onMovieClick = onMovieClick,
+                        viewModel = viewModel
+                    )
+                }
             }
-        }
 
-        if (series.isNotEmpty()) {
-            item {
-                MovieRowSnap(
-                    catalogId = "trending_series",
-                    title = "Popularne serije",
-                    movies = series,
-                    onMovieClick = onMovieClick,
-                    viewModel = viewModel
-                )
+            if (series.isNotEmpty()) {
+                item {
+                    ContentRow(
+                        catalogId = "trending_series",
+                        title = "Popularne serije",
+                        movies = series,
+                        entranceIndex = 2,
+                        onMovieClick = onMovieClick,
+                        viewModel = viewModel
+                    )
+                }
             }
-        }
 
-        if (movies.size > 2) {
-            item {
-                MovieRowSnap(
-                    catalogId = "movies",
-                    title = "Preporučeni filmovi",
-                    movies = movies.drop(2),
-                    onMovieClick = onMovieClick,
-                    viewModel = viewModel
-                )
+            if (movies.size > 2) {
+                item {
+                    ContentRow(
+                        catalogId = "movies",
+                        title = "Preporučeno za tebe",
+                        movies = movies.drop(2),
+                        entranceIndex = 3,
+                        onMovieClick = onMovieClick,
+                        viewModel = viewModel
+                    )
+                }
             }
         }
     }
 }
 
 // ============================================================
-// TOP BAR
+// HERO POZADINA — CROSSFADE + KEN BURNS (spori zoom)
 // ============================================================
+@Composable
+private fun HeroBackdrop(movie: TmdbMovie) {
+    Crossfade(targetState = movie, animationSpec = tween(900)) { m ->
+        val infinite = rememberInfiniteTransition(label = "kenburns")
+        val scale by infinite.animateFloat(
+            initialValue = 1.05f,
+            targetValue = 1.15f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(14000, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "kenburnsScale"
+        )
+
+        AsyncImage(
+            model = "https://image.tmdb.org/t/p/w1280${m.displayBackdrop()}",
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .scale(scale),
+            contentScale = ContentScale.Crop
+        )
+    }
+}
+
+// ============================================================
+// HERO INFO — NASLOV, METADACI, DUGMAD, DOT INDIKATORI
+// ============================================================
+@Composable
+private fun HeroInfo(
+    movie: TmdbMovie,
+    currentIndex: Int,
+    totalCount: Int,
+    onMovieClick: (TmdbMovie) -> Unit,
+    onIndexChange: (Int) -> Unit
+) {
+    Crossfade(
+        targetState = movie,
+        animationSpec = tween(700),
+        modifier = Modifier.align(Alignment.BottomStart)
+    ) { m ->
+        Column(
+            modifier = Modifier.padding(start = 56.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Metadata red: ocena, godina, kvalitet bedževi
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "★ ${m.displayRating()}",
+                    color = Color(0xFFFFC107),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (m.displayYear().isNotEmpty()) {
+                    Text(text = m.displayYear(), color = TextSecondary, fontSize = 16.sp)
+                }
+                QualityBadge("4K")
+                QualityBadge("HDR")
+            }
+
+            // Veliki naslov sa senkom
+            Text(
+                text = m.displayTitle(),
+                color = Color.White,
+                fontSize = 54.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = TextStyle(
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.7f),
+                        offset = Offset(0f, 4f),
+                        blurRadius = 16f
+                    )
+                )
+            )
+
+            // Sinopsis
+            if (m.displayOverview().isNotEmpty()) {
+                Text(
+                    text = m.displayOverview(),
+                    color = TextSecondary,
+                    fontSize = 15.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.width(560.dp)
+                )
+            }
+
+            // Akciona dugmad
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                HeroButton(text = "Pogledaj", icon = "▶", primary = true, onClick = { onMovieClick(m) })
+                HeroButton(text = "Detalji", icon = "ℹ", primary = false, onClick = { onMovieClick(m) })
+                HeroButton(text = "Moja lista", icon = "+", primary = false, onClick = { })
+            }
+
+            // Dot indikatori carousel-a
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(totalCount) { i ->
+                    val selected = i == currentIndex
+                    val width by animateDpAsState(
+                        targetValue = if (selected) 22.dp else 7.dp,
+                        label = "dot"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(width)
+                            .height(7.dp)
+                            .clip(CircleShape)
+                            .background(if (selected) AccentCyan else Color.White.copy(alpha = 0.3f))
+                    )
+                }
+            }
+
+            // Nevidljivi klik za promenu indeksa (rezervisano za budućnost)
+            onIndexChange(currentIndex)
+        }
+    }
+}
 
 @Composable
-private fun TopBar(
-    onMoviesClick: () -> Unit
+private fun QualityBadge(text: String) {
+    Box(
+        modifier = Modifier
+            .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+    ) {
+        Text(text = text, color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+// ============================================================
+// HERO DUGMAD — PRIMARY (belo) I GLASS (poluprovidno)
+// ============================================================
+@Composable
+private fun HeroButton(
+    text: String,
+    icon: String? = null,
+    primary: Boolean = false,
+    onClick: () -> Unit
 ) {
+    TvFocusableButton(onClick = onClick) { isFocused ->
+        val scale by animateFloatAsState(
+            targetValue = if (isFocused) 1.07f else 1f,
+            animationSpec = tween(200),
+            label = "btnScale"
+        )
+        Row(
+            modifier = Modifier
+                .scale(scale)
+                .clip(RoundedCornerShape(26.dp))
+                .then(
+                    if (primary) {
+                        Modifier.background(if (isFocused) Color.White else Color.White.copy(alpha = 0.9f))
+                    } else {
+                        Modifier
+                            .background(Color.White.copy(alpha = if (isFocused) 0.22f else 0.10f))
+                            .then(
+                                if (isFocused) Modifier.border(1.5.dp, AccentGradient, RoundedCornerShape(26.dp))
+                                else Modifier
+                            )
+                    }
+                )
+                .padding(horizontal = 28.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            icon?.let {
+                Text(text = it, color = if (primary) Color.Black else Color.White, fontSize = 15.sp)
+            }
+            Text(
+                text = text,
+                color = if (primary) Color.Black else Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+// ============================================================
+// TOP BAR — LOGO, NAVIGACIJA, LIVE SAT, PRETRAGA
+// ============================================================
+@Composable
+private fun TopBar(onMoviesClick: () -> Unit) {
+    var clock by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            clock = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+            delay(10_000)
+        }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 52.dp, vertical = 24.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Logo sa accent bojom
         Text(
-            text = "IStreamingTV",
+            text = "IStreaming",
             color = TextPrimary,
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold
         )
+        Text(
+            text = "TV",
+            color = AccentCyan,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.ExtraBold
+        )
+
         Spacer(modifier = Modifier.width(45.dp))
+
         NavigationItem(text = "Početna", selected = true)
         NavigationItem(text = "Filmovi", onClick = onMoviesClick)
         NavigationItem(text = "Serije")
         NavigationItem(text = "Uživo")
+
         Spacer(modifier = Modifier.weight(1f))
-        NavigationItem(text = "⌕ Pretraga")
+
+        Text(
+            text = clock,
+            color = TextSecondary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
+        )
+
+        Spacer(modifier = Modifier.width(20.dp))
+
+        NavigationItem(text = "⌕")
     }
 }
 
@@ -372,255 +520,59 @@ private fun NavigationItem(
     onClick: () -> Unit = {}
 ) {
     TvFocusableButton(
+        onClick = onClick,
         modifier = Modifier
             .padding(horizontal = 4.dp)
             .height(46.dp)
-            .width(if (text == "⌕ Pretraga") 130.dp else 100.dp),
-        onClick = onClick
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+    ) { isFocused ->
+        val scale by animateFloatAsState(
+            targetValue = if (isFocused) 1.08f else 1f,
+            animationSpec = tween(200),
+            label = "navScale"
+        )
+        val underline by animateDpAsState(
+            targetValue = if (selected) 24.dp else 0.dp,
+            label = "underline"
+        )
+        Column(
+            modifier = Modifier
+                .scale(scale)
+                .padding(horizontal = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = text,
-                color = if (selected) TextPrimary else TextSecondary,
+                color = if (selected || isFocused) TextPrimary else TextSecondary,
                 fontSize = 15.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
             )
-        }
-    }
-}
-
-// ============================================================
-// HERO CAROUSEL (kao Apple TV+)
-// ============================================================
-
-@Composable
-private fun HeroCarousel(
-    movies: List<TmdbMovie>,
-    onMovieClick: (TmdbMovie) -> Unit
-) {
-    val listState = rememberLazyListState()
-    var currentPage by remember { mutableIntStateOf(0) }
-
-    // Auto-rotacija svakih 6 sekundi
-    LaunchedEffect(movies.size) {
-        while (true) {
-            delay(6000)
-            if (movies.size > 1) {
-                currentPage = (currentPage + 1) % movies.size
-                listState.animateScrollToItem(currentPage)
-            }
-        }
-    }
-
-    // Prati scroll za dot indikatore
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex }
-            .collect { index ->
-                currentPage = index
-            }
-    }
-
-    Column {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(480.dp)
-        ) {
-            // Carousel sa snap-om
-            LazyRow(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 48.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                items(
-                    items = movies,
-                    key = { it.id }
-                ) { movie ->
-                    HeroCard(
-                        movie = movie,
-                        onClick = { onMovieClick(movie) }
-                    )
-                }
-            }
-
-            // Gradijent sa dna
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-                    .align(Alignment.BottomCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.Transparent,
-                                Background.copy(alpha = 0.6f),
-                                Background
-                            )
-                        )
-                    )
+                    .width(underline)
+                    .height(3.dp)
+                    .clip(CircleShape)
+                    .background(AccentGradient)
             )
-        }
-
-        // Dot indikatori
-        if (movies.size > 1) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 16.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                repeat(movies.size) { index ->
-                    val isSelected = index == currentPage
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .size(if (isSelected) 10.dp else 8.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isSelected) Color.White else Color.White.copy(alpha = 0.3f)
-                            )
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HeroCard(
-    movie: TmdbMovie,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .width(900.dp)
-            .fillMaxHeight()
-            .clip(RoundedCornerShape(24.dp))
-    ) {
-        // Backdrop slika
-        movie.backdropPath?.let { path ->
-            AsyncImage(
-                model = IMAGE_URL + BACKDROP_SIZE + path,
-                contentDescription = movie.displayTitle,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-        }
-
-        // Tamni overlay sa gradijentom
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.85f),
-                            Color.Black.copy(alpha = 0.5f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-
-        // Sadržaj
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(40.dp)
-                .width(500.dp)
-        ) {
-            // Badge
-            Box(
-                modifier = Modifier
-                    .background(
-                        Color.White.copy(alpha = 0.12f),
-                        RoundedCornerShape(50.dp)
-                    )
-                    .border(
-                        width = 1.dp,
-                        color = Color.White.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(50.dp)
-                    )
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = "PREPORUČENO",
-                    color = TextPrimary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 1.5.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = movie.displayTitle,
-                color = TextPrimary,
-                fontSize = 42.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 48.sp
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = movie.displayDate,
-                color = TextSecondary,
-                fontSize = 16.sp
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text(
-                text = movie.overview,
-                color = TextSecondary,
-                fontSize = 15.sp,
-                lineHeight = 22.sp,
-                maxLines = 3
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                GlowButton(
-                    text = "▶  Gledaj",
-                    onClick = onClick,
-                    isPrimary = true
-                )
-                GlowButton(
-                    text = "+  Detalji",
-                    onClick = onClick,
-                    isPrimary = false
-                )
-            }
         }
     }
 }
 
 // ============================================================
-// MOVIE ROW SA SNAP SCROLLING-OM
+// RED SADRŽAJA — SNAP SCROLL + STAGGERED ULAZNA ANIMACIJA
 // ============================================================
-
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MovieRowSnap(
+private fun ContentRow(
     catalogId: String,
     title: String,
     movies: List<TmdbMovie>,
+    entranceIndex: Int,
     onMovieClick: (TmdbMovie) -> Unit,
     viewModel: HomeViewModel
 ) {
     val rowState = rememberLazyListState()
-
-    // Snap behavior — kartice se "zaključavaju"
-    val snappingLayout = remember(rowState) {
-        SnapLayoutInfoProvider(rowState)
-    }
+    val snappingLayout = remember(rowState) { SnapLayoutInfoProvider(rowState) }
     val snapFlingBehavior = rememberSnapFlingBehavior(snappingLayout)
 
     LaunchedEffect(catalogId, movies.size) {
@@ -650,11 +602,21 @@ private fun MovieRowSnap(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 48.dp)
+            .then(entranceModifier(entranceIndex))
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Accent traka ispred naslova (brending)
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(22.dp)
+                    .clip(CircleShape)
+                    .background(AccentGradient)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = title,
                 color = TextPrimary,
@@ -662,11 +624,7 @@ private fun MovieRowSnap(
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = "Prikaži sve ›",
-                color = TextSecondary,
-                fontSize = 14.sp
-            )
+            Text(text = "Prikaži sve ›", color = TextSecondary, fontSize = 14.sp)
         }
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -677,169 +635,235 @@ private fun MovieRowSnap(
             horizontalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(end = 48.dp)
         ) {
-            items(
-                items = movies,
-                key = { movie -> movie.id }
-            ) { movie ->
-                MovieCardGlow(
-                    movie = movie,
-                    onClick = { onMovieClick(movie) }
-                )
+            items(items = movies, key = { movie -> movie.id }) { movie ->
+                PosterCard(movie = movie, onClick = { onMovieClick(movie) })
             }
         }
     }
 }
 
 // ============================================================
-// MOVIE CARD SA GLOW EFEKTOM (kao Apple TV)
+// STAGGERED ULAZNA ANIMACIJA (fade + slide odozdo)
 // ============================================================
-
 @Composable
-private fun MovieCardGlow(
-    movie: TmdbMovie,
-    onClick: () -> Unit
-) {
+private fun entranceModifier(index: Int): Modifier {
+    var shown by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        delay(120L * index)
+        shown = true
+    }
+
+    val alpha by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = tween(550),
+        label = "entranceAlpha"
+    )
+    val offsetY by animateFloatAsState(
+        targetValue = if (shown) 0f else 60f,
+        animationSpec = tween(550),
+        label = "entranceY"
+    )
+
+    return Modifier.graphicsLayer {
+        this.alpha = alpha
+        this.translationY = offsetY
+    }
+}
+
+// ============================================================
+// POSTER KARTICA — GLOW + SKALA + OTKRIVANJE NASLOVA
+// ============================================================
+@Composable
+private fun PosterCard(movie: TmdbMovie, onClick: () -> Unit) {
     TvFocusableButton(
+        onClick = onClick,
         modifier = Modifier
-            .width(180.dp)
-            .height(270.dp),
-        onClick = onClick
+            .width(170.dp)
+            .height(255.dp)
     ) { isFocused ->
-        val scale = if (isFocused) 1.08f else 1f
-        val elevation = if (isFocused) 16.dp else 0.dp
+        val scale by animateFloatAsState(
+            targetValue = if (isFocused) 1.08f else 1f,
+            animationSpec = tween(250),
+            label = "cardScale"
+        )
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .scale(scale)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(CardShape)
+                .background(Color(0xFF141419))
                 .then(
                     if (isFocused) {
                         Modifier
-                            .border(
-                                width = 2.dp,
-                                color = Color(0xFF3B82F6).copy(alpha = 0.8f),
-                                shape = RoundedCornerShape(16.dp)
-                            )
+                            .border(2.dp, AccentGradient, CardShape)
                             .drawWithContent {
                                 drawContent()
-                                // Glow efekat
+                                // Glow efekat u brend bojama
                                 drawRect(
                                     brush = Brush.radialGradient(
                                         colors = listOf(
-                                            Color(0xFF3B82F6).copy(alpha = 0.25f),
+                                            AccentCyan.copy(alpha = 0.22f),
                                             Color.Transparent
                                         ),
                                         center = Offset(size.width / 2, size.height / 2),
-                                        radius = size.width * 0.8f
+                                        radius = size.width * 0.85f
                                     )
                                 )
                             }
                     } else {
-                        Modifier.border(
-                            width = 1.dp,
-                            color = Color.White.copy(alpha = 0.06f),
-                            shape = RoundedCornerShape(16.dp)
-                        )
+                        Modifier.border(1.dp, Color.White.copy(alpha = 0.06f), CardShape)
                     }
                 )
         ) {
-            MovieCard(
-                posterPath = movie.posterPath,
+            AsyncImage(
+                model = "https://image.tmdb.org/t/p/w500${movie.posterPath}",
+                contentDescription = movie.displayTitle(),
                 modifier = Modifier.fillMaxSize(),
-                onClick = onClick
+                contentScale = ContentScale.Crop
             )
 
-            // Fade gradijent na dnu za naslov
-            AnimatedVisibility(
-                visible = isFocused,
-                enter = fadeIn(tween(200)),
-                exit = fadeOut(tween(200))
-            ) {
+            // Ocenа bedž gore desno (samo na fokusu)
+            if (isFocused) {
                 Box(
                     modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.Black.copy(alpha = 0.7f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "★ ${movie.displayRating()}",
+                        color = Color(0xFFFFC107),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            // Donji gradijent + naslov (samo na fokusu)
+            if (isFocused) {
+                Column(
+                    modifier = Modifier
                         .fillMaxWidth()
-                        .height(80.dp)
                         .align(Alignment.BottomCenter)
                         .background(
                             Brush.verticalGradient(
-                                listOf(
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = 0.8f)
-                                )
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
                             )
                         )
-                )
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = movie.displayTitle(),
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
 }
 
 // ============================================================
-// GLOW DUGME (za Hero sekciju)
+// SHIMMER LOADING EKRAN
 // ============================================================
-
 @Composable
-private fun GlowButton(
-    text: String,
-    onClick: () -> Unit,
-    isPrimary: Boolean
-) {
-    TvFocusableButton(
+fun ShimmerHomeScreen() {
+    val infinite = rememberInfiniteTransition(label = "shimmer")
+    val progress by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerProgress"
+    )
+
+    fun shimmerBrush(): Brush = Brush.horizontalGradient(
+        colors = listOf(Color(0xFF17171D), Color(0xFF2A2A34), Color(0xFF17171D)),
+        startX = -600f + progress * 2200f,
+        endX = progress * 2200f
+    )
+
+    Column(
         modifier = Modifier
-            .width(if (isPrimary) 160.dp else 150.dp)
-            .height(50.dp),
-        onClick = onClick
-    ) { isFocused ->
-        val bgColor = if (isPrimary) {
-            Color.White
-        } else {
-            Color.White.copy(alpha = 0.12f)
+            .fillMaxSize()
+            .background(Background)
+            .padding(horizontal = 48.dp, vertical = 24.dp)
+    ) {
+        // Top bar placeholder
+        Box(modifier = Modifier.width(220.dp).height(32.dp).clip(RoundedCornerShape(8.dp)).background(shimmerBrush()))
+        Spacer(modifier = Modifier.height(48.dp))
+        // Hero placeholder
+        Box(modifier = Modifier.width(520.dp).height(64.dp).clip(RoundedCornerShape(12.dp)).background(shimmerBrush()))
+        Spacer(modifier = Modifier.height(16.dp))
+        Box(modifier = Modifier.width(360.dp).height(20.dp).clip(RoundedCornerShape(8.dp)).background(shimmerBrush()))
+        Spacer(modifier = Modifier.height(28.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Box(modifier = Modifier.width(150.dp).height(48.dp).clip(RoundedCornerShape(24.dp)).background(shimmerBrush()))
+            Box(modifier = Modifier.width(150.dp).height(48.dp).clip(RoundedCornerShape(24.dp)).background(shimmerBrush()))
         }
-
-        val textColor = if (isPrimary) {
-            Color.Black
-        } else {
-            TextPrimary
+        Spacer(modifier = Modifier.height(56.dp))
+        // Row placeholder
+        Box(modifier = Modifier.width(260.dp).height(26.dp).clip(RoundedCornerShape(8.dp)).background(shimmerBrush()))
+        Spacer(modifier = Modifier.height(20.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            repeat(6) {
+                Box(modifier = Modifier.width(170.dp).height(255.dp).clip(CardShape).background(shimmerBrush()))
+            }
         }
+    }
+}
 
-        val scale = if (isFocused) 1.05f else 1f
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .scale(scale)
-                .clip(RoundedCornerShape(14.dp))
-                .background(bgColor)
-                .then(
-                    if (isFocused && isPrimary) {
-                        Modifier.border(
-                            width = 2.dp,
-                            color = Color.White.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(14.dp)
-                        )
-                    } else if (isFocused) {
-                        Modifier.border(
-                            width = 1.5.dp,
-                            color = Color.White.copy(alpha = 0.3f),
-                            shape = RoundedCornerShape(14.dp)
-                        )
-                    } else {
-                        Modifier.border(
-                            width = 1.dp,
-                            color = Color.White.copy(alpha = 0.1f),
-                            shape = RoundedCornerShape(14.dp)
-                        )
-                    }
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = text,
-                color = textColor,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold
+// ============================================================
+// ERROR EKRAN
+// ============================================================
+@Composable
+fun ErrorScreen(message: String, onRetry: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Background),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(text = "⚠️", fontSize = 52.sp)
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = message,
+            color = TextSecondary,
+            fontSize = 16.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.height(28.dp))
+        TvFocusableButton(onClick = onRetry) { isFocused ->
+            val scale by animateFloatAsState(
+                targetValue = if (isFocused) 1.07f else 1f,
+                animationSpec = tween(200),
+                label = "retryScale"
             )
+            Box(
+                modifier = Modifier
+                    .scale(scale)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(if (isFocused) Color.White else Color.White.copy(alpha = 0.9f))
+                    .padding(horizontal = 32.dp, vertical = 14.dp)
+            ) {
+                Text(
+                    text = "Pokušaj ponovo",
+                    color = Color.Black,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 }
