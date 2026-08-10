@@ -7,14 +7,13 @@ import com.igor.istreamingtv.data.remote.stremio.AddonManager
 import com.igor.istreamingtv.data.remote.stremio.StremioStream
 
 class StreamRepository(
-    private val apiKey: String
+    private val accessToken: String
 ) {
-
-    private val tmdbApi = TmdbClient.retrofit.create(TmdbApi::class.java)
+    private val tmdbApi = TmdbClient.createRetrofit(accessToken).create(TmdbApi::class.java)
     private val addonManager = AddonManager()
 
     suspend fun getMovieDetails(movieId: Int): TmdbMovieDetails {
-        return tmdbApi.getMovieDetails(movieId, apiKey)
+        return tmdbApi.getMovieDetails(movieId)
     }
 
     suspend fun getStreamsForMovie(imdbId: String): List<StremioStream> {
