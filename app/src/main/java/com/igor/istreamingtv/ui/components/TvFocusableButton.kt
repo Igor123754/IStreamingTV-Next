@@ -1,5 +1,6 @@
 package com.igor.istreamingtv.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
@@ -12,8 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import androidx.compose.ui.semantics.Role
 
 @Composable
 fun TvFocusableButton(
@@ -24,8 +24,7 @@ fun TvFocusableButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    Surface(
-        onClick = onClick,
+    Box(
         modifier = modifier
             .onPreviewKeyEvent { event ->
                 if (event.key == Key.Enter || event.key == Key.DirectionCenter) {
@@ -34,22 +33,30 @@ fun TvFocusableButton(
                 } else {
                     false
                 }
-            },
-        interactionSource = interactionSource,
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = androidx.compose.ui.graphics.Color.Transparent,
-            focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-            pressedContainerColor = androidx.compose.ui.graphics.Color.Transparent
-        ),
-        shape = ClickableSurfaceDefaults.shape(
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
-        )
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            content(isFocused)
-        }
+        content(isFocused)
+    }
+}
+
+// Overload za postojeće pozive bez isFocused parametra
+@Composable
+fun TvFocusableButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    TvFocusableButton(
+        onClick = onClick,
+        modifier = modifier
+    ) { _ ->
+        content()
     }
 }
