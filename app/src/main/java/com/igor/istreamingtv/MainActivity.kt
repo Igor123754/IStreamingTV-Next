@@ -31,8 +31,8 @@ class MainActivity : ComponentActivity() {
                                 detailsReturnScreen = Screen.HOME
                                 currentScreen = Screen.DETAILS
                             },
-                            onMoviesClick = {
-                                currentScreen = Screen.MOVIES
+                            onAddToLibrary = {
+                                // TODO: implement add to library action
                             }
                         )
                     }
