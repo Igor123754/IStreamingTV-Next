@@ -64,7 +64,8 @@ fun HomeScreen(
                 CleanTvContent(
                     movies = state.movies,
                     series = state.series,
-                    onMovieClick = onMovieClick
+                    onMovieClick = onMovieClick,
+                    onMoviesClick = onMoviesClick
                 )
             }
         }
@@ -75,7 +76,8 @@ fun HomeScreen(
 private fun CleanTvContent(
     movies: List<TmdbMovie>,
     series: List<TmdbMovie>,
-    onMovieClick: (TmdbMovie) -> Unit
+    onMovieClick: (TmdbMovie) -> Unit,
+    onMoviesClick: () -> Unit
 ) {
     val heroMovies = remember(movies) { movies.take(5) }
     var heroIndex by remember { mutableIntStateOf(0) }
@@ -110,7 +112,8 @@ private fun CleanTvContent(
                             movie = featured,
                             currentIndex = heroIndex,
                             totalCount = heroMovies.size,
-                            onMovieClick = onMovieClick
+                            onMovieClick = onMovieClick,
+                            onMoviesClick = onMoviesClick
                         )
                     }
                 }
@@ -145,7 +148,8 @@ private fun CleanHero(
     movie: TmdbMovie,
     currentIndex: Int,
     totalCount: Int,
-    onMovieClick: (TmdbMovie) -> Unit
+    onMovieClick: (TmdbMovie) -> Unit,
+    onMoviesClick: () -> Unit
 ) {
     Crossfade(targetState = movie, animationSpec = tween(1000), label = "hero") { currentMovie ->
         Box(modifier = Modifier.fillMaxSize()) {
@@ -252,21 +256,41 @@ private fun CleanHero(
                 )
 
                 // Dugme za gledanje ("Go to Show" stil)
-                TvFocusableButton(onClick = { onMovieClick(currentMovie) }) { focused ->
-                    val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(150), label = "")
-                    Box(
-                        modifier = Modifier
-                            .scale(scale)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White)
-                            .padding(horizontal = 42.dp, vertical = 14.dp)
-                    ) {
-                        Text(
-                            text = "Gledaj",
-                            color = Color.Black,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TvFocusableButton(onClick = { onMovieClick(currentMovie) }) { focused ->
+                        val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(150), label = "")
+                        Box(
+                            modifier = Modifier
+                                .scale(scale)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.White)
+                                .padding(horizontal = 42.dp, vertical = 14.dp)
+                        ) {
+                            Text(
+                                text = "Gledaj",
+                                color = Color.Black,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    TvFocusableButton(onClick = onMoviesClick) { focused ->
+                        val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(150), label = "")
+                        Box(
+                            modifier = Modifier
+                                .scale(scale)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.White.copy(alpha = 0.14f))
+                                .padding(horizontal = 28.dp, vertical = 14.dp)
+                        ) {
+                            Text(
+                                text = "Sve filmove",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
