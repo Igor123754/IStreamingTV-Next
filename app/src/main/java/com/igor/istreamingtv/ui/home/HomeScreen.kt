@@ -43,7 +43,7 @@ private fun TmdbMovie.displayYear(): String = displayDate.take(4)
 @Composable
 fun HomeScreen(
     onMovieClick: (TmdbMovie) -> Unit,
-    onMoviesClick: () -> Unit,
+    onAddToLibrary: () -> Unit = {},
     viewModel: HomeViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -61,11 +61,11 @@ fun HomeScreen(
                 ErrorScreen(message = state.error ?: "Nepoznata greška", onRetry = viewModel::loadContent)
             }
             else -> {
-                CleanTvContent(
+                AppleTvHomeContent(
                     movies = state.movies,
                     series = state.series,
                     onMovieClick = onMovieClick,
-                    onMoviesClick = onMoviesClick
+                    onAddToLibrary = onAddToLibrary
                 )
             }
         }
@@ -73,11 +73,11 @@ fun HomeScreen(
 }
 
 @Composable
-private fun CleanTvContent(
+private fun AppleTvHomeContent(
     movies: List<TmdbMovie>,
     series: List<TmdbMovie>,
     onMovieClick: (TmdbMovie) -> Unit,
-    onMoviesClick: () -> Unit
+    onAddToLibrary: () -> Unit
 ) {
     val heroMovies = remember(movies) { movies.take(5) }
     var heroIndex by remember { mutableIntStateOf(0) }
@@ -102,10 +102,25 @@ private fun CleanTvContent(
             
             // 1. Hero Sekcija preko pola ekrana
             item {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 24.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "Početna", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(text = "Serije", color = Color.White.copy(alpha = 0.6f), fontSize = 16.sp)
+                        Text(text = "Filmovi", color = Color.White.copy(alpha = 0.6f), fontSize = 16.sp)
+                        Text(text = "Biblioteka", color = Color.White.copy(alpha = 0.6f), fontSize = 16.sp)
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+            }
+
+            item {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(600.dp) 
+                        .height(620.dp)
                 ) {
                     if (featured != null) {
                         CleanHero(
@@ -113,17 +128,16 @@ private fun CleanTvContent(
                             currentIndex = heroIndex,
                             totalCount = heroMovies.size,
                             onMovieClick = onMovieClick,
-                            onMoviesClick = onMoviesClick
+                            onAddToLibrary = onAddToLibrary
                         )
                     }
                 }
             }
 
-            // 2. Klasični redovi (bez Up Next)
             if (movies.isNotEmpty()) {
                 item {
                     ContentRow(
-                        title = "Sada u trendu",
+                        title = "Nova izdanja",
                         movies = movies,
                         onMovieClick = onMovieClick
                     )
@@ -133,7 +147,7 @@ private fun CleanTvContent(
             if (series.isNotEmpty()) {
                 item {
                     ContentRow(
-                        title = "Popularne serije",
+                        title = "Popularno sada",
                         movies = series,
                         onMovieClick = onMovieClick
                     )
@@ -149,7 +163,7 @@ private fun CleanHero(
     currentIndex: Int,
     totalCount: Int,
     onMovieClick: (TmdbMovie) -> Unit,
-    onMoviesClick: () -> Unit
+    onAddToLibrary: () -> Unit
 ) {
     Crossfade(targetState = movie, animationSpec = tween(1000), label = "hero") { currentMovie ->
         Box(modifier = Modifier.fillMaxSize()) {
@@ -194,17 +208,17 @@ private fun CleanHero(
                     )
             )
 
-            // "Home" dugme u gornjem levom uglu (kao na slici)
+            // Top categories like Apple TV
             Row(
                 modifier = Modifier
-                    .padding(top = 32.dp, start = 40.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.White.copy(alpha = 0.2f))
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .fillMaxWidth()
+                    .padding(top = 32.dp, start = 40.dp, end = 40.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "🏠", fontSize = 16.sp, modifier = Modifier.padding(end = 8.dp))
-                Text(text = "Početna", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(text = "PREMIJERA", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(text = "DOKUMENTARCI", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                Text(text = "TRENDOVI", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
             }
 
             // Sadržaj dole levo
@@ -255,39 +269,40 @@ private fun CleanHero(
                     modifier = Modifier.fillMaxWidth(0.5f).padding(top = 4.dp, bottom = 8.dp)
                 )
 
-                // Dugme za gledanje ("Go to Show" stil)
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Dugmad u hero sekciji
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     TvFocusableButton(onClick = { onMovieClick(currentMovie) }) { focused ->
                         val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(150), label = "")
                         Box(
                             modifier = Modifier
                                 .scale(scale)
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(Color.White)
-                                .padding(horizontal = 42.dp, vertical = 14.dp)
+                                .padding(horizontal = 34.dp, vertical = 16.dp)
                         ) {
                             Text(
                                 text = "Gledaj",
                                 color = Color.Black,
-                                fontSize = 17.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
 
-                    TvFocusableButton(onClick = onMoviesClick) { focused ->
+                    TvFocusableButton(onClick = onAddToLibrary) { focused ->
                         val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(150), label = "")
                         Box(
                             modifier = Modifier
                                 .scale(scale)
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(Color.White.copy(alpha = 0.14f))
-                                .padding(horizontal = 28.dp, vertical = 14.dp)
+                                .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+                                .padding(horizontal = 30.dp, vertical = 16.dp)
                         ) {
                             Text(
-                                text = "Sve filmove",
+                                text = "Dodaj u biblioteku",
                                 color = Color.White,
-                                fontSize = 15.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
