@@ -6,9 +6,6 @@ data class MovieResponse(
     val total_pages: Int
 )
 
-// NAPOMENA: TV stavke (serije) nemaju "title" već "name",
-// a neke stavke nemaju overview ili genre_ids.
-// Zato su sva ta polja nullable — UI koristi bezbedne ekstenzije ispod.
 data class TmdbMovie(
     val id: Int,
     val title: String?,
@@ -24,7 +21,6 @@ data class TmdbMovie(
 )
 
 // Extension properties — UI koristi ova imena (null-safe)
-// Naslov: srpski (title/name iz sr-RS poziva) → originalni → prazno
 val TmdbMovie.displayTitle: String
     get() = title?.takeIf { it.isNotBlank() }
         ?: name?.takeIf { it.isNotBlank() }
@@ -56,17 +52,33 @@ data class Genre(
     val name: String
 )
 
-// ===== HERO: clearlogo, prevodi, uzrastne oznake =====
+// ===== HERO / DETALJI: clearlogo, prevodi, uzrast, glumci =====
 
 data class TmdbHeroDetails(
     val id: Int = 0,
     val title: String? = null,
     val name: String? = null,
     val overview: String? = null,
+    val backdrop_path: String? = null,
+    val poster_path: String? = null,
+    val release_date: String? = null,
+    val first_air_date: String? = null,
+    val runtime: Int? = null,
+    val episode_run_time: List<Int>? = null,
+    val genres: List<Genre>? = null,
+    val imdb_id: String? = null,
     val images: TmdbImages? = null,
     val translations: TmdbTranslations? = null,
     val release_dates: TmdbReleaseDates? = null,
-    val content_ratings: TmdbContentRatings? = null
+    val content_ratings: TmdbContentRatings? = null,
+    val credits: TmdbCredits? = null
+)
+
+data class TmdbCredits(val cast: List<TmdbCast> = emptyList())
+
+data class TmdbCast(
+    val name: String? = null,
+    val character: String? = null
 )
 
 data class TmdbImages(val logos: List<TmdbLogo> = emptyList())
