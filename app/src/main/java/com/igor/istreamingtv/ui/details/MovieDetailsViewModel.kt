@@ -2,8 +2,11 @@ package com.igor.istreamingtv.ui.details
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.igor.istreamingtv.data.remote.TmdbMovieDetails
+import com.igor.istreamingtv.BuildConfig
+import com.igor.istreamingtv.data.remote.TmdbHeroDetails
+import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.data.remote.stremio.StremioStream
+import com.igor.istreamingtv.data.repository.ContentRepository
 import com.igor.istreamingtv.data.repository.StreamRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,33 +15,43 @@ import kotlinx.coroutines.launch
 
 data class DetailsUiState(
     val isLoading: Boolean = true,
-    val movieDetails: TmdbMovieDetails? = null,
+    val details: TmdbHeroDetails? = null,
     val streams: List<StremioStream> = emptyList(),
     val error: String? = null
 )
 
-class MovieDetailsViewModel(
-    private val streamRepository: StreamRepository
-) : ViewModel() {
+class MovieDetailsViewModel : ViewModel() {
+
+    private val tmdbRepository = ContentRepository(BuildConfig.TMDB_API_KEY)
+    private val streamRepository = StreamRepository(BuildConfig.TMDB_API_KEY)
 
     private val _uiState = MutableStateFlow(DetailsUiState())
     val uiState: StateFlow<DetailsUiState> = _uiState.asStateFlow()
 
-    fun loadMovieDetails(movieId: Int) {
+    fun load(movie: TmdbMovie, isTv: Boolean) {
         viewModelScope.launch {
             _uiState.value = DetailsUiState(isLoading = true)
-
             try {
-                val details: TmdbMovieDetails = streamRepository.getMovieDetails(movieId)
-                val streams: List<StremioStream> = if (!details.imdb_id.isNullOrEmpty()) {
-                    streamRepository.getStreamsForMovie(details.imdb_id)
+                val details = if (isTv) {
+                    tmdbRepository.getTvHeroDetails(movie.id)
+                } else {
+                    tmdbRepository.getMovieHeroDetails(movie.id)
+                }
+
+                // Stream-ovi samo za filmove (preko imdb_id)
+                val streams = if (!isTv && !details.imdb_id.isNullOrBlank()) {
+                    try {
+                        streamRepository.getStreamsForMovie(details.imdb_id)
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
                 } else {
                     emptyList()
                 }
 
                 _uiState.value = DetailsUiState(
                     isLoading = false,
-                    movieDetails = details,
+                    details = details,
                     streams = streams
                 )
             } catch (e: Exception) {
