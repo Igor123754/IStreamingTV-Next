@@ -133,9 +133,9 @@ private fun AppleTvHero(
 
         Box(modifier = Modifier.fillMaxSize()) {
 
-            // 1) FANART 100% EKRANA
+            // 1) FANART 100% EKRANA (w1280 = HD kvalitet, mala memorija)
             AsyncImage(
-                model = "https://image.tmdb.org/t/p/original" + movie.displayBackdropUrl(),
+                model = "https://image.tmdb.org/t/p/w1280" + movie.displayBackdropUrl(),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
@@ -192,13 +192,13 @@ private fun AppleTvHero(
             ) {
                 val logoUrl = extras?.clearLogoUrl
                 if (logoUrl != null) {
-                    // Clearlogo (srpski ako postoji, inače originalni)
+                    // Clearlogo (srpski ako postoji, inače originalni) — kompaktna veličina
                     AsyncImage(
                         model = logoUrl,
                         contentDescription = movie.displayTitle,
                         modifier = Modifier
-                            .widthIn(max = 480.dp)
-                            .height(150.dp),
+                            .width(300.dp)
+                            .height(100.dp),
                         contentScale = ContentScale.Fit,
                         alignment = Alignment.CenterStart
                     )
