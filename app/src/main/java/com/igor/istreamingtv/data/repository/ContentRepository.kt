@@ -2,9 +2,11 @@ package com.igor.istreamingtv.data.repository
 
 import com.igor.istreamingtv.data.remote.TmdbApi
 import com.igor.istreamingtv.data.remote.TmdbClient
+import com.igor.istreamingtv.data.remote.TmdbCollectionDetails
 import com.igor.istreamingtv.data.remote.TmdbHeroDetails
 import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.data.remote.TmdbMovieDetails
+import com.igor.istreamingtv.data.remote.TmdbSeasonDetails
 
 class ContentRepository(
     private val accessToken: String
@@ -30,4 +32,10 @@ class ContentRepository(
 
     suspend fun getTvHeroDetails(tvId: Int): TmdbHeroDetails =
         api.getTvHeroDetails(tvId)
+
+    suspend fun getCollectionDetails(collectionId: Int): TmdbCollectionDetails =
+        api.getCollectionDetails(collectionId)
+
+    suspend fun getSeasonDetails(tvId: Int, seasonNumber: Int): TmdbSeasonDetails =
+        api.getSeasonDetails(tvId, seasonNumber)
 }
