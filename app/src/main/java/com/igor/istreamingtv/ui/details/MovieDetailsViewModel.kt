@@ -2,6 +2,8 @@ package com.igor.istreamingtv.ui.details
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
+import com.google.gson.JsonParser
 import com.igor.istreamingtv.BuildConfig
 import com.igor.istreamingtv.data.remote.TmdbEpisode
 import com.igor.istreamingtv.data.remote.TmdbHeroDetails
@@ -10,11 +12,15 @@ import com.igor.istreamingtv.data.remote.TmdbSeason
 import com.igor.istreamingtv.data.remote.stremio.StremioStream
 import com.igor.istreamingtv.data.repository.ContentRepository
 import com.igor.istreamingtv.data.repository.StreamRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 data class DetailsUiState(
     val isLoading: Boolean = true,
@@ -33,6 +39,8 @@ class MovieDetailsViewModel : ViewModel() {
 
     private val tmdbRepository = ContentRepository(BuildConfig.TMDB_API_KEY)
     private val streamRepository = StreamRepository(BuildConfig.TMDB_API_KEY)
+    private val okHttpClient = OkHttpClient()
+    private val gson = Gson()
 
     private val _uiState = MutableStateFlow(DetailsUiState())
     val uiState: StateFlow<DetailsUiState> = _uiState.asStateFlow()
@@ -47,7 +55,6 @@ class MovieDetailsViewModel : ViewModel() {
                     tmdbRepository.getMovieHeroDetails(movie.id)
                 }
 
-                // Similar content is fetched in parallel with everything else
                 val similarDeferred = async {
                     try {
                         if (isTv) tmdbRepository.getSimilarSeries(movie.id)
@@ -57,7 +64,6 @@ class MovieDetailsViewModel : ViewModel() {
                     }
                 }
 
-                // Streams are movies-only (via imdb_id)
                 val streams = if (!isTv && !details.imdb_id.isNullOrBlank()) {
                     try {
                         streamRepository.getStreamsForMovie(details.imdb_id)
@@ -68,7 +74,6 @@ class MovieDetailsViewModel : ViewModel() {
                     emptyList()
                 }
 
-                // Movies: sequels / franchise
                 var collectionName: String? = null
                 var collectionParts = emptyList<TmdbMovie>()
                 if (!isTv) {
@@ -81,12 +86,11 @@ class MovieDetailsViewModel : ViewModel() {
                                 .filter { it.id != movie.id }
                                 .sortedBy { it.release_date ?: "" }
                         } catch (_: Exception) {
-                            // No collection — stays empty
+                            // Nema kolekcije
                         }
                     }
                 }
 
-                // Series: seasons + episodes
                 var seasons = emptyList<TmdbSeason>()
                 var selectedSeason = 0
                 var episodes = emptyList<TmdbEpisode>()
@@ -112,7 +116,7 @@ class MovieDetailsViewModel : ViewModel() {
             } catch (e: Exception) {
                 _uiState.value = DetailsUiState(
                     isLoading = false,
-                    error = e.message ?: "Error during loading"
+                    error = e.message ?: "Greška pri učitavanju"
                 )
             }
         }
@@ -126,6 +130,36 @@ class MovieDetailsViewModel : ViewModel() {
                 selectedSeasonNumber = seasonNumber,
                 episodes = episodes
             )
+        }
+    }
+
+    /**
+     * Stream-ovi za EPIZODU serije — Cinemeta addon format:
+     * stream/series/{imdb_id}:{sezona}:{epizoda}.json
+     */
+    suspend fun getEpisodeStreams(imdbId: String, season: Int, episode: Int): List<StremioStream> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "https://v3-cinemeta.strem.io/stream/series/$imdbId:$season:$episode.json"
+                val request = Request.Builder().url(url).get().build()
+                val response = okHttpClient.newCall(request).execute()
+                val body = response.body?.string()
+                response.close()
+                if (body.isNullOrBlank()) return@withContext emptyList()
+
+                val obj = JsonParser.parseString(body).asJsonObject
+                val arr = obj.getAsJsonArray("streams") ?: return@withContext emptyList()
+
+                arr.mapNotNull { element ->
+                    try {
+                        gson.fromJson(element, StremioStream::class.java)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
         }
     }
 
