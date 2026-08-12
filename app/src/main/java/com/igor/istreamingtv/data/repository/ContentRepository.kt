@@ -38,4 +38,10 @@ class ContentRepository(
 
     suspend fun getSeasonDetails(tvId: Int, seasonNumber: Int): TmdbSeasonDetails =
         api.getSeasonDetails(tvId, seasonNumber)
+
+    suspend fun getSimilarMovies(movieId: Int): List<TmdbMovie> =
+        api.getSimilarMovies(movieId).results
+
+    suspend fun getSimilarSeries(tvId: Int): List<TmdbMovie> =
+        api.getSimilarSeries(tvId).results
 }
