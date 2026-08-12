@@ -5,6 +5,9 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -17,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -34,18 +38,19 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 private val DetailsBackground = Color(0xFF020204)
+private val SurfaceBackground = Color(0xFF0C0D12)
 private val TextPrimary = Color.White
 private val TextSecondary = Color(0xB3FFFFFF)
+private val CardShape = RoundedCornerShape(12.dp)
 
 @Composable
 fun MovieDetailsScreen(
     movie: TmdbMovie,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onMovieClick: (TmdbMovie) -> Unit = {}
 ) {
     val viewModel: MovieDetailsViewModel = viewModel()
     val state by viewModel.uiState.collectAsState()
-
-    // Serije imaju "name", filmovi "title"
     val isTv = movie.name != null
 
     LaunchedEffect(movie.id) {
@@ -63,19 +68,113 @@ fun MovieDetailsScreen(
                 message = state.error ?: "Nepoznata greška",
                 onBack = onBack
             )
-            else -> DetailsContent(
+            else -> DetailsScrollContent(
                 movie = movie,
-                details = state.details,
-                streams = state.streams,
+                state = state,
                 isTv = isTv,
-                onBack = onBack
+                onBack = onBack,
+                onMovieClick = onMovieClick,
+                onSelectSeason = { season -> viewModel.selectSeason(movie.id, season) }
             )
         }
     }
 }
 
+/**
+ * Skrolabilna stranica detalja: hero 100% gore,
+ * ispod redovi (nastavci / sezone / epizode) sa enter animacijom.
+ */
 @Composable
-private fun DetailsContent(
+private fun DetailsScrollContent(
+    movie: TmdbMovie,
+    state: DetailsUiState,
+    isTv: Boolean,
+    onBack: () -> Unit,
+    onMovieClick: (TmdbMovie) -> Unit,
+    onSelectSeason: (Int) -> Unit
+) {
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+
+        item(key = "hero") {
+            Box(modifier = Modifier.fillParentMaxSize()) {
+                DetailsHero(
+                    movie = movie,
+                    details = state.details,
+                    streams = state.streams,
+                    isTv = isTv,
+                    onBack = onBack
+                )
+            }
+        }
+
+        // FILMOVI: red sa nastavcima / delovima franšize
+        if (!isTv && state.collectionParts.isNotEmpty()) {
+            item(key = "collection") {
+                EnterAnimatedRow {
+                    PosterRowSection(
+                        title = state.collectionName ?: "Nastavci i franšiza",
+                        items = state.collectionParts,
+                        onMovieClick = onMovieClick
+                    )
+                }
+            }
+        }
+
+        // SERIJE: red sa sezonama
+        if (isTv && state.seasons.isNotEmpty()) {
+            item(key = "seasons") {
+                EnterAnimatedRow {
+                    SeasonRowSection(
+                        seasons = state.seasons,
+                        selectedSeason = state.selectedSeasonNumber,
+                        onSelectSeason = onSelectSeason
+                    )
+                }
+            }
+        }
+
+        // SERIJE: red sa epizodama izabrane sezone
+        if (isTv && state.episodes.isNotEmpty()) {
+            item(key = "episodes") {
+                EnterAnimatedRow {
+                    EpisodeRowSection(
+                        seasonNumber = state.selectedSeasonNumber,
+                        episodes = state.episodes
+                    )
+                }
+            }
+        }
+
+        item(key = "bottom-spacer") {
+            Spacer(modifier = Modifier.height(60.dp))
+        }
+    }
+}
+
+/** Fade + slide-up animacija reda pri ulasku (Apple TV+ stil) */
+@Composable
+private fun EnterAnimatedRow(content: @Composable () -> Unit) {
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val rowAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(600), label = "row-alpha")
+    val rowOffsetY by animateFloatAsState(if (entered) 0f else 80f, tween(600), label = "row-offset")
+
+    Column(
+        modifier = Modifier
+            .graphicsLayer {
+                alpha = rowAlpha
+                translationY = rowOffsetY
+            }
+            .padding(top = 40.dp)
+    ) {
+        content()
+    }
+}
+
+// ================= HERO (gornji deo detalja) =================
+
+@Composable
+private fun DetailsHero(
     movie: TmdbMovie,
     details: TmdbHeroDetails?,
     streams: List<StremioStream>,
@@ -88,7 +187,6 @@ private fun DetailsContent(
     var selectedStream by remember { mutableIntStateOf(0) }
     var notice by remember { mutableStateOf<String?>(null) }
 
-    // Stvarni podaci
     val logoUrl = details?.pickClearLogoUrl()
     val overview = details?.pickSerbianOverview()
         ?: details?.overview?.takeIf { it.isNotBlank() }
@@ -115,7 +213,6 @@ private fun DetailsContent(
 
     Box(modifier = Modifier.fillMaxSize()) {
 
-        // 1) Fanart preko celog ekrana
         AsyncImage(
             model = backdropUrl,
             contentDescription = null,
@@ -123,7 +220,6 @@ private fun DetailsContent(
             contentScale = ContentScale.Crop
         )
 
-        // 2) Gradient dole za čitljivost (kao na screenshot-u)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -139,7 +235,7 @@ private fun DetailsContent(
                 )
         )
 
-        // 3) Clearlogo gore levo (srpski ako postoji, inače originalni)
+        // Clearlogo gore levo
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -168,7 +264,7 @@ private fun DetailsContent(
             }
         }
 
-        // 4) "Nazad" pilula gore desno
+        // Nazad pilula gore desno
         TvFocusableButton(
             onClick = onBack,
             modifier = Modifier
@@ -187,7 +283,7 @@ private fun DetailsContent(
             }
         }
 
-        // 5) Donja sekcija: dugmad | opis | uloge + meta red
+        // Donja sekcija
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -198,9 +294,7 @@ private fun DetailsContent(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(28.dp)
             ) {
-                // Levo: dugmad
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // GLEDAY
                     TvFocusableButton(onClick = {
                         if (!isTv && streams.isNotEmpty()) {
                             playStream(streams[selectedStream.coerceIn(0, streams.size - 1)])
@@ -229,7 +323,6 @@ private fun DetailsContent(
                         }
                     }
 
-                    // BIBLIOTEKA toggle
                     TvFocusableButton(onClick = { inLibrary = !inLibrary }) { focused ->
                         val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
                         Box(
@@ -249,13 +342,11 @@ private fun DetailsContent(
                         }
                     }
 
-                    // Obaveštenje (nema izvora / serije uskoro)
                     notice?.let {
                         Text(text = it, color = TextSecondary, fontSize = 13.sp)
                     }
                 }
 
-                // Sredina: opis
                 Text(
                     text = overview,
                     color = TextPrimary,
@@ -266,7 +357,6 @@ private fun DetailsContent(
                     modifier = Modifier.weight(1.2f)
                 )
 
-                // Desno: uloge
                 if (cast.isNotBlank()) {
                     Text(
                         text = "Uloge: $cast",
@@ -282,7 +372,6 @@ private fun DetailsContent(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Meta red: žanr • datum • trajanje • uzrast
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -311,7 +400,6 @@ private fun DetailsContent(
                 }
             }
 
-            // Izvori (samo ako ima više stream-ova za film)
             if (!isTv && streams.size > 1) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -342,6 +430,305 @@ private fun DetailsContent(
         }
     }
 }
+
+// ================= REDOVI =================
+
+@Composable
+private fun PosterRowSection(
+    title: String,
+    items: List<TmdbMovie>,
+    onMovieClick: (TmdbMovie) -> Unit
+) {
+    Text(
+        text = title,
+        color = TextPrimary,
+        fontSize = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
+    )
+
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
+    ) {
+        items(items, key = { it.id }) { movie ->
+            PosterCard(movie = movie, onClick = { onMovieClick(movie) })
+        }
+    }
+}
+
+@Composable
+private fun PosterCard(movie: TmdbMovie, onClick: () -> Unit) {
+    Column(modifier = Modifier.width(150.dp)) {
+        TvFocusableButton(
+            onClick = onClick,
+            modifier = Modifier
+                .width(150.dp)
+                .height(225.dp)
+        ) { focused ->
+            val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(220), label = "")
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .scale(scale)
+                    .clip(CardShape)
+                    .background(SurfaceBackground)
+                    .then(
+                        if (focused) Modifier.border(3.dp, Color.White, CardShape)
+                        else Modifier
+                    )
+            ) {
+                AsyncImage(
+                    model = "https://image.tmdb.org/t/p/w342" + movie.posterPath,
+                    contentDescription = movie.displayTitle,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = movie.displayTitle,
+            color = TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            lineHeight = 18.sp,
+            letterSpacing = 0.15.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun SeasonRowSection(
+    seasons: List<TmdbSeason>,
+    selectedSeason: Int,
+    onSelectSeason: (Int) -> Unit
+) {
+    Text(
+        text = "Sezone",
+        color = TextPrimary,
+        fontSize = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
+    )
+
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
+    ) {
+        items(seasons, key = { it.season_number }) { season ->
+            SeasonCard(
+                season = season,
+                selected = season.season_number == selectedSeason,
+                onClick = { onSelectSeason(season.season_number) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SeasonCard(
+    season: TmdbSeason,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Column(modifier = Modifier.width(150.dp)) {
+        TvFocusableButton(
+            onClick = onClick,
+            modifier = Modifier
+                .width(150.dp)
+                .height(225.dp)
+        ) { focused ->
+            val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(220), label = "")
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .scale(scale)
+                    .clip(CardShape)
+                    .background(SurfaceBackground)
+                    .then(
+                        if (focused || selected) Modifier.border(3.dp, Color.White, CardShape)
+                        else Modifier
+                    )
+            ) {
+                if (!season.poster_path.isNullOrBlank()) {
+                    AsyncImage(
+                        model = "https://image.tmdb.org/t/p/w342" + season.poster_path,
+                        contentDescription = season.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "S${season.season_number}",
+                            color = TextSecondary,
+                            fontSize = 30.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = season.name?.takeIf { it.isNotBlank() } ?: "${season.season_number}. sezona",
+            color = TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        if (season.episode_count > 0) {
+            Text(
+                text = "${season.episode_count} ep.",
+                color = TextSecondary,
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun EpisodeRowSection(
+    seasonNumber: Int,
+    episodes: List<TmdbEpisode>
+) {
+    Text(
+        text = "Sezona $seasonNumber · Epizode",
+        color = TextPrimary,
+        fontSize = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
+    )
+
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
+    ) {
+        items(episodes, key = { it.id }) { episode ->
+            EpisodeCard(episode = episode)
+        }
+    }
+}
+
+@Composable
+private fun EpisodeCard(episode: TmdbEpisode) {
+    Column(modifier = Modifier.width(300.dp)) {
+        TvFocusableButton(
+            onClick = { },
+            modifier = Modifier
+                .width(300.dp)
+                .height(169.dp)
+        ) { focused ->
+            val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(220), label = "")
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .scale(scale)
+                    .clip(CardShape)
+                    .background(SurfaceBackground)
+                    .then(
+                        if (focused) Modifier.border(3.dp, Color.White, CardShape)
+                        else Modifier
+                    )
+            ) {
+                if (!episode.still_path.isNullOrBlank()) {
+                    AsyncImage(
+                        model = "https://image.tmdb.org/t/p/w300" + episode.still_path,
+                        contentDescription = episode.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "E${episode.episode_number}",
+                            color = TextSecondary,
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+
+                // S/E bedž gore levo
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "S${episode.season_number} · E${episode.episode_number}",
+                        color = TextPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = episode.name?.takeIf { it.isNotBlank() } ?: "Epizoda ${episode.episode_number}",
+            color = TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (episode.vote_average > 0) {
+                Text(
+                    text = "★ %.1f".format(episode.vote_average),
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            val dateText = formatDate(episode.air_date)
+            if (dateText.isNotBlank()) {
+                Text(dateText, color = TextSecondary, fontSize = 12.sp)
+            }
+            val runtimeText = formatRuntime(episode.runtime)
+            if (runtimeText.isNotBlank()) {
+                Text(runtimeText, color = TextSecondary, fontSize = 12.sp)
+            }
+        }
+
+        val desc = episode.overview ?: ""
+        if (desc.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = desc,
+                color = TextSecondary,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+// ================= POMOĆNE =================
 
 private fun formatDate(iso: String?): String {
     if (iso.isNullOrBlank()) return ""
