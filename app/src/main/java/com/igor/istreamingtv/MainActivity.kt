@@ -54,6 +54,10 @@ class MainActivity : ComponentActivity() {
                                 movie = movie,
                                 onBack = {
                                     currentScreen = detailsReturnScreen
+                                },
+                                onMovieClick = { part ->
+                                    // Klik na nastavak ostaje u detaljima, menja naslov
+                                    selectedMovie = part
                                 }
                             )
                         } else {
