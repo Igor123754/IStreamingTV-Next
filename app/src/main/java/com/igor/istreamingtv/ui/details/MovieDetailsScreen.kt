@@ -65,7 +65,7 @@ fun MovieDetailsScreen(
         when {
             state.isLoading -> DetailsShimmer()
             state.error != null -> DetailsError(
-                message = state.error ?: "Nepoznata greška",
+                message = state.error ?: "Unknown error",
                 onBack = onBack
             )
             else -> DetailsScrollContent(
@@ -81,8 +81,8 @@ fun MovieDetailsScreen(
 }
 
 /**
- * Skrolabilna stranica detalja: hero 100% gore,
- * ispod redovi (nastavci / sezone / epizode) sa enter animacijom.
+ * Scrollable details page: hero 100% at the top,
+ * below it rows (sequels / seasons / episodes / similar) with enter animation.
  */
 @Composable
 private fun DetailsScrollContent(
@@ -107,12 +107,12 @@ private fun DetailsScrollContent(
             }
         }
 
-        // FILMOVI: red sa nastavcima / delovima franšize
+        // Movies: row of sequels / franchise parts
         if (!isTv && state.collectionParts.isNotEmpty()) {
             item(key = "collection") {
                 EnterAnimatedRow {
                     PosterRowSection(
-                        title = state.collectionName ?: "Nastavci i franšiza",
+                        title = state.collectionName ?: "Sequels and franchise",
                         items = state.collectionParts,
                         onMovieClick = onMovieClick
                     )
@@ -120,7 +120,7 @@ private fun DetailsScrollContent(
             }
         }
 
-        // SERIJE: red sa sezonama
+        // Series: row of seasons
         if (isTv && state.seasons.isNotEmpty()) {
             item(key = "seasons") {
                 EnterAnimatedRow {
@@ -133,7 +133,7 @@ private fun DetailsScrollContent(
             }
         }
 
-        // SERIJE: red sa epizodama izabrane sezone
+        // Series: row of episodes of the selected season
         if (isTv && state.episodes.isNotEmpty()) {
             item(key = "episodes") {
                 EnterAnimatedRow {
@@ -145,13 +145,26 @@ private fun DetailsScrollContent(
             }
         }
 
+        // Both: row of similar content (below collection / below episodes)
+        if (state.similar.isNotEmpty()) {
+            item(key = "similar") {
+                EnterAnimatedRow {
+                    PosterRowSection(
+                        title = if (isTv) "Similar series" else "Similar movies",
+                        items = state.similar,
+                        onMovieClick = onMovieClick
+                    )
+                }
+            }
+        }
+
         item(key = "bottom-spacer") {
             Spacer(modifier = Modifier.height(60.dp))
         }
     }
 }
 
-/** Fade + slide-up animacija reda pri ulasku (Apple TV+ stil) */
+/** Row fade + slide-up animation on entrance (Apple TV+ style) */
 @Composable
 private fun EnterAnimatedRow(content: @Composable () -> Unit) {
     var entered by remember { mutableStateOf(false) }
@@ -171,7 +184,7 @@ private fun EnterAnimatedRow(content: @Composable () -> Unit) {
     }
 }
 
-// ================= HERO (gornji deo detalja) =================
+// ================= HERO (top part of details) =================
 
 @Composable
 private fun DetailsHero(
@@ -235,7 +248,7 @@ private fun DetailsHero(
                 )
         )
 
-        // Clearlogo gore levo
+        // Clearlogo at the top left
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -264,7 +277,7 @@ private fun DetailsHero(
             }
         }
 
-        // Nazad pilula gore desno
+        // Back pill at the top right
         TvFocusableButton(
             onClick = onBack,
             modifier = Modifier
@@ -279,11 +292,11 @@ private fun DetailsHero(
                     .background(Color.White.copy(alpha = 0.22f))
                     .padding(horizontal = 20.dp, vertical = 10.dp)
             ) {
-                Text("← Nazad", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("← Back", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
         }
 
-        // Donja sekcija
+        // Bottom section
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -299,8 +312,8 @@ private fun DetailsHero(
                         if (!isTv && streams.isNotEmpty()) {
                             playStream(streams[selectedStream.coerceIn(0, streams.size - 1)])
                         } else {
-                            notice = if (isTv) "Reprodukcija serija stiže uskoro 🎬"
-                            else "Nema dostupnih izvora za ovaj naslov"
+                            notice = if (isTv) "Series playback coming soon 🎬"
+                            else "No available sources for this title"
                         }
                     }) { focused ->
                         val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
@@ -319,7 +332,7 @@ private fun DetailsHero(
                                 tint = Color.Black,
                                 modifier = Modifier.size(20.dp)
                             )
-                            Text("Gledaj", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Watch", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
 
@@ -334,7 +347,7 @@ private fun DetailsHero(
                                 .padding(horizontal = 26.dp, vertical = 12.dp)
                         ) {
                             Text(
-                                text = if (inLibrary) "✓ U biblioteci" else "＋ U biblioteku",
+                                text = if (inLibrary) "✓ In library" else "＋ Add to library",
                                 color = TextPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -359,7 +372,7 @@ private fun DetailsHero(
 
                 if (cast.isNotBlank()) {
                     Text(
-                        text = "Uloge: $cast",
+                        text = "Starring: $cast",
                         color = TextSecondary,
                         fontSize = 15.sp,
                         lineHeight = 22.sp,
@@ -417,7 +430,7 @@ private fun DetailsHero(
                                     .padding(horizontal = 18.dp, vertical = 8.dp)
                             ) {
                                 Text(
-                                    text = "Izvor ${index + 1}",
+                                    text = "Source ${index + 1}",
                                     color = if (index == selectedStream) Color.Black else Color.White,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -431,7 +444,7 @@ private fun DetailsHero(
     }
 }
 
-// ================= REDOVI =================
+// ================= Rows =================
 
 @Composable
 private fun PosterRowSection(
@@ -509,7 +522,7 @@ private fun SeasonRowSection(
     onSelectSeason: (Int) -> Unit
 ) {
     Text(
-        text = "Sezone",
+        text = "Seasons",
         color = TextPrimary,
         fontSize = 22.sp,
         fontWeight = FontWeight.SemiBold,
@@ -581,7 +594,7 @@ private fun SeasonCard(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = season.name?.takeIf { it.isNotBlank() } ?: "${season.season_number}. sezona",
+            text = season.name?.takeIf { it.isNotBlank() } ?: "${season.season_number}. season",
             color = TextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
@@ -605,7 +618,7 @@ private fun EpisodeRowSection(
     episodes: List<TmdbEpisode>
 ) {
     Text(
-        text = "Sezona $seasonNumber · Epizode",
+        text = "Season $seasonNumber · Episodes",
         color = TextPrimary,
         fontSize = 22.sp,
         fontWeight = FontWeight.SemiBold,
@@ -664,7 +677,7 @@ private fun EpisodeCard(episode: TmdbEpisode) {
                     }
                 }
 
-                // S/E bedž gore levo
+                // S/E badge at the top left
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -686,7 +699,7 @@ private fun EpisodeCard(episode: TmdbEpisode) {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = episode.name?.takeIf { it.isNotBlank() } ?: "Epizoda ${episode.episode_number}",
+            text = episode.name?.takeIf { it.isNotBlank() } ?: "Episode ${episode.episode_number}",
             color = TextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
@@ -728,7 +741,7 @@ private fun EpisodeCard(episode: TmdbEpisode) {
     }
 }
 
-// ================= POMOĆNE =================
+// ================= Helpers =================
 
 private fun formatDate(iso: String?): String {
     if (iso.isNullOrBlank()) return ""
@@ -785,7 +798,7 @@ private fun DetailsError(message: String, onBack: () -> Unit) {
                     .background(Color.White)
                     .padding(horizontal = 30.dp, vertical = 13.dp)
             ) {
-                Text("Nazad", color = Color.Black, fontWeight = FontWeight.SemiBold)
+                Text("Back", color = Color.Black, fontWeight = FontWeight.SemiBold)
             }
         }
     }
