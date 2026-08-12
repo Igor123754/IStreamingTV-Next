@@ -32,7 +32,6 @@ import kotlinx.coroutines.delay
 private val AppBackground = Color(0xFF020204)
 private val TextSecondary = Color(0xB3FFFFFF)
 
-// Mapiranje TMDB genre_ids u nazive (za "Comedy" stil prikaz kao na slici)
 private val genreNames = mapOf(
     28 to "Akcija", 12 to "Avantura", 16 to "Animacija", 35 to "Komedija",
     80 to "Krimi", 99 to "Dokumentarac", 18 to "Drama", 10751 to "Porodica",
@@ -47,6 +46,8 @@ private fun TmdbMovie.displayBackdropUrl(): String = backdropPath ?: posterPath 
 
 private fun TmdbMovie.displayGenre(): String =
     genre_ids.firstNotNullOfOrNull { genreNames[it] } ?: "Film"
+
+private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
 
 @Composable
 fun HomeScreen(
@@ -69,39 +70,50 @@ fun HomeScreen(
             )
             else -> AppleTvHomeContent(
                 movies = state.movies,
-                onMovieClick = onMovieClick
+                series = state.series,
+                heroExtras = state.heroExtras,
+                onMovieClick = onMovieClick,
+                onLoadHeroExtras = viewModel::loadHeroExtras
             )
         }
     }
 }
 
-/**
- * Početna u Apple TV+ stilu:
- * fanart preko CELOG ekrana (100%), bez "Up Next" redova.
- */
 @Composable
 private fun AppleTvHomeContent(
     movies: List<TmdbMovie>,
-    onMovieClick: (TmdbMovie) -> Unit
+    series: List<TmdbMovie>,
+    heroExtras: Map<Int, HeroExtras>,
+    onMovieClick: (TmdbMovie) -> Unit,
+    onLoadHeroExtras: (TmdbMovie, Boolean) -> Unit
 ) {
-    val heroMovies = remember(movies) { movies.take(8) }
+    // Hero rotacija: filmovi + serije
+    val heroItems = remember(movies, series) {
+        movies.take(5).map { HeroItem(it, isTv = false) } +
+            series.take(5).map { HeroItem(it, isTv = true) }
+    }
     var heroIndex by remember { mutableIntStateOf(0) }
-    val featured = heroMovies.getOrNull(heroIndex)
+    val featured = heroItems.getOrNull(heroIndex)
 
-    // Automatska rotacija hero sadržaja na 9 sekundi
-    LaunchedEffect(heroMovies.size) {
-        if (heroMovies.size < 2) return@LaunchedEffect
+    LaunchedEffect(heroItems.size) {
+        if (heroItems.size < 2) return@LaunchedEffect
         while (true) {
             delay(9000)
-            heroIndex = (heroIndex + 1) % heroMovies.size
+            heroIndex = (heroIndex + 1) % heroItems.size
         }
+    }
+
+    // Povuci clearlogo / srpski opis / uzrast za trenutni hero
+    LaunchedEffect(featured?.movie?.id) {
+        featured?.let { onLoadHeroExtras(it.movie, it.isTv) }
     }
 
     if (featured != null) {
         AppleTvHero(
-            movie = featured,
+            item = featured,
+            heroExtras = heroExtras,
             currentIndex = heroIndex,
-            totalCount = heroMovies.size,
+            totalCount = heroItems.size,
             onMovieClick = onMovieClick
         )
     }
@@ -109,23 +121,27 @@ private fun AppleTvHomeContent(
 
 @Composable
 private fun AppleTvHero(
-    movie: TmdbMovie,
+    item: HeroItem,
+    heroExtras: Map<Int, HeroExtras>,
     currentIndex: Int,
     totalCount: Int,
     onMovieClick: (TmdbMovie) -> Unit
 ) {
-    Crossfade(targetState = movie, animationSpec = tween(1000), label = "hero") { currentMovie ->
+    Crossfade(targetState = item, animationSpec = tween(1000), label = "hero") { currentItem ->
+        val movie = currentItem.movie
+        val extras = heroExtras[movie.id]
+
         Box(modifier = Modifier.fillMaxSize()) {
 
-            // 1) FANART PREKO 100% EKRANA
+            // 1) FANART 100% EKRANA
             AsyncImage(
-                model = "https://image.tmdb.org/t/p/original" + currentMovie.displayBackdropUrl(),
+                model = "https://image.tmdb.org/t/p/original" + movie.displayBackdropUrl(),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
 
-            // 2) Blage senke samo zbog čitljivosti teksta (levo + dole)
+            // 2) Diskretne senke za čitljivost
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -147,7 +163,7 @@ private fun AppleTvHero(
                     )
             )
 
-            // 3) "Home" pilula gore levo (kao na slici)
+            // 3) "Home" pilula gore levo
             Row(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -164,59 +180,73 @@ private fun AppleTvHero(
                     tint = Color.White,
                     modifier = Modifier.size(16.dp)
                 )
-                Text(
-                    text = "Početna",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Text("Početna", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
 
-            // 4) Naslov + žanr + bedž + opis + dugme (levo, vertikalno centrirano)
+            // 4) CLEARLOGO + žanr + uzrast + opis + dugme
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(start = 48.dp, end = 48.dp),
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(
-                    text = currentMovie.displayTitle,
-                    color = Color.White,
-                    fontSize = 54.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(0.6f)
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Žanr + bedž sa ocenom (kao "Comedy  [TV-MA]" na slici)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = currentMovie.displayGenre(),
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "★ %.1f".format(currentMovie.vote_average),
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
+                val logoUrl = extras?.clearLogoUrl
+                if (logoUrl != null) {
+                    // Clearlogo (srpski ako postoji, inače originalni)
+                    AsyncImage(
+                        model = logoUrl,
+                        contentDescription = movie.displayTitle,
                         modifier = Modifier
-                            .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .widthIn(max = 480.dp)
+                            .height(150.dp),
+                        contentScale = ContentScale.Fit,
+                        alignment = Alignment.CenterStart
+                    )
+                } else {
+                    // Fallback: običan naslov dok se logo ne učita / ako ne postoji
+                    Text(
+                        text = movie.displayTitle,
+                        color = Color.White,
+                        fontSize = 54.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(0.6f)
                     )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // Žanr + uzrastna preporuka (kao "Comedy [TV-MA]" na slici)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = movie.displayGenre(),
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    val cert = extras?.certification
+                    if (!cert.isNullOrBlank()) {
+                        Text(
+                            text = cert,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Opis: srpski ako postoji, inače originalni
                 Text(
-                    text = currentMovie.overview,
+                    text = extras?.overview ?: movie.overview,
                     color = Color.White,
                     fontSize = 15.sp,
                     lineHeight = 22.sp,
@@ -227,11 +257,8 @@ private fun AppleTvHero(
 
                 Spacer(modifier = Modifier.height(26.dp))
 
-                // Jedno belo dugme kao "Go to Show" na slici
-                TvFocusableButton(onClick = { onMovieClick(currentMovie) }) { focused ->
-                    val scale by animateFloatAsState(
-                        if (focused) 1.05f else 1f, tween(160), label = ""
-                    )
+                TvFocusableButton(onClick = { onMovieClick(movie) }) { focused ->
+                    val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
                     Box(
                         modifier = Modifier
                             .scale(scale)
@@ -239,17 +266,12 @@ private fun AppleTvHero(
                             .background(Color(0xFFE9E9F2))
                             .padding(horizontal = 36.dp, vertical = 14.dp)
                     ) {
-                        Text(
-                            text = "Pogledaj",
-                            color = Color.Black,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Text("Pogledaj", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
 
-            // 5) Carousel tačkice — dole na sredini (aktivna = izdužena, kao na slici)
+            // 5) Tačkice dole na sredini
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -313,7 +335,7 @@ fun ErrorScreen(message: String, onRetry: () -> Unit) {
                     .background(Color.White)
                     .padding(horizontal = 30.dp, vertical = 13.dp)
             ) {
-                Text(text = "Pokušaj ponovo", color = Color.Black, fontWeight = FontWeight.SemiBold)
+                Text("Pokušaj ponovo", color = Color.Black, fontWeight = FontWeight.SemiBold)
             }
         }
     }
