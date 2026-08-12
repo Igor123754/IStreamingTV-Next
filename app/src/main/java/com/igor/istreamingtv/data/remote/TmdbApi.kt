@@ -36,27 +36,25 @@ interface TmdbApi {
             "images,translations,release_dates,credits"
     ): TmdbHeroDetails
 
+    // Za serije dodajemo external_ids (imdb_id za Stremio stream-ove)
     @GET("tv/{tv_id}")
     suspend fun getTvHeroDetails(
         @Path("tv_id") tvId: Int,
         @Query("append_to_response") appendToResponse: String =
-            "images,translations,content_ratings,credits"
+            "images,translations,content_ratings,credits,external_ids"
     ): TmdbHeroDetails
 
-    // Collection (franchise / sequels)
     @GET("collection/{collection_id}")
     suspend fun getCollectionDetails(
         @Path("collection_id") collectionId: Int
     ): TmdbCollectionDetails
 
-    // Episodes of a season (Serbian if available)
     @GET("tv/{tv_id}/season/{season_number}?language=sr-RS")
     suspend fun getSeasonDetails(
         @Path("tv_id") tvId: Int,
         @Path("season_number") seasonNumber: Int
     ): TmdbSeasonDetails
 
-    // Similar content (for the "Similar" row on the details page)
     @GET("movie/{movie_id}/similar?language=sr-RS")
     suspend fun getSimilarMovies(
         @Path("movie_id") movieId: Int
