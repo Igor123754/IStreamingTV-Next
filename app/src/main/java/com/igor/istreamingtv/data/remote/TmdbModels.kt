@@ -13,6 +13,8 @@ data class TmdbMovie(
     val id: Int,
     val title: String?,
     val name: String?,
+    val original_title: String?,
+    val original_name: String?,
     val overview: String?,
     val poster_path: String?,
     val backdrop_path: String?,
@@ -22,7 +24,14 @@ data class TmdbMovie(
 )
 
 // Extension properties — UI koristi ova imena (null-safe)
-val TmdbMovie.displayTitle: String get() = title ?: name ?: ""
+// Naslov: srpski (title/name iz sr-RS poziva) → originalni → prazno
+val TmdbMovie.displayTitle: String
+    get() = title?.takeIf { it.isNotBlank() }
+        ?: name?.takeIf { it.isNotBlank() }
+        ?: original_title
+        ?: original_name
+        ?: ""
+
 val TmdbMovie.displayOverview: String get() = overview ?: ""
 val TmdbMovie.displayDate: String get() = release_date ?: ""
 val TmdbMovie.posterPath: String? get() = poster_path
