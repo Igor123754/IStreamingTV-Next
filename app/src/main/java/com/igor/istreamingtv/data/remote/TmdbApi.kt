@@ -29,7 +29,6 @@ interface TmdbApi {
         @Path("movie_id") movieId: Int
     ): TmdbMovieDetails
 
-    // Detalji za FILM: sve što treba hero/detaljima u jednom pozivu
     @GET("movie/{movie_id}")
     suspend fun getMovieHeroDetails(
         @Path("movie_id") movieId: Int,
@@ -37,11 +36,23 @@ interface TmdbApi {
             "images,translations,release_dates,credits"
     ): TmdbHeroDetails
 
-    // Detalji za SERIJU
     @GET("tv/{tv_id}")
     suspend fun getTvHeroDetails(
         @Path("tv_id") tvId: Int,
         @Query("append_to_response") appendToResponse: String =
             "images,translations,content_ratings,credits"
     ): TmdbHeroDetails
+
+    // Kolekcija (franšiza / nastavci filma)
+    @GET("collection/{collection_id}")
+    suspend fun getCollectionDetails(
+        @Path("collection_id") collectionId: Int
+    ): TmdbCollectionDetails
+
+    // Epizode sezone (srpski jezik kad postoji)
+    @GET("tv/{tv_id}/season/{season_number}?language=sr-RS")
+    suspend fun getSeasonDetails(
+        @Path("tv_id") tvId: Int,
+        @Path("season_number") seasonNumber: Int
+    ): TmdbSeasonDetails
 }
