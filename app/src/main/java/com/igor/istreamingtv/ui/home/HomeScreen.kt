@@ -362,16 +362,18 @@ private fun CatalogRowSection(
     catalog: Catalog,
     onMovieClick: (TmdbMovie) -> Unit
 ) {
+    // NAPOMENA: namerno rowAlpha/rowOffsetY (ne "alpha"),
+    // jer bi isto ime zaklonilo property iz graphicsLayer scope-a
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
-    val alpha by animateFloatAsState(if (entered) 1f else 0f, tween(600), label = "row-alpha")
-    val offsetY by animateFloatAsState(if (entered) 0f else 80f, tween(600), label = "row-offset")
+    val rowAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(600), label = "row-alpha")
+    val rowOffsetY by animateFloatAsState(if (entered) 0f else 80f, tween(600), label = "row-offset")
 
     Column(
         modifier = Modifier
             .graphicsLayer {
-                alpha = alpha
-                translationY = offsetY
+                alpha = rowAlpha
+                translationY = rowOffsetY
             }
             .padding(top = 40.dp)
     ) {
