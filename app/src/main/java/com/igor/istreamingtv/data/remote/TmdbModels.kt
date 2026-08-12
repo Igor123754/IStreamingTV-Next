@@ -41,6 +41,7 @@ data class Genre(
     val id: Int,
     val name: String
 )
+
 // ===== HERO: clearlogo, prevodi, uzrastne oznake =====
 
 data class TmdbHeroDetails(
@@ -99,7 +100,7 @@ fun TmdbHeroDetails.pickClearLogoUrl(): String? {
         ?: pool.firstOrNull { it.iso_639_1 == null }
         ?: pool.firstOrNull { it.iso_639_1 == "en" }
         ?: pool.maxByOrNull { it.vote_count }
-    return pick?.file_path?.let { "https://image.tmdb.org/t/p/original$it" }
+    return pick?.file_path?.let { "https://image.tmdb.org/t/p/w500$it" }
 }
 
 // Srpski opis ako postoji prevod
