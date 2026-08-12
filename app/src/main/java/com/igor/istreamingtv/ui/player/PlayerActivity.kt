@@ -19,14 +19,12 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import com.google.gson.JsonParser
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 /**
- * MOĆNI PLEJER — Media3 ExoPlayer podešen za sve:
- * od lakih 720p stream-ova do 4K REMUX (MKV/HEVC visokog bitrate-a).
- *
- * Podržava: MP4, MKV (Matroska), HLS (.m3u8), DASH (.mpd), SmoothStreaming,
- * WebM, HEVC/H.265, VP9, AV1 (zavisno od HW dekodera uređaja).
+ * MOĆNI PLEJER — Media3 ExoPlayer (720p → 4K REMUX).
+ * Za serije: kada se epizoda završi, automatski pušta SLEDEĆU.
  */
 class PlayerActivity : ComponentActivity() {
 
@@ -34,10 +32,13 @@ class PlayerActivity : ComponentActivity() {
     private var playerView: PlayerView? = null
     private var currentUrl: String? = null
 
+    // Podaci za "sledeća epizoda" (samo kod serija)
+    private var seriesImdb: String? = null
+    private var seasonNumber: Int = -1
+    private var episodeNumber: Int = -1
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Ne dozvoli gašenje ekrana tokom gledanja
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val info = extractStreamInfo()
@@ -48,7 +49,10 @@ class PlayerActivity : ComponentActivity() {
         }
         currentUrl = info.first
 
-        // UI: PlayerView programski (bez XML layout-a)
+        seriesImdb = intent.getStringExtra("series_imdb")
+        seasonNumber = intent.getIntExtra("season", -1)
+        episodeNumber = intent.getIntExtra("episode", -1)
+
         val view = PlayerView(this).apply {
             controllerShowTimeoutMs = 4000
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
@@ -58,7 +62,6 @@ class PlayerActivity : ComponentActivity() {
         playerView = view
         setContentView(view)
 
-        // Imersivni fullscreen (sakrij sistemske trake)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, view).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -69,17 +72,11 @@ class PlayerActivity : ComponentActivity() {
         buildPlayer(url = info.first)
     }
 
-    /**
-     * Prihvata stream na više načina (url extra, Gson "stream" JSON, data uri)
-     * da ostane kompatibilan sa postojećim pozivima iz aplikacije.
-     */
     private fun extractStreamInfo(): Pair<String, String?>? {
-        // 1) Direktan URL
         intent.getStringExtra("url")?.takeIf { it.isNotBlank() }?.let {
             return it to intent.getStringExtra("title")
         }
 
-        // 2) Gson JSON stream objekat (Stremio format: url / externalUrl)
         intent.getStringExtra("stream")?.let { json ->
             try {
                 val obj = JsonParser.parseString(json).asJsonObject
@@ -90,43 +87,28 @@ class PlayerActivity : ComponentActivity() {
                     ?: obj.get("name")?.takeIf { !it.isJsonNull }?.asString
                 if (!url.isNullOrBlank()) return url to title
             } catch (_: Exception) {
-                // Ako JSON nije validan, možda je sam string URL
                 if (json.startsWith("http")) return json to null
             }
         }
 
-        // 3) data uri
         intent.data?.toString()?.let { return it to null }
-
         return null
     }
 
     private fun buildPlayer(url: String) {
         val context = this
 
-        // 1) Rendereri: HW dekoder sa automatskim fallback-om na SW
-        //    (ključno za HEVC/AV1 kontejnere u MKV remux-ovima)
         val renderersFactory = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
 
-        // 2) Track selector: bira NAJKVALITETNIJI video/audio koji uređaj podržava
         val trackSelector = DefaultTrackSelector(context)
 
-        // 3) Buffer podešen za 4K REMUX (visoki bitrate-i):
-        //    veliki read-ahead + povećan memorijski budžet
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                /* minBufferMs = */ 20_000,
-                /* maxBufferMs = */ 60_000,
-                /* bufferForPlaybackMs = */ 2_000,
-                /* bufferForPlaybackAfterRebufferMs = */ 5_000
-            )
-            .setTargetBufferBytes(96 * 1024 * 1024) // 96 MB — remux-ovi gutaju mnogo
-            .setBackBuffer(30_000, false)           // 30s unazad za premotavanje
+            .setBufferDurationsMs(20_000, 60_000, 2_000, 5_000)
+            .setTargetBufferBytes(96 * 1024 * 1024)
+            .setBackBuffer(30_000, false)
             .build()
 
-        // 4) Mreža: OkHttp — bolje barata ogromnim stream-ovima,
-        //    redirect-ima i custom header-ima
         val okHttpClient = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -142,7 +124,6 @@ class PlayerActivity : ComponentActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(context)
             .setDataSourceFactory(dataSourceFactory)
 
-        // 5) Sklapanje plejera
         val exoPlayer = ExoPlayer.Builder(context)
             .setRenderersFactory(renderersFactory)
             .setTrackSelector(trackSelector)
@@ -152,19 +133,15 @@ class PlayerActivity : ComponentActivity() {
 
         exoPlayer.setHandleAudioBecomingNoisy(true)
 
-        // 6) Mini-resume: vrati se gde je korisnik stao (osnova za "Nastavi gledanje")
         val prefs = getSharedPreferences("player_positions", MODE_PRIVATE)
         val savedPosition = prefs.getLong(url, -1L)
 
         val mediaItem = MediaItem.Builder().setUri(url).build()
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
-        if (savedPosition > 0) {
-            exoPlayer.seekTo(savedPosition)
-        }
+        if (savedPosition > 0) exoPlayer.seekTo(savedPosition)
         exoPlayer.playWhenReady = true
 
-        // 7) Greške: prikaži poruku umesto tihog kreša
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 Toast.makeText(
@@ -173,10 +150,58 @@ class PlayerActivity : ComponentActivity() {
                     Toast.LENGTH_LONG
                 ).show()
             }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) {
+                    tryNextEpisode()
+                }
+            }
         })
 
         player = exoPlayer
         playerView?.player = exoPlayer
+    }
+
+    /**
+     * Kada se epizoda završi → povuci stream za sledeću (E+1) i pusti je.
+     */
+    private fun tryNextEpisode() {
+        val imdb = seriesImdb ?: return
+        if (seasonNumber < 0 || episodeNumber < 0) return
+        val nextEpisode = episodeNumber + 1
+
+        Thread {
+            try {
+                val url = "https://v3-cinemeta.strem.io/stream/series/$imdb:$seasonNumber:$nextEpisode.json"
+                val client = OkHttpClient()
+                val response = client.newCall(Request.Builder().url(url).build()).execute()
+                val body = response.body?.string()
+                response.close()
+                if (body.isNullOrBlank()) return@Thread
+
+                val obj = JsonParser.parseString(body).asJsonObject
+                val first = obj.getAsJsonArray("streams")?.firstOrNull()?.asJsonObject
+                val nextUrl = first?.get("url")?.takeIf { !it.isJsonNull }?.asString
+
+                if (!nextUrl.isNullOrBlank()) {
+                    runOnUiThread {
+                        Toast.makeText(
+                            this,
+                            "Sledeća epizoda: S${seasonNumber} · E${nextEpisode}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        episodeNumber = nextEpisode
+                        currentUrl = nextUrl
+                        val item = MediaItem.Builder().setUri(nextUrl).build()
+                        player?.setMediaItem(item)
+                        player?.prepare()
+                        player?.playWhenReady = true
+                    }
+                }
+            } catch (_: Exception) {
+                // Nema sledeće epizode — ostani na kraju
+            }
+        }.start()
     }
 
     override fun onStop() {
@@ -184,7 +209,6 @@ class PlayerActivity : ComponentActivity() {
         val p = player ?: return
         val url = currentUrl ?: return
 
-        // Sačuvaj poziciju (ako nije odgledano do kraja)
         try {
             val position = p.currentPosition
             val duration = p.duration
