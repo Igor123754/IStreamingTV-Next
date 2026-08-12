@@ -24,7 +24,6 @@ data class HomeUiState(
     val error: String? = null
 )
 
-// Jedan red kataloga (npr. "Popularni filmovi")
 data class Catalog(
     val id: String,
     val title: String,
@@ -76,7 +75,6 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.value = HomeUiState(isLoading = true)
             try {
-                // Svih 6 lista se vuče PARALELNO — nema čekanja
                 val trendingMovies = async { repository.getTrendingMovies() }
                 val trendingSeries = async { repository.getTrendingSeries() }
                 val popularMovies = async { repository.getPopularMovies() }
@@ -123,7 +121,8 @@ class HomeViewModel : ViewModel() {
 
                 val extras = HeroExtras(
                     clearLogoUrl = details.pickClearLogoUrl(),
-                    overview = details.pickSerbianOverview(),
+                    // Srpski opis ako postoji, inače originalni (EN) opis iz istog poziva
+                    overview = details.pickSerbianOverview() ?: details.overview,
                     certification = details.pickCertification()
                 )
 
