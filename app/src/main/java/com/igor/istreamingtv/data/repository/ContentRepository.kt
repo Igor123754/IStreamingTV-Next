@@ -19,6 +19,10 @@ class ContentRepository(
 
     suspend fun getTrendingSeries(): List<TmdbMovie> = api.getTrendingSeries().results
 
+    suspend fun getPopularSeries(): List<TmdbMovie> = api.getPopularSeries().results
+
+    suspend fun getTopRatedSeries(): List<TmdbMovie> = api.getTopRatedSeries().results
+
     suspend fun getMovieDetails(movieId: Int): TmdbMovieDetails = api.getMovieDetails(movieId)
 
     suspend fun getMovieHeroDetails(movieId: Int): TmdbHeroDetails =
