@@ -10,6 +10,7 @@ import com.igor.istreamingtv.data.remote.TmdbSeason
 import com.igor.istreamingtv.data.remote.stremio.StremioStream
 import com.igor.istreamingtv.data.repository.ContentRepository
 import com.igor.istreamingtv.data.repository.StreamRepository
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +25,7 @@ data class DetailsUiState(
     val seasons: List<TmdbSeason> = emptyList(),
     val selectedSeasonNumber: Int = 0,
     val episodes: List<TmdbEpisode> = emptyList(),
+    val similar: List<TmdbMovie> = emptyList(),
     val error: String? = null
 )
 
@@ -45,7 +47,17 @@ class MovieDetailsViewModel : ViewModel() {
                     tmdbRepository.getMovieHeroDetails(movie.id)
                 }
 
-                // Stream-ovi samo za filmove
+                // Similar content is fetched in parallel with everything else
+                val similarDeferred = async {
+                    try {
+                        if (isTv) tmdbRepository.getSimilarSeries(movie.id)
+                        else tmdbRepository.getSimilarMovies(movie.id)
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
+
+                // Streams are movies-only (via imdb_id)
                 val streams = if (!isTv && !details.imdb_id.isNullOrBlank()) {
                     try {
                         streamRepository.getStreamsForMovie(details.imdb_id)
@@ -56,7 +68,7 @@ class MovieDetailsViewModel : ViewModel() {
                     emptyList()
                 }
 
-                // FILMOVI: nastavci / franšiza
+                // Movies: sequels / franchise
                 var collectionName: String? = null
                 var collectionParts = emptyList<TmdbMovie>()
                 if (!isTv) {
@@ -69,12 +81,12 @@ class MovieDetailsViewModel : ViewModel() {
                                 .filter { it.id != movie.id }
                                 .sortedBy { it.release_date ?: "" }
                         } catch (_: Exception) {
-                            // Nema kolekcije — ostaje prazno
+                            // No collection — stays empty
                         }
                     }
                 }
 
-                // SERIJE: sezone + epizode
+                // Series: seasons + episodes
                 var seasons = emptyList<TmdbSeason>()
                 var selectedSeason = 0
                 var episodes = emptyList<TmdbEpisode>()
@@ -94,12 +106,13 @@ class MovieDetailsViewModel : ViewModel() {
                     collectionParts = collectionParts,
                     seasons = seasons,
                     selectedSeasonNumber = selectedSeason,
-                    episodes = episodes
+                    episodes = episodes,
+                    similar = similarDeferred.await()
                 )
             } catch (e: Exception) {
                 _uiState.value = DetailsUiState(
                     isLoading = false,
-                    error = e.message ?: "Greška pri učitavanju"
+                    error = e.message ?: "Error during loading"
                 )
             }
         }
