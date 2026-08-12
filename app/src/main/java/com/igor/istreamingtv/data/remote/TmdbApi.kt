@@ -6,7 +6,6 @@ import retrofit2.http.Query
 
 interface TmdbApi {
 
-    // Kataloge vučemo sa language=sr-RS → naslovi/opisi na srpskom kad postoje
     @GET("movie/popular?language=sr-RS")
     suspend fun getPopularMovies(): MovieResponse
 
@@ -30,17 +29,19 @@ interface TmdbApi {
         @Path("movie_id") movieId: Int
     ): TmdbMovieDetails
 
+    // Detalji za FILM: sve što treba hero/detaljima u jednom pozivu
     @GET("movie/{movie_id}")
     suspend fun getMovieHeroDetails(
         @Path("movie_id") movieId: Int,
         @Query("append_to_response") appendToResponse: String =
-            "images,translations,release_dates"
+            "images,translations,release_dates,credits"
     ): TmdbHeroDetails
 
+    // Detalji za SERIJU
     @GET("tv/{tv_id}")
     suspend fun getTvHeroDetails(
         @Path("tv_id") tvId: Int,
         @Query("append_to_response") appendToResponse: String =
-            "images,translations,content_ratings"
+            "images,translations,content_ratings,credits"
     ): TmdbHeroDetails
 }
