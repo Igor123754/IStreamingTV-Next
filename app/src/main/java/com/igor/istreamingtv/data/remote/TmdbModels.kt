@@ -66,6 +66,7 @@ data class TmdbHeroDetails(
     val episode_run_time: List<Int>? = null,
     val genres: List<Genre>? = null,
     val imdb_id: String? = null,
+    val external_ids: TmdbExternalIds? = null,
     val belongs_to_collection: TmdbCollection? = null,
     val seasons: List<TmdbSeason>? = null,
     val images: TmdbImages? = null,
@@ -73,6 +74,11 @@ data class TmdbHeroDetails(
     val release_dates: TmdbReleaseDates? = null,
     val content_ratings: TmdbContentRatings? = null,
     val credits: TmdbCredits? = null
+)
+
+// Serije nemaju imdb_id na vrhu — nalazi se u external_ids
+data class TmdbExternalIds(
+    val imdb_id: String? = null
 )
 
 // ===== KOLEKCIJE (nastavci) =====
@@ -190,3 +196,7 @@ fun TmdbHeroDetails.pickCertification(): String? {
         ?.takeIf { it.isNotBlank() }
     return movieCert ?: tvCert
 }
+
+// IMDb ID: filmovi ga imaju na vrhu, serije u external_ids
+fun TmdbHeroDetails.pickImdbId(): String? =
+    imdb_id ?: external_ids?.imdb_id
