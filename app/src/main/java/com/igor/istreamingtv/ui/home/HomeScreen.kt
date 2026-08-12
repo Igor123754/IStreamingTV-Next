@@ -80,6 +80,8 @@ fun HomeScreen(
                 series = state.series,
                 catalogs = state.catalogs,
                 heroExtras = state.heroExtras,
+                initialScroll = viewModel.getHomeVerticalPosition(),
+                onSaveScroll = viewModel::saveHomeVerticalPosition,
                 onMovieClick = onMovieClick,
                 onLoadHeroExtras = viewModel::loadHeroExtras
             )
@@ -90,6 +92,7 @@ fun HomeScreen(
 /**
  * Apple TV+ raspored: hero 100% ekran gore,
  * ispod njega katalozi sa posterima + paralaksa + fade-in animacije.
+ * Pamti poziciju skrola pri odlasku u detalje i vraća se na isto mesto.
  */
 @Composable
 private fun AppleTvHomeContent(
@@ -97,6 +100,8 @@ private fun AppleTvHomeContent(
     series: List<TmdbMovie>,
     catalogs: List<Catalog>,
     heroExtras: Map<Int, HeroExtras>,
+    initialScroll: ScrollPosition,
+    onSaveScroll: (Int, Int) -> Unit,
     onMovieClick: (TmdbMovie) -> Unit,
     onLoadHeroExtras: (TmdbMovie, Boolean) -> Unit
 ) {
@@ -119,7 +124,20 @@ private fun AppleTvHomeContent(
         featured?.let { onLoadHeroExtras(it.movie, it.isTv) }
     }
 
-    val listState = rememberLazyListState()
+    // Restauracija skrol pozicije posle povratka iz detalja
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialScroll.index,
+        initialFirstVisibleItemScrollOffset = initialScroll.offset
+    )
+
+    // Pre odlaska u detalje sačuvaj gde je korisnik bio
+    val openMovie: (TmdbMovie) -> Unit = { movie ->
+        onSaveScroll(
+            listState.firstVisibleItemIndex,
+            listState.firstVisibleItemScrollOffset
+        )
+        onMovieClick(movie)
+    }
 
     // 0 = hero skroz gore, 1 = hero skroz odskrolovan (za paralaksu)
     val firstItem = listState.layoutInfo.visibleItemsInfo.firstOrNull()
@@ -138,7 +156,7 @@ private fun AppleTvHomeContent(
                         heroExtras = heroExtras,
                         currentIndex = heroIndex,
                         totalCount = heroItems.size,
-                        onMovieClick = onMovieClick,
+                        onMovieClick = openMovie,
                         scrollProgress = scrollProgress
                     )
                 }
@@ -148,7 +166,7 @@ private fun AppleTvHomeContent(
         items(catalogs, key = { it.id }) { catalog ->
             CatalogRowSection(
                 catalog = catalog,
-                onMovieClick = onMovieClick
+                onMovieClick = openMovie
             )
         }
 
@@ -355,7 +373,7 @@ private fun AppleTvHero(
 
 /**
  * Red kataloga sa Apple TV+ "enter" animacijom (fade + slide-up)
- * i poster karticama (2:3).
+ * i poster karticama (2:3) sa naslovom ispod.
  */
 @Composable
 private fun CatalogRowSection(
@@ -397,40 +415,57 @@ private fun CatalogRowSection(
 }
 
 /**
- * Poster kartica 2:3 sa fokus animacijom (scale + beli obrub) kao na Apple TV+.
+ * Poster kartica 2:3 — bez ivica kada nije fokusirana,
+ * beli obrub + scale samo na fokus, naslov ispod (srpski → originalni).
  */
 @Composable
 private fun PosterCard(
     movie: TmdbMovie,
     onClick: () -> Unit
 ) {
-    TvFocusableButton(
-        onClick = onClick,
-        modifier = Modifier
-            .width(150.dp)
-            .height(225.dp)
-    ) { focused ->
-        val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(220), label = "")
-
-        Box(
+    Column(modifier = Modifier.width(150.dp)) {
+        TvFocusableButton(
+            onClick = onClick,
             modifier = Modifier
-                .fillMaxSize()
-                .scale(scale)
-                .clip(CardShape)
-                .background(SurfaceBackground)
-                .border(
-                    width = if (focused) 3.dp else 0.dp,
-                    color = Color.White,
-                    shape = CardShape
+                .width(150.dp)
+                .height(225.dp)
+        ) { focused ->
+            val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(220), label = "")
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .scale(scale)
+                    .clip(CardShape)
+                    .background(SurfaceBackground)
+                    // Border SAMO kada je fokusiran (0.dp bi crtao tanku "hairline" liniju!)
+                    .then(
+                        if (focused) Modifier.border(3.dp, Color.White, CardShape)
+                        else Modifier
+                    )
+            ) {
+                AsyncImage(
+                    model = "https://image.tmdb.org/t/p/w342" + movie.posterPath,
+                    contentDescription = movie.displayTitle,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
-        ) {
-            AsyncImage(
-                model = "https://image.tmdb.org/t/p/w342" + movie.posterPath,
-                contentDescription = movie.displayTitle,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
+            }
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Naslov ispod postera — Apple TV+ stil (sans-serif, Medium)
+        Text(
+            text = movie.displayTitle,
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            lineHeight = 18.sp,
+            letterSpacing = 0.15.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
