@@ -99,6 +99,10 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.6.0")
     implementation("androidx.media3:media3-ui:1.6.0")
     implementation("androidx.media3:media3-session:1.6.0")
+    implementation("androidx.media3:media3-exoplayer-hls:1.6.0")
+    implementation("androidx.media3:media3-exoplayer-dash:1.6.0")
+    implementation("androidx.media3:media3-exoplayer-smoothstreaming:1.6.0")
+    implementation("androidx.media3:media3-datasource-okhttp:1.6.0")
 
     // Gson (za PlayerActivity)
     implementation("com.google.code.gson:gson:2.11.0")
