@@ -6,19 +6,24 @@ data class MovieResponse(
     val total_pages: Int
 )
 
+// NAPOMENA: TV stavke (serije) nemaju "title" već "name",
+// a neke stavke nemaju overview ili genre_ids.
+// Zato su sva ta polja nullable — UI koristi bezbedne ekstenzije ispod.
 data class TmdbMovie(
     val id: Int,
-    val title: String,
-    val overview: String,
+    val title: String?,
+    val name: String?,
+    val overview: String?,
     val poster_path: String?,
     val backdrop_path: String?,
     val release_date: String?,
     val vote_average: Double,
-    val genre_ids: List<Int>
+    val genre_ids: List<Int>?
 )
 
-// Extension properties — UI koristi ova imena
-val TmdbMovie.displayTitle: String get() = title
+// Extension properties — UI koristi ova imena (null-safe)
+val TmdbMovie.displayTitle: String get() = title ?: name ?: ""
+val TmdbMovie.displayOverview: String get() = overview ?: ""
 val TmdbMovie.displayDate: String get() = release_date ?: ""
 val TmdbMovie.posterPath: String? get() = poster_path
 val TmdbMovie.backdropPath: String? get() = backdrop_path
