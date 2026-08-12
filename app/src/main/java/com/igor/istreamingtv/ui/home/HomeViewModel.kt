@@ -8,6 +8,8 @@ import com.igor.istreamingtv.data.remote.pickCertification
 import com.igor.istreamingtv.data.remote.pickClearLogoUrl
 import com.igor.istreamingtv.data.remote.pickSerbianOverview
 import com.igor.istreamingtv.data.repository.ContentRepository
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,11 +19,19 @@ data class HomeUiState(
     val isLoading: Boolean = true,
     val movies: List<TmdbMovie> = emptyList(),
     val series: List<TmdbMovie> = emptyList(),
+    val catalogs: List<Catalog> = emptyList(),
     val heroExtras: Map<Int, HeroExtras> = emptyMap(),
     val error: String? = null
 )
 
-// Dodaci za hero: clearlogo, srpski opis, uzrastna oznaka
+// Jedan red kataloga (npr. "Popularni filmovi")
+data class Catalog(
+    val id: String,
+    val title: String,
+    val isTv: Boolean,
+    val items: List<TmdbMovie>
+)
+
 data class HeroExtras(
     val clearLogoUrl: String? = null,
     val overview: String? = null,
@@ -66,16 +76,40 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.value = HomeUiState(isLoading = true)
             try {
-                val movies = repository.getTrendingMovies()
-                val series = repository.getTrendingSeries()
-                _uiState.value = HomeUiState(isLoading = false, movies = movies, series = series)
+                // Svih 6 lista se vuče PARALELNO — nema čekanja
+                val trendingMovies = async { repository.getTrendingMovies() }
+                val trendingSeries = async { repository.getTrendingSeries() }
+                val popularMovies = async { repository.getPopularMovies() }
+                val popularSeries = async { repository.getPopularSeries() }
+                val topMovies = async { repository.getTopRatedMovies() }
+                val topSeries = async { repository.getTopRatedSeries() }
+
+                awaitAll(trendingMovies, trendingSeries, popularMovies, popularSeries, topMovies, topSeries)
+
+                val catalogs = listOf(
+                    Catalog("popular-movies", "Popularni filmovi", false, popularMovies.await()),
+                    Catalog("popular-series", "Popularne serije", true, popularSeries.await()),
+                    Catalog("top-movies", "Najbolje ocenjeni filmovi", false, topMovies.await()),
+                    Catalog("top-series", "Najbolje ocenjene serije", true, topSeries.await()),
+                    Catalog("trending-movies", "Trending filmovi ove nedelje", false, trendingMovies.await()),
+                    Catalog("trending-series", "Trending serije ove nedelje", true, trendingSeries.await())
+                )
+
+                _uiState.value = HomeUiState(
+                    isLoading = false,
+                    movies = trendingMovies.await(),
+                    series = trendingSeries.await(),
+                    catalogs = catalogs
+                )
             } catch (e: Exception) {
-                _uiState.value = HomeUiState(isLoading = false, error = e.message ?: "Unknown error")
+                _uiState.value = HomeUiState(
+                    isLoading = false,
+                    error = e.message ?: "Unknown error"
+                )
             }
         }
     }
 
-    // Učitava clearlogo + srpski opis + uzrastnu oznaku za trenutni hero naslov
     fun loadHeroExtras(movie: TmdbMovie, isTv: Boolean) {
         if (_uiState.value.heroExtras.containsKey(movie.id)) return
 
@@ -97,7 +131,7 @@ class HomeViewModel : ViewModel() {
                     heroExtras = _uiState.value.heroExtras + (movie.id to extras)
                 )
             } catch (_: Exception) {
-                // Tiho ignoriši — ostaje fallback (originalni naslov/opis)
+                // Tiho ignoriši — ostaje fallback
             }
         }
     }
