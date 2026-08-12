@@ -20,7 +20,6 @@ data class TmdbMovie(
     val genre_ids: List<Int>?
 )
 
-// Extension properties — UI koristi ova imena (null-safe)
 val TmdbMovie.displayTitle: String
     get() = title?.takeIf { it.isNotBlank() }
         ?: name?.takeIf { it.isNotBlank() }
@@ -52,7 +51,7 @@ data class Genre(
     val name: String
 )
 
-// ===== HERO / DETALJI: clearlogo, prevodi, uzrast, glumci =====
+// ===== HERO / DETALJI =====
 
 data class TmdbHeroDetails(
     val id: Int = 0,
@@ -67,12 +66,59 @@ data class TmdbHeroDetails(
     val episode_run_time: List<Int>? = null,
     val genres: List<Genre>? = null,
     val imdb_id: String? = null,
+    val belongs_to_collection: TmdbCollection? = null,
+    val seasons: List<TmdbSeason>? = null,
     val images: TmdbImages? = null,
     val translations: TmdbTranslations? = null,
     val release_dates: TmdbReleaseDates? = null,
     val content_ratings: TmdbContentRatings? = null,
     val credits: TmdbCredits? = null
 )
+
+// ===== KOLEKCIJE (nastavci) =====
+
+data class TmdbCollection(
+    val id: Int = 0,
+    val name: String? = null,
+    val poster_path: String? = null
+)
+
+data class TmdbCollectionDetails(
+    val id: Int = 0,
+    val name: String? = null,
+    val parts: List<TmdbMovie> = emptyList()
+)
+
+// ===== SEZONE I EPIZODE =====
+
+data class TmdbSeason(
+    val id: Int = 0,
+    val season_number: Int = 0,
+    val name: String? = null,
+    val poster_path: String? = null,
+    val episode_count: Int = 0,
+    val air_date: String? = null
+)
+
+data class TmdbEpisode(
+    val id: Int = 0,
+    val name: String? = null,
+    val overview: String? = null,
+    val episode_number: Int = 0,
+    val season_number: Int = 0,
+    val still_path: String? = null,
+    val vote_average: Double = 0.0,
+    val air_date: String? = null,
+    val runtime: Int? = null
+)
+
+data class TmdbSeasonDetails(
+    val id: Int = 0,
+    val name: String? = null,
+    val episodes: List<TmdbEpisode> = emptyList()
+)
+
+// ===== OSTALO =====
 
 data class TmdbCredits(val cast: List<TmdbCast> = emptyList())
 
@@ -118,7 +164,6 @@ data class TmdbContentRatingCountry(
     val rating: String? = null
 )
 
-// Bira clearlogo: prvo srpski → originalni (bez jezika) → engleski → najbolje ocenjeni
 fun TmdbHeroDetails.pickClearLogoUrl(): String? {
     val all = images?.logos?.filter { !it.file_path.isNullOrBlank() } ?: return null
     val pool = all.filter { it.file_path!!.endsWith(".png") }.ifEmpty { all }
@@ -129,13 +174,11 @@ fun TmdbHeroDetails.pickClearLogoUrl(): String? {
     return pick?.file_path?.let { "https://image.tmdb.org/t/p/w500$it" }
 }
 
-// Srpski opis ako postoji prevod
 fun TmdbHeroDetails.pickSerbianOverview(): String? {
     val sr = translations?.translations?.firstOrNull { it.iso_639_1 == "sr" }?.data
     return sr?.overview?.takeIf { it.isNotBlank() }
 }
 
-// Uzrastna preporuka (US oznake: PG-13, R, TV-MA, TV-14...)
 fun TmdbHeroDetails.pickCertification(): String? {
     val movieCert = release_dates?.results
         ?.firstOrNull { it.iso_3166_1 == "US" }
