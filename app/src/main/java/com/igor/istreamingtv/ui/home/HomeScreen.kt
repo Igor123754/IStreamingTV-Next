@@ -44,8 +44,9 @@ private val genreNames = mapOf(
 
 private fun TmdbMovie.displayBackdropUrl(): String = backdropPath ?: posterPath ?: ""
 
+// Null-safe žanr (serije/filmovi bez genre_ids ne krešuju)
 private fun TmdbMovie.displayGenre(): String =
-    genre_ids.firstNotNullOfOrNull { genreNames[it] } ?: "Film"
+    genre_ids?.firstNotNullOfOrNull { genreNames[it] } ?: "Film"
 
 private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
 
@@ -244,9 +245,9 @@ private fun AppleTvHero(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Opis: srpski ako postoji, inače originalni
+                // Opis: srpski ako postoji, inače originalni (null-safe)
                 Text(
-                    text = extras?.overview ?: movie.overview,
+                    text = extras?.overview ?: movie.displayOverview,
                     color = Color.White,
                     fontSize = 15.sp,
                     lineHeight = 22.sp,
