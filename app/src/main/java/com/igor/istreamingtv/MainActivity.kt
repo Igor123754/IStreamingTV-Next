@@ -4,9 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.ui.details.MovieDetailsScreen
 import com.igor.istreamingtv.ui.home.HomeScreen
 import com.igor.istreamingtv.ui.movies.MoviesScreen
@@ -16,18 +16,17 @@ class MainActivity : ComponentActivity() {
 
     private var currentScreen by mutableStateOf(Screen.HOME)
     private var detailsReturnScreen by mutableStateOf(Screen.HOME)
-    private var selectedMovieId by mutableIntStateOf(0)
+    private var selectedMovie by mutableStateOf<TmdbMovie?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         setContent {
             IStreamingTheme {
                 when (currentScreen) {
                     Screen.HOME -> {
                         HomeScreen(
                             onMovieClick = { movie ->
-                                selectedMovieId = movie.id
+                                selectedMovie = movie
                                 detailsReturnScreen = Screen.HOME
                                 currentScreen = Screen.DETAILS
                             },
@@ -36,11 +35,10 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
-
                     Screen.MOVIES -> {
                         MoviesScreen(
                             onMovieClick = { movie ->
-                                selectedMovieId = movie.id
+                                selectedMovie = movie
                                 detailsReturnScreen = Screen.MOVIES
                                 currentScreen = Screen.DETAILS
                             },
@@ -49,11 +47,11 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
-
                     Screen.DETAILS -> {
-                        if (selectedMovieId != 0) {
+                        val movie = selectedMovie
+                        if (movie != null) {
                             MovieDetailsScreen(
-                                movieId = selectedMovieId,
+                                movie = movie,
                                 onBack = {
                                     currentScreen = detailsReturnScreen
                                 }
@@ -75,10 +73,10 @@ class MainActivity : ComponentActivity() {
             Screen.HOME -> super.onBackPressed()
         }
     }
-}
 
-private enum class Screen {
-    HOME,
-    MOVIES,
-    DETAILS
+    private enum class Screen {
+        HOME,
+        MOVIES,
+        DETAILS
+    }
 }
