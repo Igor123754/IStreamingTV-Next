@@ -1,6 +1,8 @@
 package com.igor.istreamingtv.ui.details
 
+import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +36,7 @@ import com.igor.istreamingtv.data.remote.*
 import com.igor.istreamingtv.data.remote.stremio.StremioStream
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.player.PlayerActivity
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -42,6 +45,25 @@ private val SurfaceBackground = Color(0xFF0C0D12)
 private val TextPrimary = Color.White
 private val TextSecondary = Color(0xB3FFFFFF)
 private val CardShape = RoundedCornerShape(12.dp)
+
+/** Pokreće plejer sa stream-om (+ podaci za "sledeća epizoda") */
+private fun startPlayer(
+    context: Context,
+    stream: StremioStream,
+    seriesImdb: String? = null,
+    season: Int = -1,
+    episode: Int = -1
+) {
+    val intent = Intent(context, PlayerActivity::class.java).apply {
+        putExtra("stream", Gson().toJson(stream))
+        if (seriesImdb != null) {
+            putExtra("series_imdb", seriesImdb)
+            putExtra("season", season)
+            putExtra("episode", episode)
+        }
+    }
+    context.startActivity(intent)
+}
 
 @Composable
 fun MovieDetailsScreen(
@@ -52,6 +74,33 @@ fun MovieDetailsScreen(
     val viewModel: MovieDetailsViewModel = viewModel()
     val state by viewModel.uiState.collectAsState()
     val isTv = movie.name != null
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Klik na epizodu → stream-ovi → plejer
+    val playEpisode: (TmdbEpisode) -> Unit = { episode ->
+        val imdb = state.details?.pickImdbId()
+        if (imdb.isNullOrBlank()) {
+            Toast.makeText(context, "Nema IMDb ID za ovu seriju", Toast.LENGTH_SHORT).show()
+        } else {
+            scope.launch {
+                val streams = viewModel.getEpisodeStreams(
+                    imdb, episode.season_number, episode.episode_number
+                )
+                if (streams.isNotEmpty()) {
+                    startPlayer(
+                        context, streams.first(),
+                        seriesImdb = imdb,
+                        season = episode.season_number,
+                        episode = episode.episode_number
+                    )
+                } else {
+                    Toast.makeText(context, "Nema dostupnih izvora za ovu epizodu", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     LaunchedEffect(movie.id) {
         viewModel.load(movie, isTv)
@@ -65,7 +114,7 @@ fun MovieDetailsScreen(
         when {
             state.isLoading -> DetailsShimmer()
             state.error != null -> DetailsError(
-                message = state.error ?: "Unknown error",
+                message = state.error ?: "Nepoznata greška",
                 onBack = onBack
             )
             else -> DetailsScrollContent(
@@ -74,16 +123,13 @@ fun MovieDetailsScreen(
                 isTv = isTv,
                 onBack = onBack,
                 onMovieClick = onMovieClick,
-                onSelectSeason = { season -> viewModel.selectSeason(movie.id, season) }
+                onSelectSeason = { season -> viewModel.selectSeason(movie.id, season) },
+                onPlayEpisode = playEpisode
             )
         }
     }
 }
 
-/**
- * Scrollable details page: hero 100% at the top,
- * below it rows (sequels / seasons / episodes / similar) with enter animation.
- */
 @Composable
 private fun DetailsScrollContent(
     movie: TmdbMovie,
@@ -91,7 +137,8 @@ private fun DetailsScrollContent(
     isTv: Boolean,
     onBack: () -> Unit,
     onMovieClick: (TmdbMovie) -> Unit,
-    onSelectSeason: (Int) -> Unit
+    onSelectSeason: (Int) -> Unit,
+    onPlayEpisode: (TmdbEpisode) -> Unit
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
 
@@ -102,17 +149,18 @@ private fun DetailsScrollContent(
                     details = state.details,
                     streams = state.streams,
                     isTv = isTv,
-                    onBack = onBack
+                    firstEpisode = state.episodes.firstOrNull(),
+                    onBack = onBack,
+                    onPlayEpisode = onPlayEpisode
                 )
             }
         }
 
-        // Movies: row of sequels / franchise parts
         if (!isTv && state.collectionParts.isNotEmpty()) {
             item(key = "collection") {
                 EnterAnimatedRow {
                     PosterRowSection(
-                        title = state.collectionName ?: "Sequels and franchise",
+                        title = state.collectionName ?: "Nastavci i franšiza",
                         items = state.collectionParts,
                         onMovieClick = onMovieClick
                     )
@@ -120,7 +168,6 @@ private fun DetailsScrollContent(
             }
         }
 
-        // Series: row of seasons
         if (isTv && state.seasons.isNotEmpty()) {
             item(key = "seasons") {
                 EnterAnimatedRow {
@@ -133,24 +180,23 @@ private fun DetailsScrollContent(
             }
         }
 
-        // Series: row of episodes of the selected season
         if (isTv && state.episodes.isNotEmpty()) {
             item(key = "episodes") {
                 EnterAnimatedRow {
                     EpisodeRowSection(
                         seasonNumber = state.selectedSeasonNumber,
-                        episodes = state.episodes
+                        episodes = state.episodes,
+                        onEpisodeClick = onPlayEpisode
                     )
                 }
             }
         }
 
-        // Both: row of similar content (below collection / below episodes)
         if (state.similar.isNotEmpty()) {
             item(key = "similar") {
                 EnterAnimatedRow {
                     PosterRowSection(
-                        title = if (isTv) "Similar series" else "Similar movies",
+                        title = if (isTv) "Slične serije" else "Slični filmovi",
                         items = state.similar,
                         onMovieClick = onMovieClick
                     )
@@ -164,7 +210,6 @@ private fun DetailsScrollContent(
     }
 }
 
-/** Row fade + slide-up animation on entrance (Apple TV+ style) */
 @Composable
 private fun EnterAnimatedRow(content: @Composable () -> Unit) {
     var entered by remember { mutableStateOf(false) }
@@ -184,7 +229,7 @@ private fun EnterAnimatedRow(content: @Composable () -> Unit) {
     }
 }
 
-// ================= HERO (top part of details) =================
+// ================= HERO =================
 
 @Composable
 private fun DetailsHero(
@@ -192,7 +237,9 @@ private fun DetailsHero(
     details: TmdbHeroDetails?,
     streams: List<StremioStream>,
     isTv: Boolean,
-    onBack: () -> Unit
+    firstEpisode: TmdbEpisode?,
+    onBack: () -> Unit,
+    onPlayEpisode: (TmdbEpisode) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -217,11 +264,8 @@ private fun DetailsHero(
     val backdropUrl = "https://image.tmdb.org/t/p/w1280" +
         (details?.backdrop_path ?: movie.backdropPath ?: details?.poster_path ?: movie.posterPath ?: "")
 
-    fun playStream(stream: StremioStream) {
-        val intent = Intent(context, PlayerActivity::class.java).apply {
-            putExtra("stream", Gson().toJson(stream))
-        }
-        context.startActivity(intent)
+    fun playMovieStream(stream: StremioStream) {
+        startPlayer(context, stream)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -248,7 +292,6 @@ private fun DetailsHero(
                 )
         )
 
-        // Clearlogo at the top left
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -277,7 +320,6 @@ private fun DetailsHero(
             }
         }
 
-        // Back pill at the top right
         TvFocusableButton(
             onClick = onBack,
             modifier = Modifier
@@ -292,11 +334,10 @@ private fun DetailsHero(
                     .background(Color.White.copy(alpha = 0.22f))
                     .padding(horizontal = 20.dp, vertical = 10.dp)
             ) {
-                Text("← Back", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("← Nazad", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
         }
 
-        // Bottom section
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -309,11 +350,15 @@ private fun DetailsHero(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TvFocusableButton(onClick = {
-                        if (!isTv && streams.isNotEmpty()) {
-                            playStream(streams[selectedStream.coerceIn(0, streams.size - 1)])
-                        } else {
-                            notice = if (isTv) "Series playback coming soon 🎬"
-                            else "No available sources for this title"
+                        when {
+                            // FILM: postojeći stream-ovi
+                            !isTv && streams.isNotEmpty() ->
+                                playMovieStream(streams[selectedStream.coerceIn(0, streams.size - 1)])
+                            // SERIJA: prva epizoda izabrane sezone
+                            isTv && firstEpisode != null ->
+                                onPlayEpisode(firstEpisode)
+                            else -> notice = if (isTv) "Nema epizoda za reprodukciju"
+                            else "Nema dostupnih izvora za ovaj naslov"
                         }
                     }) { focused ->
                         val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
@@ -332,7 +377,7 @@ private fun DetailsHero(
                                 tint = Color.Black,
                                 modifier = Modifier.size(20.dp)
                             )
-                            Text("Watch", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Gledaj", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
 
@@ -347,7 +392,7 @@ private fun DetailsHero(
                                 .padding(horizontal = 26.dp, vertical = 12.dp)
                         ) {
                             Text(
-                                text = if (inLibrary) "✓ In library" else "＋ Add to library",
+                                text = if (inLibrary) "✓ U biblioteci" else "＋ U biblioteku",
                                 color = TextPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -372,7 +417,7 @@ private fun DetailsHero(
 
                 if (cast.isNotBlank()) {
                     Text(
-                        text = "Starring: $cast",
+                        text = "Uloge: $cast",
                         color = TextSecondary,
                         fontSize = 15.sp,
                         lineHeight = 22.sp,
@@ -430,7 +475,7 @@ private fun DetailsHero(
                                     .padding(horizontal = 18.dp, vertical = 8.dp)
                             ) {
                                 Text(
-                                    text = "Source ${index + 1}",
+                                    text = "Izvor ${index + 1}",
                                     color = if (index == selectedStream) Color.Black else Color.White,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -444,7 +489,7 @@ private fun DetailsHero(
     }
 }
 
-// ================= Rows =================
+// ================= REDOVI =================
 
 @Composable
 private fun PosterRowSection(
@@ -522,7 +567,7 @@ private fun SeasonRowSection(
     onSelectSeason: (Int) -> Unit
 ) {
     Text(
-        text = "Seasons",
+        text = "Sezone",
         color = TextPrimary,
         fontSize = 22.sp,
         fontWeight = FontWeight.SemiBold,
@@ -594,7 +639,7 @@ private fun SeasonCard(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = season.name?.takeIf { it.isNotBlank() } ?: "${season.season_number}. season",
+            text = season.name?.takeIf { it.isNotBlank() } ?: "${season.season_number}. sezona",
             color = TextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
@@ -615,10 +660,11 @@ private fun SeasonCard(
 @Composable
 private fun EpisodeRowSection(
     seasonNumber: Int,
-    episodes: List<TmdbEpisode>
+    episodes: List<TmdbEpisode>,
+    onEpisodeClick: (TmdbEpisode) -> Unit
 ) {
     Text(
-        text = "Season $seasonNumber · Episodes",
+        text = "Sezona $seasonNumber · Epizode",
         color = TextPrimary,
         fontSize = 22.sp,
         fontWeight = FontWeight.SemiBold,
@@ -630,16 +676,19 @@ private fun EpisodeRowSection(
         contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
     ) {
         items(episodes, key = { it.id }) { episode ->
-            EpisodeCard(episode = episode)
+            EpisodeCard(episode = episode, onClick = { onEpisodeClick(episode) })
         }
     }
 }
 
 @Composable
-private fun EpisodeCard(episode: TmdbEpisode) {
+private fun EpisodeCard(
+    episode: TmdbEpisode,
+    onClick: () -> Unit
+) {
     Column(modifier = Modifier.width(300.dp)) {
         TvFocusableButton(
-            onClick = { },
+            onClick = onClick,
             modifier = Modifier
                 .width(300.dp)
                 .height(169.dp)
@@ -677,7 +726,6 @@ private fun EpisodeCard(episode: TmdbEpisode) {
                     }
                 }
 
-                // S/E badge at the top left
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -693,13 +741,30 @@ private fun EpisodeCard(episode: TmdbEpisode) {
                         fontWeight = FontWeight.SemiBold
                     )
                 }
+
+                // Play ikonica pri fokusu
+                if (focused) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.35f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = episode.name?.takeIf { it.isNotBlank() } ?: "Episode ${episode.episode_number}",
+            text = episode.name?.takeIf { it.isNotBlank() } ?: "Epizoda ${episode.episode_number}",
             color = TextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
@@ -741,7 +806,7 @@ private fun EpisodeCard(episode: TmdbEpisode) {
     }
 }
 
-// ================= Helpers =================
+// ================= POMOĆNE =================
 
 private fun formatDate(iso: String?): String {
     if (iso.isNullOrBlank()) return ""
@@ -798,7 +863,7 @@ private fun DetailsError(message: String, onBack: () -> Unit) {
                     .background(Color.White)
                     .padding(horizontal = 30.dp, vertical = 13.dp)
             ) {
-                Text("Back", color = Color.Black, fontWeight = FontWeight.SemiBold)
+                Text("Nazad", color = Color.Black, fontWeight = FontWeight.SemiBold)
             }
         }
     }
