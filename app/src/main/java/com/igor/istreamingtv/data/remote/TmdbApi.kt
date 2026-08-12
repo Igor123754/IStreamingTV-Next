@@ -18,12 +18,17 @@ interface TmdbApi {
     @GET("trending/tv/week")
     suspend fun getTrendingSeries(): MovieResponse
 
+    @GET("tv/popular")
+    suspend fun getPopularSeries(): MovieResponse
+
+    @GET("tv/top_rated")
+    suspend fun getTopRatedSeries(): MovieResponse
+
     @GET("movie/{movie_id}")
     suspend fun getMovieDetails(
         @Path("movie_id") movieId: Int
     ): TmdbMovieDetails
 
-    // Hero za FILM: clearlogo + prevodi + uzrastne oznake u jednom pozivu
     @GET("movie/{movie_id}")
     suspend fun getMovieHeroDetails(
         @Path("movie_id") movieId: Int,
@@ -31,7 +36,6 @@ interface TmdbApi {
             "images,translations,release_dates"
     ): TmdbHeroDetails
 
-    // Hero za SERIJU: isto, samo sa content_ratings
     @GET("tv/{tv_id}")
     suspend fun getTvHeroDetails(
         @Path("tv_id") tvId: Int,
