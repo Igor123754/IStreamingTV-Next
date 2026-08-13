@@ -71,6 +71,8 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.google.gson.JsonParser
+import com.igor.istreamingtv.data.ContinueEntry
+import com.igor.istreamingtv.data.ContinueWatchingStore
 import com.igor.istreamingtv.data.remote.StreamPicker
 import com.igor.istreamingtv.data.remote.SubtitleFetcher
 import com.igor.istreamingtv.data.remote.SubtitleTrack
@@ -88,11 +90,6 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
-/**
- * MOĆNI PLEJER — Media3 ExoPlayer (2GB RAM optimizovan)
- * APPLE TV+ UI + tačna auto-sinhronizacija titlova + SKIP INTRO
- * OPTIMIZOVANO ZA TV: manje recomposition-a, bolja navigacija fokusom
- */
 class PlayerActivity : ComponentActivity() {
 
     internal var player: ExoPlayer? = null
@@ -101,6 +98,7 @@ class PlayerActivity : ComponentActivity() {
     internal var playerSeason: Int = -1
     internal var playerEpisode: Int = -1
     internal var playerPoster: String = ""
+    internal var playerBackdrop: String = ""
     internal var playerOverview: String = ""
 
     internal var isSeriesPlay: Boolean = false
@@ -138,6 +136,7 @@ class PlayerActivity : ComponentActivity() {
         playerSeason = seasonNumber
         playerEpisode = episodeNumber
         playerPoster = intent.getStringExtra("poster") ?: ""
+        playerBackdrop = intent.getStringExtra("backdrop") ?: ""
         playerOverview = intent.getStringExtra("overview") ?: ""
 
         if (!imdbId.isNullOrBlank() && seasonNumber >= 0 && episodeNumber >= 0) {
@@ -531,6 +530,33 @@ class PlayerActivity : ComponentActivity() {
                 duration > 0 && position > duration - 15_000 -> prefs.edit().remove(url).apply()
                 position > 5_000 -> prefs.edit().putLong(url, position).apply()
             }
+
+            // ✅ NASTAVI GLEDANJE — upisuj stavku sa metapodacima
+            if (!imdbId.isNullOrBlank() || playerTitle.isNotBlank()) {
+                val key = if (seasonNumber >= 0) {
+                    "${imdbId}_s${seasonNumber}_e${episodeNumber}"
+                } else {
+                    imdbId ?: url
+                }
+                ContinueWatchingStore.upsert(
+                    this,
+                    ContinueEntry(
+                        key = key,
+                        imdbId = imdbId,
+                        title = playerTitle,
+                        posterUrl = playerPoster,
+                        backdropUrl = playerBackdrop,
+                        isTv = seasonNumber >= 0,
+                        season = seasonNumber,
+                        episode = episodeNumber,
+                        positionMs = position,
+                        durationMs = duration,
+                        updatedAt = System.currentTimeMillis()
+                    ),
+                    position,
+                    duration
+                )
+            }
         } catch (_: Exception) {
         }
 
@@ -772,7 +798,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     var sliderFraction by remember { mutableFloatStateOf(0f) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    // ✅ OPTIMIZOVANO: polling na 500ms umesto 250ms (manje recomposition-a)
     LaunchedEffect(Unit) {
         while (true) {
             val p = activity.player
@@ -786,7 +811,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     sliderFraction = position.toFloat() / duration.toFloat()
                 }
             }
-            delay(500)  // ✅ 500ms umesto 250ms
+            delay(500)
         }
     }
 
@@ -847,16 +872,10 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         activity.introEndMs > 0 &&
         position in activity.introStartMs..activity.introEndMs
 
-    // ✅ Fokus requesteri za navigaciju
-    val playPauseFocus = remember { FocusRequester() }
-    val ccFocus = remember { FocusRequester() }
-    val audioFocus = remember { FocusRequester() }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            // ✅ OK uvek radi play/pause (osim kad je fokus na meniju ili interaktivnom elementu)
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown &&
                     event.key == Key.DirectionCenter &&
@@ -1034,7 +1053,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                                         .width(90.dp)
                                         .height(135.dp)
                                         .clip(RoundedCornerShape(10.dp)),
-                                        contentScale = ContentScale.Crop
+                                    contentScale = ContentScale.Crop
                                 )
                             }
                             Column(modifier = Modifier.weight(1f)) {
@@ -1107,10 +1126,8 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             modifier = Modifier.weight(1f)
                         )
 
-                        // ✅ PLAY/PAUSE sa focusRequester
                         TvFocusableButton(
-                            onClick = { interact(); togglePlay() },
-                            modifier = Modifier.focusRequester(playPauseFocus)
+                            onClick = { interact(); togglePlay() }
                         ) { focused ->
                             val scale by animateFloatAsState(
                                 if (focused) 1.1f else 1f, tween(150), label = ""
@@ -1136,10 +1153,8 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             }
                         }
 
-                        // ✅ CC sa focusRequester
                         TvFocusableButton(
-                            onClick = { openMenu(TrackMenuKind.SUBTITLES) },
-                            modifier = Modifier.focusRequester(ccFocus)
+                            onClick = { openMenu(TrackMenuKind.SUBTITLES) }
                         ) { focused ->
                             val scale by animateFloatAsState(
                                 if (focused) 1.1f else 1f, tween(150), label = ""
@@ -1156,10 +1171,8 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             }
                         }
 
-                        // ✅ Audio sa focusRequester
                         TvFocusableButton(
-                            onClick = { openMenu(TrackMenuKind.AUDIO) },
-                            modifier = Modifier.focusRequester(audioFocus)
+                            onClick = { openMenu(TrackMenuKind.AUDIO) }
                         ) { focused ->
                             val scale by animateFloatAsState(
                                 if (focused) 1.1f else 1f, tween(150), label = ""
