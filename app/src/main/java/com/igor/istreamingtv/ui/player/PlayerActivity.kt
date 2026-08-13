@@ -63,6 +63,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.google.gson.JsonParser
@@ -84,9 +85,9 @@ import java.util.concurrent.TimeUnit
 
 /**
  * MOĆNI PLEJER — Media3 ExoPlayer (2GB RAM optimizovan)
- * APPLE TV+ UI: traka + vreme + naslov, CC/Audio meniji,
+ * APPLE TV+ UI: traka + vreme + naslov, CC/Audio meniji, sat UVEK sa kontrolama,
  * premotavanje strelicama, pause znak, poster+opis posle 5s pauze,
- * sat + vreme kraja gore desno, double-tap pauza na tabletu.
+ * double-tap pauza, TITLOVI BEZ CRNOG OKVIRA (beli tekst + senka).
  */
 class PlayerActivity : ComponentActivity() {
 
@@ -684,7 +685,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         }
     }
 
-    // Posle 5s PAUZE → poster + opis + sat
+    // Posle 5s PAUZE → poster + opis
     LaunchedEffect(isPlaying, isReady) {
         if (!isPlaying && isReady) {
             delay(5000)
@@ -694,9 +695,9 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         }
     }
 
-    // Sat kuca dok je paused info prikazan
-    LaunchedEffect(showPausedInfo) {
-        while (showPausedInfo) {
+    // SAT kuca SVAKI PUT kad su kontrole ili paused info prikazani
+    LaunchedEffect(controlsVisible, showPausedInfo) {
+        while (controlsVisible || showPausedInfo) {
             nowMillis = System.currentTimeMillis()
             delay(1000)
         }
@@ -753,12 +754,29 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 } else false
             }
     ) {
-        // VIDEO
+        // VIDEO + TITLOVI U APPLE TV+ STILU (bez crnog okvira!)
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     useController = false
                     setBackgroundColor(android.graphics.Color.BLACK)
+
+                    // ✅ Apple TV+ stil titlova: beli tekst + blaga senka,
+                    //    providna pozadina (NEMA crnog okvira/box-a)
+                    subtitleView?.apply {
+                        setApplyEmbeddedStyles(false)
+                        setApplyInlineStyles(false)
+                        style = CaptionStyleCompat(
+                            android.graphics.Color.WHITE,               // tekst
+                            android.graphics.Color.TRANSPARENT,          // pozadina teksta
+                            android.graphics.Color.TRANSPARENT,          // prozor
+                            CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,    // senka
+                            android.graphics.Color.argb(180, 0, 0, 0),   // boja senke
+                            null
+                        )
+                        setFractionalTextSize(0.05f)
+                    }
+
                     activity.playerView = this
                     player = activity.player
                 }
@@ -795,8 +813,8 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             )
         }
 
-        // GORE DESNO: sat + vreme kraja (posle 5s pauze)
-        if (showPausedInfo) {
+        // ✅ GORE DESNO: SAT + KRAJ — UVEK kad su kontrole prikazane
+        if (controlsVisible || showPausedInfo) {
             Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
