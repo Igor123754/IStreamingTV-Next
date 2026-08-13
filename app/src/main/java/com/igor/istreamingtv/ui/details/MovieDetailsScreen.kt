@@ -46,9 +46,6 @@ private val TextPrimary = Color.White
 private val TextSecondary = Color(0xB3FFFFFF)
 private val CardShape = RoundedCornerShape(12.dp)
 
-/**
- * Pokreće plejer: kandidati + IMDb + titlovi + NASLOV + POSTER + OPIS.
- */
 private fun startPlayer(
     context: Context,
     candidates: List<StreamPicker.Candidate>,
@@ -59,6 +56,7 @@ private fun startPlayer(
     runtimeSeconds: Int = -1,
     title: String? = null,
     posterUrl: String? = null,
+    backdropUrl: String? = null,
     overviewText: String? = null
 ) {
     val intent = Intent(context, PlayerActivity::class.java).apply {
@@ -72,6 +70,7 @@ private fun startPlayer(
         if (runtimeSeconds > 0) putExtra("runtime_sec", runtimeSeconds)
         if (!title.isNullOrBlank()) putExtra("title", title)
         if (!posterUrl.isNullOrBlank()) putExtra("poster", posterUrl)
+        if (!backdropUrl.isNullOrBlank()) putExtra("backdrop", backdropUrl)
         if (!overviewText.isNullOrBlank()) putExtra("overview", overviewText)
     }
     context.startActivity(intent)
@@ -103,6 +102,8 @@ fun MovieDetailsScreen(
                 val epOverview = episode.overview?.takeIf { it.isNotBlank() }
                     ?: state.details?.pickSerbianOverview()
                     ?: state.details?.overview
+                val seriesBackdrop = state.details?.backdrop_path
+                    ?.let { "https://image.tmdb.org/t/p/w780$it" }
                 startPlayer(
                     context, candidates,
                     imdbId = state.details?.pickImdbId(),
@@ -112,6 +113,7 @@ fun MovieDetailsScreen(
                     runtimeSeconds = (episode.runtime ?: 0) * 60,
                     title = movie.displayTitle,
                     posterUrl = movie.posterPath?.let { "https://image.tmdb.org/t/p/w342$it" },
+                    backdropUrl = seriesBackdrop,
                     overviewText = epOverview
                 )
             } else {
@@ -156,8 +158,6 @@ private fun DetailsScrollContent(
     onSelectSeason: (Int) -> Unit,
     onPlayEpisode: (TmdbEpisode) -> Unit
 ) {
-    // ✅ FIX: eksplicitna visina ekrana umesto fillParentMaxSize()
-    // (rešava bug sa "pola učitanog" hero-a pri skrolu nazad)
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -360,6 +360,7 @@ private fun DetailsHero(
                                     runtimeSeconds = (runtimeMin ?: 0) * 60,
                                     title = movie.displayTitle,
                                     posterUrl = movie.posterPath?.let { "https://image.tmdb.org/t/p/w342$it" },
+                                    backdropUrl = backdropUrl,
                                     overviewText = overview
                                 )
 
@@ -391,7 +392,6 @@ private fun DetailsHero(
                         }
                     }
 
-                    // ✅ FIX: BELI okvir kad je fokusirano (isto kao "Gledaj")
                     TvFocusableButton(onClick = { inLibrary = !inLibrary }) { focused ->
                         val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
                         Box(
