@@ -29,7 +29,6 @@ data class DetailsUiState(
     val preparingStreams: Boolean = false,
     val movieCandidates: List<StreamPicker.Candidate> = emptyList(),
     val episodeCandidates: Map<String, List<StreamPicker.Candidate>> = emptyMap(),
-    // Srpski titlovi — LISTA (rankovani po sinhronizaciji), prefetch u pozadini
     val movieSubtitleUrls: List<String> = emptyList(),
     val episodeSubtitleUrls: Map<String, List<String>> = emptyMap(),
     val error: String? = null
@@ -103,7 +102,6 @@ class MovieDetailsViewModel : ViewModel() {
                     _uiState.value = _uiState.value.copy(similar = similarDeferred.await())
                 }
 
-                // STREAM-OVI + TITLOVI (sinhronizovani) u pozadini
                 val imdb = details.pickImdbId()
                 if (!imdb.isNullOrBlank()) {
                     if (!isTv) {
@@ -157,7 +155,6 @@ class MovieDetailsViewModel : ViewModel() {
         return prepared
     }
 
-    /** Sinhronizovani srpski titlovi za epizodu: keš → ili fetch+rank */
     suspend fun subtitlesForEpisode(season: Int, episode: Int): List<String> {
         val key = "$season:$episode"
         _uiState.value.episodeSubtitleUrls[key]?.let { return it }
@@ -174,8 +171,6 @@ class MovieDetailsViewModel : ViewModel() {
         }
         return urls
     }
-
-    // ===== PRIVATE =====
 
     private fun prepareMovieStreams(imdb: String) {
         viewModelScope.launch {
@@ -228,7 +223,10 @@ class MovieDetailsViewModel : ViewModel() {
         }
     }
 
-    /** Povuci srpske titlove + rankuj po sinhronizaciji (trajanje vs TMDB) */
+    /**
+     * Povuci srpske + hrvatske titlove, ranguj po sinhronizaciji.
+     * Redosled: srpski (rankovani) pa hrvatski (rankovani) — srpski uvek prioritet.
+     */
     private suspend fun fetchRankedSubtitles(
         type: String,
         imdb: String,
@@ -236,9 +234,9 @@ class MovieDetailsViewModel : ViewModel() {
         episode: Int,
         expectedSeconds: Int?
     ): List<String> = try {
-        val entries = SubtitleFetcher.getSerbianSubtitles(type, imdb, season, episode)
+        val entries = SubtitleFetcher.getAcceptedSubtitles(type, imdb, season, episode)
         val ranked = SubtitleFetcher.rankBySync(entries, expectedSeconds)
-        ranked.take(5).map { it.url }
+        ranked.take(6).map { it.url }
     } catch (_: Exception) {
         emptyList()
     }
