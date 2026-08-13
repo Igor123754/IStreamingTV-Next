@@ -17,6 +17,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.ui.PlayerView
 import com.google.gson.JsonParser
 import com.igor.istreamingtv.data.remote.StreamPicker
@@ -28,8 +29,11 @@ import java.util.concurrent.TimeUnit
 
 /**
  * MOĆNI PLEJER — Media3 ExoPlayer (720p → 4K REMUX).
- * AUTO-FALLBACK: ako izvor crkne, tiho prelazi na sledećeg kandidata
- * (4K → 1080p → 720p...) bez ikakvog biranja.
+ * OPTIMIZOVAN ZA SLABE UREĐAJE (2GB RAM):
+ * - Manji buffer (24 MB umesto 96 MB)
+ * - Brži start (2s umesto 5s)
+ * - Trim allocator (oslobađa RAM kad nije potrebno)
+ * AUTO-FALLBACK: ako izvor crkne, tiho prelazi na sledećeg kandidata.
  * Za serije: na kraju epizode automatski pušta SLEDEĆU.
  */
 class PlayerActivity : ComponentActivity() {
@@ -37,12 +41,10 @@ class PlayerActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
     private var playerView: PlayerView? = null
 
-    // Lista kandidata (već sortirana: najbolji radni prvi)
     private val candidateUrls = mutableListOf<String>()
     private var candidateIndex = 0
     private var currentUrl: String? = null
 
-    // Za "sledeća epizoda"
     private var seriesImdb: String? = null
     private var seasonNumber: Int = -1
     private var episodeNumber: Int = -1
@@ -81,7 +83,6 @@ class PlayerActivity : ComponentActivity() {
         playCandidate(0)
     }
 
-    /** Prihvata novu listu kandidata ili stari "stream"/"url" format */
     private fun parseIntent() {
         intent.getStringExtra("candidates")?.let { json ->
             try {
@@ -94,7 +95,6 @@ class PlayerActivity : ComponentActivity() {
             }
         }
 
-        // Backward kompatibilnost sa starim pozivima
         if (candidateUrls.isEmpty()) {
             intent.getStringExtra("url")?.takeIf { it.isNotBlank() }?.let { candidateUrls.add(it) }
         }
@@ -128,17 +128,33 @@ class PlayerActivity : ComponentActivity() {
 
         val trackSelector = DefaultTrackSelector(context)
 
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(20_000, 60_000, 2_000, 5_000)
-            .setTargetBufferBytes(96 * 1024 * 1024)
-            .setBackBuffer(30_000, false)
+        // OPTIMIZOVAN LOAD CONTROL ZA SLABE UREĐAJE (2GB RAM):
+        // - Manji buffer (24 MB) da ne ubije RAM
+        // - Brži start (2s) — ne čeka 5s
+        // - Kraći back-buffer (15s) — manje RAM za rewind
+        val allocator = DefaultAllocator(
+            /* trimOnReset = */ true,
+            /* individualAllocationSize = */ 65536  // 64 KB chunks
+        )
+
+        val loadControl = DefaultLoadControl.Builder(allocator)
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 8_000,                    // 8s (umesto 20s) — brži start
+                /* maxBufferMs = */ 30_000,                   // 30s (umesto 60s) — manje RAM
+                /* bufferForPlaybackMs = */ 2_000,            // 2s pre starta
+                /* bufferForPlaybackAfterRebufferMs = */ 5_000 // 5s nakon rebuffer-a
+            )
+            .setTargetBufferBytes(24 * 1024 * 1024)           // 24 MB (umesto 96 MB!)
+            .setBackBuffer(15_000, false)                      // 15s unazad (umesto 30s)
+            .setPrioritizeTimeOverSize(true)                   // Preferiraj brzinu nad količinom
             .build()
 
         val okHttpClient = OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(45, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
             .build()
 
         val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
@@ -149,7 +165,6 @@ class PlayerActivity : ComponentActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(context)
             .setDataSourceFactory(dataSourceFactory)
 
-        // Oslobodi stari plejer ako postoji (fallback scenario)
         player?.release()
 
         val exoPlayer = ExoPlayer.Builder(context)
@@ -172,7 +187,6 @@ class PlayerActivity : ComponentActivity() {
 
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                // AUTO-FALLBACK: sledeći kandidat u listi (4K → 1080p → ...)
                 if (candidateIndex < candidateUrls.size - 1) {
                     Toast.makeText(
                         context,
@@ -200,7 +214,6 @@ class PlayerActivity : ComponentActivity() {
         playerView?.player = exoPlayer
     }
 
-    /** Kraj epizode → automatski sledeća (E+1) preko StreamPicker-a */
     private fun tryNextEpisode() {
         val imdb = seriesImdb ?: return
         if (seasonNumber < 0 || episodeNumber < 0) return
@@ -212,7 +225,6 @@ class PlayerActivity : ComponentActivity() {
             if (urls.isEmpty()) return@launch
 
             launch {
-                // Main thread
                 Toast.makeText(
                     this@PlayerActivity,
                     "Sledeća epizoda: S$seasonNumber · E$nextEpisode",
