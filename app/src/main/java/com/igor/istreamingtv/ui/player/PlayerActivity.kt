@@ -84,13 +84,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 
 /**
  * MOĆNI PLEJER — Media3 ExoPlayer (2GB RAM optimizovan)
- * APPLE TV+ UI: traka + vreme + naslov, CC/Audio meniji (SKROLABILNI),
- * sat UVEK sa kontrolama, premotavanje strelicama, pause znak,
- * poster+opis posle 5s pauze, double-tap pauza,
- * TITLOVI BEZ CRNOG OKVIRA (beli tekst + senka).
+ * APPLE TV+ UI + TAČNA AUTO-SINHRONIZACIJA TITLOVA:
+ * kad plejer zna tačno trajanje videa, tiho bira titl čije
+ * izmereno trajanje najbliže — bez restarta, bez diranja.
  */
 class PlayerActivity : ComponentActivity() {
 
@@ -211,7 +211,12 @@ class PlayerActivity : ComponentActivity() {
                     val o = el.asJsonObject
                     val url = o.get("url")?.takeIf { !it.isJsonNull }?.asString ?: return@forEach
                     val lang = o.get("lang")?.takeIf { !it.isJsonNull }?.asString ?: "sr"
-                    currentSubtitleTracks.add(SubtitleTrack(url, lang))
+                    val dur = try {
+                        o.get("durationSec")?.takeIf { !it.isJsonNull }?.asInt
+                    } catch (_: Exception) {
+                        null
+                    }
+                    currentSubtitleTracks.add(SubtitleTrack(url, lang, dur))
                 }
             } catch (_: Exception) {
                 // Ignoriši
@@ -259,6 +264,45 @@ class PlayerActivity : ComponentActivity() {
         candidateIndex = index
         currentUrl = candidateUrls[index]
         buildPlayer(currentUrl!!, currentSubtitleTracks.toList())
+    }
+
+    /**
+     * ✅ TAČNA AUTO-SINHRONIZACIJA: kad plejer zna TAČNO trajanje videa,
+     * tiho prebacuje na titl čije izmereno trajanje najbliže.
+     */
+    private fun autoPickSyncedSubtitle(exoPlayer: ExoPlayer, tracks: List<SubtitleTrack>) {
+        val actualMs = exoPlayer.duration
+        if (actualMs <= 0) return
+
+        val measured = tracks.mapIndexedNotNull { i, t ->
+            t.durationSec?.let { Triple(i, it, abs(it * 1000L - actualMs)) }
+        }
+        if (measured.isEmpty()) return
+
+        val best = measured.minByOrNull { it.third } ?: return
+        val currentBest = measured.firstOrNull() // tracks[0] je trenutno izabran
+        // Ako već izabrani (index 0) nije najbolji po tačnom trajanju → prebaci
+        val currentIndex = 0
+        if (best.first != currentIndex && best.third < 3 * 60 * 1000L) {
+            applySubtitleByIndex(exoPlayer, best.first)
+        }
+    }
+
+    private fun applySubtitleByIndex(exoPlayer: ExoPlayer, index: Int) {
+        exoPlayer.currentTracks.groups.forEach { group ->
+            if (group.type == C.TRACK_TYPE_TEXT && index < group.length) {
+                val override = TrackSelectionOverride(
+                    group.mediaTrackGroup,
+                    listOf(index)
+                )
+                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .addOverride(override)
+                    .build()
+            }
+        }
     }
 
     private fun buildPlayer(url: String, tracks: List<SubtitleTrack>) {
@@ -345,6 +389,8 @@ class PlayerActivity : ComponentActivity() {
         if (savedPosition > 0) exoPlayer.seekTo(savedPosition)
         exoPlayer.playWhenReady = true
 
+        var autoSyncDone = false
+
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 if (candidateIndex < candidateUrls.size - 1) {
@@ -366,6 +412,11 @@ class PlayerActivity : ComponentActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     tryNextEpisode()
+                }
+                // ✅ Kad je video spreman → znamo TAČNO trajanje → auto-korekcija titla
+                if (state == Player.STATE_READY && !autoSyncDone && tracks.size > 1) {
+                    autoSyncDone = true
+                    autoPickSyncedSubtitle(exoPlayer, tracks)
                 }
             }
         })
@@ -421,7 +472,7 @@ class PlayerActivity : ComponentActivity() {
             val duration = p.duration
             val prefs = getSharedPreferences("player_positions", MODE_PRIVATE)
             when {
-                duration > 0 && position > duration - 15_000 -> prefs.edit().remove(url).apply()
+            duration > 0 && position > duration - 15_000 -> prefs.edit().remove(url).apply()
                 position > 5_000 -> prefs.edit().putLong(url, position).apply()
             }
         } catch (_: Exception) {
@@ -1079,9 +1130,9 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     }
                 }
 
-                // ✅ MENI titlova / audio — SKROLABILAN (strelice + touch)
+                // MENI titlova / audio — SKROLABILAN
                 if (menu != TrackMenuKind.NONE) {
-                    Column(
+    Column(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(end = 40.dp, bottom = 140.dp)
