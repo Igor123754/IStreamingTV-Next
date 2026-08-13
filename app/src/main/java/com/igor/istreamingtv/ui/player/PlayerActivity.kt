@@ -6,6 +6,8 @@ import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -13,10 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Rewind
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
@@ -26,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
@@ -71,8 +71,8 @@ import java.util.concurrent.TimeUnit
 class PlayerActivity : ComponentActivity() {
 
     internal var player: ExoPlayer? = null
+    internal var playerView: PlayerView? = null
     internal var playerTitle: String = ""
-    private var playerView: PlayerView? = null
 
     private val candidateUrls = mutableListOf<String>()
     private var candidateIndex = 0
@@ -393,6 +393,19 @@ class PlayerActivity : ComponentActivity() {
 // APPLE TV+ STIL UI
 // =====================================================================
 
+/** Pause ikonica — dve vertikalne crte (crtano u Compose, bez extended icons) */
+@Composable
+private fun PauseBars(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(7.dp, 34.dp).background(Color.White))
+        Box(Modifier.size(7.dp, 34.dp).background(Color.White))
+    }
+}
+
 @Composable
 private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     var controlsVisible by remember { mutableStateOf(true) }
@@ -518,7 +531,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     TvFocusableButton(onClick = { activity.finish() }) { focused ->
                         val scale by animateFloatAsState(
                             if (focused) 1.1f else 1f,
-                            androidx.compose.animation.core.tween(150),
+                            tween(150),
                             label = ""
                         )
                         Box(
@@ -555,7 +568,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(44.dp)
                 ) {
-                    // -10s
+                    // -10s (tekst umesto Rewind ikonice — nije u core setu)
                     TvFocusableButton(onClick = {
                         interact()
                         val p = activity.player ?: return@TvFocusableButton
@@ -563,7 +576,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     }) { focused ->
                         val scale by animateFloatAsState(
                             if (focused) 1.1f else 1f,
-                            androidx.compose.animation.core.tween(150),
+                            tween(150),
                             label = ""
                         )
                         Box(
@@ -574,11 +587,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                                 .size(56.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Rewind,
-                                contentDescription = "-10s",
-                                tint = Color.White,
-                                modifier = Modifier.size(26.dp)
+                            Text(
+                                text = "−10",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
@@ -591,7 +604,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     }) { focused ->
                         val scale by animateFloatAsState(
                             if (focused) 1.12f else 1f,
-                            androidx.compose.animation.core.tween(150),
+                            tween(150),
                             label = ""
                         )
                         Box(
@@ -602,16 +615,20 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                                 .size(84.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Play/Pause",
-                                tint = Color.White,
-                                modifier = Modifier.size(40.dp)
-                            )
+                            if (isPlaying) {
+                                PauseBars()
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = "Play",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            }
                         }
                     }
 
-                    // +10s
+                    // +10s (tekst umesto FastForward ikonice)
                     TvFocusableButton(onClick = {
                         interact()
                         val p = activity.player ?: return@TvFocusableButton
@@ -619,7 +636,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     }) { focused ->
                         val scale by animateFloatAsState(
                             if (focused) 1.1f else 1f,
-                            androidx.compose.animation.core.tween(150),
+                            tween(150),
                             label = ""
                         )
                         Box(
@@ -630,11 +647,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                                 .size(56.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.FastForward,
-                                contentDescription = "+10s",
-                                tint = Color.White,
-                                modifier = Modifier.size(26.dp)
+                            Text(
+                                text = "+10",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
@@ -697,7 +714,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             }) { focused ->
                                 val scale by animateFloatAsState(
                                     if (focused) 1.1f else 1f,
-                                    androidx.compose.animation.core.tween(150),
+                                    tween(150),
                                     label = ""
                                 )
                                 Box(
