@@ -45,10 +45,6 @@ private val TextPrimary = Color.White
 private val TextSecondary = Color(0xB3FFFFFF)
 private val CardShape = RoundedCornerShape(12.dp)
 
-/**
- * Pokreće plejer sa LISTOM kandidata (već sortirano: validirani 4K → 1080p → ...).
- * Plejer sam prelazi na sledećeg ako izvor ne radi.
- */
 private fun startPlayer(
     context: Context,
     candidates: List<StreamPicker.Candidate>,
@@ -80,7 +76,6 @@ fun MovieDetailsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Klik na epizodu: keširani kandidati ili brzi fetch → plejer
     val playEpisode: (TmdbEpisode) -> Unit = { episode ->
         scope.launch {
             val cached = state.episodeCandidates["${episode.season_number}:${episode.episode_number}"]
@@ -149,7 +144,6 @@ private fun DetailsScrollContent(
                     preparingStreams = state.preparingStreams,
                     hasMovieCandidates = state.movieCandidates.isNotEmpty(),
                     firstEpisode = state.episodes.firstOrNull(),
-                    firstEpisodeReady = state.episodeCandidates.isNotEmpty(),
                     movieCandidates = state.movieCandidates,
                     onBack = onBack,
                     onPlayEpisode = onPlayEpisode
@@ -240,13 +234,11 @@ private fun DetailsHero(
     preparingStreams: Boolean,
     hasMovieCandidates: Boolean,
     firstEpisode: TmdbEpisode?,
-    firstEpisodeReady: Boolean,
     movieCandidates: List<StreamPicker.Candidate>,
     onBack: () -> Unit,
     onPlayEpisode: (TmdbEpisode) -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     var inLibrary by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -267,10 +259,6 @@ private fun DetailsHero(
 
     val backdropUrl = "https://image.tmdb.org/t/p/w1280" +
         (details?.backdrop_path ?: movie.backdropPath ?: details?.poster_path ?: movie.posterPath ?: "")
-
-    // Prikaz kvaliteta koji je spreman (npr. "4K" / "1080p")
-    val readyLabel = if (!isTv) movieCandidates.firstOrNull()?.qualityLabel
-        else null
 
     Box(modifier = Modifier.fillMaxSize()) {
 
@@ -355,15 +343,12 @@ private fun DetailsHero(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TvFocusableButton(onClick = {
                         when {
-                            // FILM: spremni kandidati → odmah plejer
                             !isTv && movieCandidates.isNotEmpty() ->
                                 startPlayer(context, movieCandidates)
 
-                            // FILM: još se priprema
                             !isTv && preparingStreams ->
                                 notice = "Pripremamo najbolji izvor..."
 
-                            // SERIJA: prva epizoda (keš ili brzi fetch)
                             isTv && firstEpisode != null -> onPlayEpisode(firstEpisode)
 
                             else -> notice = "Nema dostupnih izvora za ovaj naslov"
@@ -386,15 +371,6 @@ private fun DetailsHero(
                                 modifier = Modifier.size(20.dp)
                             )
                             Text("Gledaj", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                            // Diskretna oznaka spremnog kvaliteta (npr. 4K)
-                            if (readyLabel != null) {
-                                Text(
-                                    text = readyLabel,
-                                    color = Color.Black.copy(alpha = 0.6f),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
                         }
                     }
 
