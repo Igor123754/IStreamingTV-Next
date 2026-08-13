@@ -24,11 +24,11 @@ data class SubtitleTrack(
  * TITLOVI — OpenSubtitles Stremio addon.
  * PRIORITET: srpski > hrvatski.
  *
- * AUTO-SINHRONIZACIJA (pametni ranking, 3 signala):
- *  1) razlika trajanja titla vs TMDB runtime (otkriva PAL/25fps verzije)
- *  2) OpenSubtitles relevantnost (pozicija = downloads/rating —
- *     najskidaniji titl je najčešće sinhronizovan sa najčešćim release-om)
- *  3) prva replika pre 10 min (kasnija prva replika = pogrešan release/intro)
+ * AUTO-SINHRONIZACIJA:
+ *  1) GLAVNI signal: |trajanje titla − TMDB runtime| (otkriva PAL/25fps
+ *     i pogrešne release verzije)
+ *  2) tie-breaker: pozicija u addon odgovoru (samo kad je trajanje isto)
+ *  3) penala: prva replika posle 10 min = pogrešan release/intro
  */
 object SubtitleFetcher {
 
@@ -49,12 +49,11 @@ object SubtitleFetcher {
         val url: String,
         val language: String,      // "sr" ili "hr"
         val encoding: String?,
-        val order: Int             // pozicija u addon odgovoru (OS relevantnost)
+        val order: Int
     ) {
         val isSerbian: Boolean get() = language == "sr"
     }
 
-    /** Vremena titla: prva replika + ukupno trajanje */
     private data class Timing(
         val firstSec: Int,
         val maxSec: Int
@@ -110,7 +109,7 @@ object SubtitleFetcher {
         entries: List<SubtitleEntry>,
         expectedSeconds: Int?
     ): List<SubtitleEntry> {
-        if (expectedSeconds == null || expectedSeconds <= 0) return entries
+        if (entries.size < 2 || expectedSeconds == null || expectedSeconds <= 0) return entries
 
         val rankedSerbian = rankGroup(entries.filter { it.isSerbian }, expectedSeconds)
         val rankedCroatian = rankGroup(entries.filter { !it.isSerbian }, expectedSeconds)
@@ -118,8 +117,10 @@ object SubtitleFetcher {
     }
 
     /**
-     * Pametni score (manje = bolje):
-     *  |trajanje - runtime|  +  pozicija*20 (OS relevantnost)  +  kasna prva replika +300
+     * Score (manje = bolje):
+     *   GLAVNO: |trajanje − runtime|
+     *   + 5s po poziciji (SAMO tie-breaker, ne odlučuje!)
+     *   + 300s ako prva replika kreće posle 10 min
      */
     private suspend fun rankGroup(
         group: List<SubtitleEntry>,
@@ -134,14 +135,11 @@ object SubtitleFetcher {
                 async {
                     val timing = fetchTiming(entry.url)
                     val score = if (timing == null) {
-                        // ne može da se pročita → neka ide iza proverenih
                         Int.MAX_VALUE / 2 + index
                     } else {
-                        var s = abs(timing.maxSec - expectedSeconds)
-                        // OS relevantnost: svaka pozicija niže = +20s penala
-                        s += index * 20
-                        // prva replika posle 10 min = verovatno pogrešan release
-                        if (timing.firstSec > 600) s += 300
+                        var s = abs(timing.maxSec - expectedSeconds)   // GLAVNI signal
+                        s += index * 5                                 // tie-breaker
+                        if (timing.firstSec > 600) s += 300            // pogrešan release
                         s
                     }
                     entry to score
