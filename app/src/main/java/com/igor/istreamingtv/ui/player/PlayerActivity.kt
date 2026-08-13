@@ -765,14 +765,15 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     //    providna pozadina (NEMA crnog okvira/box-a)
                     subtitleView?.apply {
                         setApplyEmbeddedStyles(false)
-                        setApplyInlineStyles(false)
-                        style = CaptionStyleCompat(
-                            android.graphics.Color.WHITE,               // tekst
-                            android.graphics.Color.TRANSPARENT,          // pozadina teksta
-                            android.graphics.Color.TRANSPARENT,          // prozor
-                            CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,    // senka
-                            android.graphics.Color.argb(180, 0, 0, 0),   // boja senke
-                            null
+                        setStyle(
+                            CaptionStyleCompat(
+                                android.graphics.Color.WHITE,               // tekst
+                                android.graphics.Color.TRANSPARENT,          // pozadina teksta
+                                android.graphics.Color.TRANSPARENT,          // prozor
+                                CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,    // senka
+                                android.graphics.Color.argb(180, 0, 0, 0),   // boja senke
+                                null
+                            )
                         )
                         setFractionalTextSize(0.05f)
                     }
@@ -813,7 +814,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             )
         }
 
-        // ✅ GORE DESNO: SAT + KRAJ — UVEK kad su kontrole prikazane
+        // GORE DESNO: SAT + KRAJ — UVEK kad su kontrole prikazane
         if (controlsVisible || showPausedInfo) {
             Column(
                 modifier = Modifier
