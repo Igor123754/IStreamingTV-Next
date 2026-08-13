@@ -46,7 +46,7 @@ private val TextSecondary = Color(0xB3FFFFFF)
 private val CardShape = RoundedCornerShape(12.dp)
 
 /**
- * Pokreće plejer: kandidati + IMDb + LISTA sinhronizovanih srpskih titlova.
+ * Pokreće plejer: kandidati + IMDb + trake titlova SA JEZIKOM (sr/hr).
  */
 private fun startPlayer(
     context: Context,
@@ -54,7 +54,7 @@ private fun startPlayer(
     imdbId: String? = null,
     season: Int = -1,
     episode: Int = -1,
-    subtitleUrls: List<String> = emptyList(),
+    subtitleTracks: List<SubtitleTrack> = emptyList(),
     runtimeSeconds: Int = -1
 ) {
     val intent = Intent(context, PlayerActivity::class.java).apply {
@@ -62,8 +62,8 @@ private fun startPlayer(
         if (imdbId != null) putExtra("imdb_id", imdbId)
         putExtra("season", season)
         putExtra("episode", episode)
-        if (subtitleUrls.isNotEmpty()) {
-            putExtra("subtitle_urls", Gson().toJson(subtitleUrls))
+        if (subtitleTracks.isNotEmpty()) {
+            putExtra("subtitle_tracks", Gson().toJson(subtitleTracks))
         }
         if (runtimeSeconds > 0) putExtra("runtime_sec", runtimeSeconds)
     }
@@ -91,14 +91,14 @@ fun MovieDetailsScreen(
                 episode.season_number, episode.episode_number
             )
             if (candidates.isNotEmpty()) {
-                val subs = state.episodeSubtitleUrls[key]
+                val subs = state.episodeSubtitleTracks[key]
                     ?: viewModel.subtitlesForEpisode(episode.season_number, episode.episode_number)
                 startPlayer(
                     context, candidates,
                     imdbId = state.details?.pickImdbId(),
                     season = episode.season_number,
                     episode = episode.episode_number,
-                    subtitleUrls = subs,
+                    subtitleTracks = subs,
                     runtimeSeconds = (episode.runtime ?: 0) * 60
                 )
             } else {
@@ -155,7 +155,7 @@ private fun DetailsScrollContent(
                     isTv = isTv,
                     preparingStreams = state.preparingStreams,
                     movieCandidates = state.movieCandidates,
-                    movieSubtitleUrls = state.movieSubtitleUrls,
+                    movieSubtitleTracks = state.movieSubtitleTracks,
                     firstEpisode = state.episodes.firstOrNull(),
                     onBack = onBack,
                     onPlayEpisode = onPlayEpisode
@@ -245,7 +245,7 @@ private fun DetailsHero(
     isTv: Boolean,
     preparingStreams: Boolean,
     movieCandidates: List<StreamPicker.Candidate>,
-    movieSubtitleUrls: List<String>,
+    movieSubtitleTracks: List<SubtitleTrack>,
     firstEpisode: TmdbEpisode?,
     onBack: () -> Unit,
     onPlayEpisode: (TmdbEpisode) -> Unit
@@ -359,7 +359,7 @@ private fun DetailsHero(
                                 startPlayer(
                                     context, movieCandidates,
                                     imdbId = details?.pickImdbId(),
-                                    subtitleUrls = movieSubtitleUrls,
+                                    subtitleTracks = movieSubtitleTracks,
                                     runtimeSeconds = (runtimeMin ?: 0) * 60
                                 )
 
@@ -713,7 +713,7 @@ private fun EpisodeCard(
                         .align(Alignment.TopStart)
                         .padding(8.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.6f))
+                    .background(Color.Black.copy(alpha = 0.6f))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
