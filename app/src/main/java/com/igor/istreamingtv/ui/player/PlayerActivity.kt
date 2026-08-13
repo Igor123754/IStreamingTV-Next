@@ -90,7 +90,7 @@ import kotlin.math.abs
 /**
  * MOĆNI PLEJER — Media3 ExoPlayer (2GB RAM optimizovan)
  * APPLE TV+ UI + tačna auto-sinhronizacija titlova + SKIP INTRO
- * (heuristika + učenje po seriji/sezone).
+ * preko introdb.app API (tačni timestamp-ovi, bez učenja).
  */
 class PlayerActivity : ComponentActivity() {
 
@@ -102,10 +102,10 @@ class PlayerActivity : ComponentActivity() {
     internal var playerPoster: String = ""
     internal var playerOverview: String = ""
 
-    // SKIP INTRO (serije)
+    // SKIP INTRO (serije) - tačni timestamp-ovi sa introdb.app
     internal var isSeriesPlay: Boolean = false
-    internal var introStartMs: Long = DEFAULT_INTRO_START
-    internal var introEndMs: Long = DEFAULT_INTRO_END
+    internal var introStartMs: Long = -1
+    internal var introEndMs: Long = -1
 
     private val candidateUrls = mutableListOf<String>()
     private var candidateIndex = 0
@@ -116,12 +116,6 @@ class PlayerActivity : ComponentActivity() {
     private var seasonNumber: Int = -1
     private var episodeNumber: Int = -1
     private var runtimeSec: Int = -1
-
-    companion object {
-        private const val DEFAULT_INTRO_START = 60_000L     // 60s
-        private const val DEFAULT_INTRO_END = 170_000L      // 170s
-        private const val INTRO_LENGTH = 100_000L           // tipičan uvod ~100s
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -146,7 +140,17 @@ class PlayerActivity : ComponentActivity() {
         playerPoster = intent.getStringExtra("poster") ?: ""
         playerOverview = intent.getStringExtra("overview") ?: ""
 
-        loadIntroWindow()
+        // Fetch intro timestamp-ova sa introdb.app (za serije)
+        if (!imdbId.isNullOrBlank() && seasonNumber >= 0 && episodeNumber >= 0) {
+            isSeriesPlay = true
+            lifecycleScope.launch {
+                val intro = fetchIntroTimestamps(imdbId!!, seasonNumber, episodeNumber)
+                if (intro != null) {
+                    introStartMs = (intro.first * 1000).toLong()
+                    introEndMs = (intro.second * 1000).toLong()
+                }
+            }
+        }
 
         val composeView = ComposeView(this)
         composeView.setBackgroundColor(android.graphics.Color.BLACK)
@@ -205,38 +209,45 @@ class PlayerActivity : ComponentActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
-    // ================= SKIP INTRO =================
+    // ================= SKIP INTRO API =================
 
-    /** Učitaj naučeni (ili default) prozor uvoda za ovu seriju+sezonu */
-    private fun loadIntroWindow() {
-        if (seasonNumber < 0 || imdbId.isNullOrBlank()) {
-            isSeriesPlay = false
-            return
+    /**
+     * Fetch intro timestamp-ova sa introdb.app.
+     * Vraća (startSec, endSec) ili null ako nema podataka.
+     */
+    private suspend fun fetchIntroTimestamps(
+        imdbId: String,
+        season: Int,
+        episode: Int
+    ): Pair<Double, Double>? = withContext(Dispatchers.IO) {
+        try {
+            val url = "https://api.introdb.app/intro?imdb=$imdbId&season=$season&episode=$episode"
+            val client = OkHttpClient.Builder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(5, TimeUnit.SECONDS)
+                .build()
+            val request = Request.Builder().url(url).get().build()
+            val response = client.newCall(request).execute()
+            val body = response.body?.string()
+            response.close()
+
+            if (body.isNullOrBlank()) return@withContext null
+
+            val json = JsonParser.parseString(body).asJsonObject
+            val start = json.get("start")?.asDouble ?: return@withContext null
+            val end = json.get("end")?.asDouble ?: return@withContext null
+
+            if (start >= 0 && end > start) Pair(start, end) else null
+        } catch (_: Exception) {
+            null
         }
-        isSeriesPlay = true
-        val prefs = getSharedPreferences("intro_skip", MODE_PRIVATE)
-        val key = "${imdbId}_$seasonNumber"
-        introStartMs = prefs.getLong(key + "_start", DEFAULT_INTRO_START)
-        introEndMs = prefs.getLong(key + "_end", DEFAULT_INTRO_END)
     }
 
-    /** Preskoči uvod + zapamti za sledeće epizode */
+    /** Preskoči uvod (skače na introEndMs) */
     internal fun skipIntro() {
         val p = player ?: return
-        val pressTime = p.currentPosition
-        val target = pressTime + INTRO_LENGTH
-
-        p.seekTo(target)
-
-        if (!imdbId.isNullOrBlank() && seasonNumber >= 0) {
-            val prefs = getSharedPreferences("intro_skip", MODE_PRIVATE)
-            val key = "${imdbId}_$seasonNumber"
-            prefs.edit()
-                .putLong(key + "_start", pressTime)   // nauči početak uvoda
-                .putLong(key + "_end", target)        // nauči kraj uvoda
-                .apply()
-            introStartMs = pressTime
-            introEndMs = target
+        if (introEndMs > 0) {
+            p.seekTo(introEndMs)
         }
     }
 
@@ -500,7 +511,20 @@ class PlayerActivity : ComponentActivity() {
                 currentSubtitleTracks.addAll(nextTracks)
                 candidateUrls.clear()
                 candidateUrls.addAll(urls)
-                loadIntroWindow()   // ✅ naučeni prozor za sledeću epizodu
+
+                // Fetch intro za sledeću epizodu
+                if (!imdb.isNullOrBlank() && seasonNumber >= 0 && nextEpisode >= 0) {
+                    isSeriesPlay = true
+                    val intro = fetchIntroTimestamps(imdb, seasonNumber, nextEpisode)
+                    if (intro != null) {
+                        introStartMs = (intro.first * 1000).toLong()
+                        introEndMs = (intro.second * 1000).toLong()
+                    } else {
+                        introStartMs = -1
+                        introEndMs = -1
+                    }
+                }
+
                 playCandidate(0)
             }
         }
@@ -837,9 +861,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         Date(nowMillis + (duration - position).coerceAtLeast(0))
     )
 
-    // ✅ SKIP INTRO vidljivost: serija + reprodukcija + unutar prozora uvoda
+    // ✅ SKIP INTRO vidljivost: serija + reprodukcija + unutar prozora uvoda (sa API)
     val showSkipIntro = activity.isSeriesPlay &&
         isPlaying &&
+        activity.introStartMs >= 0 &&
+        activity.introEndMs > 0 &&
         position in activity.introStartMs..activity.introEndMs
 
     Box(
