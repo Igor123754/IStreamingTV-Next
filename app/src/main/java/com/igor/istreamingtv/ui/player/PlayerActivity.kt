@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -18,21 +19,30 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import com.google.gson.JsonParser
+import com.igor.istreamingtv.data.remote.StreamPicker
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 /**
  * MOĆNI PLEJER — Media3 ExoPlayer (720p → 4K REMUX).
- * Za serije: kada se epizoda završi, automatski pušta SLEDEĆU.
+ * AUTO-FALLBACK: ako izvor crkne, tiho prelazi na sledećeg kandidata
+ * (4K → 1080p → 720p...) bez ikakvog biranja.
+ * Za serije: na kraju epizode automatski pušta SLEDEĆU.
  */
 class PlayerActivity : ComponentActivity() {
 
     private var player: ExoPlayer? = null
     private var playerView: PlayerView? = null
+
+    // Lista kandidata (već sortirana: najbolji radni prvi)
+    private val candidateUrls = mutableListOf<String>()
+    private var candidateIndex = 0
     private var currentUrl: String? = null
 
-    // Podaci za "sledeća epizoda" (samo kod serija)
+    // Za "sledeća epizoda"
     private var seriesImdb: String? = null
     private var seasonNumber: Int = -1
     private var episodeNumber: Int = -1
@@ -41,13 +51,12 @@ class PlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        val info = extractStreamInfo()
-        if (info == null) {
+        parseIntent()
+        if (candidateUrls.isEmpty()) {
             Toast.makeText(this, "Nema izvora za reprodukciju", Toast.LENGTH_SHORT).show()
             finish()
             return
         }
-        currentUrl = info.first
 
         seriesImdb = intent.getStringExtra("series_imdb")
         seasonNumber = intent.getIntExtra("season", -1)
@@ -69,30 +78,46 @@ class PlayerActivity : ComponentActivity() {
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-        buildPlayer(url = info.first)
+        playCandidate(0)
     }
 
-    private fun extractStreamInfo(): Pair<String, String?>? {
-        intent.getStringExtra("url")?.takeIf { it.isNotBlank() }?.let {
-            return it to intent.getStringExtra("title")
-        }
-
-        intent.getStringExtra("stream")?.let { json ->
+    /** Prihvata novu listu kandidata ili stari "stream"/"url" format */
+    private fun parseIntent() {
+        intent.getStringExtra("candidates")?.let { json ->
             try {
-                val obj = JsonParser.parseString(json).asJsonObject
-                val url = obj.get("url")?.takeIf { !it.isJsonNull }?.asString
-                    ?: obj.get("externalUrl")?.takeIf { !it.isJsonNull }?.asString
-                    ?: obj.get("streamUrl")?.takeIf { !it.isJsonNull }?.asString
-                val title = obj.get("title")?.takeIf { !it.isJsonNull }?.asString
-                    ?: obj.get("name")?.takeIf { !it.isJsonNull }?.asString
-                if (!url.isNullOrBlank()) return url to title
+                val arr = JsonParser.parseString(json).asJsonArray
+                arr.forEach { el ->
+                    el.takeIf { !it.isJsonNull }?.asString?.let { candidateUrls.add(it) }
+                }
             } catch (_: Exception) {
-                if (json.startsWith("http")) return json to null
+                // Ignoriši
             }
         }
 
-        intent.data?.toString()?.let { return it to null }
-        return null
+        // Backward kompatibilnost sa starim pozivima
+        if (candidateUrls.isEmpty()) {
+            intent.getStringExtra("url")?.takeIf { it.isNotBlank() }?.let { candidateUrls.add(it) }
+        }
+        if (candidateUrls.isEmpty()) {
+            intent.getStringExtra("stream")?.let { json ->
+                try {
+                    val obj = JsonParser.parseString(json).asJsonObject
+                    val url = obj.get("url")?.takeIf { !it.isJsonNull }?.asString
+                        ?: obj.get("externalUrl")?.takeIf { !it.isJsonNull }?.asString
+                    if (!url.isNullOrBlank()) candidateUrls.add(url)
+                } catch (_: Exception) {
+                    if (json.startsWith("http")) candidateUrls.add(json)
+                }
+            }
+        }
+        intent.data?.toString()?.let { if (candidateUrls.isEmpty()) candidateUrls.add(it) }
+    }
+
+    private fun playCandidate(index: Int) {
+        candidateIndex = index
+        val url = candidateUrls[index]
+        currentUrl = url
+        buildPlayer(url)
     }
 
     private fun buildPlayer(url: String) {
@@ -124,6 +149,9 @@ class PlayerActivity : ComponentActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(context)
             .setDataSourceFactory(dataSourceFactory)
 
+        // Oslobodi stari plejer ako postoji (fallback scenario)
+        player?.release()
+
         val exoPlayer = ExoPlayer.Builder(context)
             .setRenderersFactory(renderersFactory)
             .setTrackSelector(trackSelector)
@@ -144,11 +172,21 @@ class PlayerActivity : ComponentActivity() {
 
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                Toast.makeText(
-                    context,
-                    "Greška reprodukcije: ${error.errorCodeName}",
-                    Toast.LENGTH_LONG
-                ).show()
+                // AUTO-FALLBACK: sledeći kandidat u listi (4K → 1080p → ...)
+                if (candidateIndex < candidateUrls.size - 1) {
+                    Toast.makeText(
+                        context,
+                        "Izvor ne radi — prelazim na sledeći...",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    playCandidate(candidateIndex + 1)
+                } else {
+                    Toast.makeText(
+                        context,
+                        "Greška reprodukcije: ${error.errorCodeName}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -162,46 +200,30 @@ class PlayerActivity : ComponentActivity() {
         playerView?.player = exoPlayer
     }
 
-    /**
-     * Kada se epizoda završi → povuci stream za sledeću (E+1) i pusti je.
-     */
+    /** Kraj epizode → automatski sledeća (E+1) preko StreamPicker-a */
     private fun tryNextEpisode() {
         val imdb = seriesImdb ?: return
         if (seasonNumber < 0 || episodeNumber < 0) return
         val nextEpisode = episodeNumber + 1
 
-        Thread {
-            try {
-                val url = "https://v3-cinemeta.strem.io/stream/series/$imdb:$seasonNumber:$nextEpisode.json"
-                val client = OkHttpClient()
-                val response = client.newCall(Request.Builder().url(url).build()).execute()
-                val body = response.body?.string()
-                response.close()
-                if (body.isNullOrBlank()) return@Thread
+        lifecycleScope.launch(Dispatchers.IO) {
+            val candidates = StreamPicker.getCandidates("series", imdb, seasonNumber, nextEpisode)
+            val urls = candidates.map { it.url }
+            if (urls.isEmpty()) return@launch
 
-                val obj = JsonParser.parseString(body).asJsonObject
-                val first = obj.getAsJsonArray("streams")?.firstOrNull()?.asJsonObject
-                val nextUrl = first?.get("url")?.takeIf { !it.isJsonNull }?.asString
-
-                if (!nextUrl.isNullOrBlank()) {
-                    runOnUiThread {
-                        Toast.makeText(
-                            this,
-                            "Sledeća epizoda: S${seasonNumber} · E${nextEpisode}",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        episodeNumber = nextEpisode
-                        currentUrl = nextUrl
-                        val item = MediaItem.Builder().setUri(nextUrl).build()
-                        player?.setMediaItem(item)
-                        player?.prepare()
-                        player?.playWhenReady = true
-                    }
-                }
-            } catch (_: Exception) {
-                // Nema sledeće epizode — ostani na kraju
+            launch {
+                // Main thread
+                Toast.makeText(
+                    this@PlayerActivity,
+                    "Sledeća epizoda: S$seasonNumber · E$nextEpisode",
+                    Toast.LENGTH_SHORT
+                ).show()
+                episodeNumber = nextEpisode
+                candidateUrls.clear()
+                candidateUrls.addAll(urls)
+                playCandidate(0)
             }
-        }.start()
+        }
     }
 
     override fun onStop() {
