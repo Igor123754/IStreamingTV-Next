@@ -15,8 +15,10 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
@@ -85,9 +87,10 @@ import java.util.concurrent.TimeUnit
 
 /**
  * MOĆNI PLEJER — Media3 ExoPlayer (2GB RAM optimizovan)
- * APPLE TV+ UI: traka + vreme + naslov, CC/Audio meniji, sat UVEK sa kontrolama,
- * premotavanje strelicama, pause znak, poster+opis posle 5s pauze,
- * double-tap pauza, TITLOVI BEZ CRNOG OKVIRA (beli tekst + senka).
+ * APPLE TV+ UI: traka + vreme + naslov, CC/Audio meniji (SKROLABILNI),
+ * sat UVEK sa kontrolama, premotavanje strelicama, pause znak,
+ * poster+opis posle 5s pauze, double-tap pauza,
+ * TITLOVI BEZ CRNOG OKVIRA (beli tekst + senka).
  */
 class PlayerActivity : ComponentActivity() {
 
@@ -1076,16 +1079,18 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     }
                 }
 
-                // MENI titlova / audio
+                // ✅ MENI titlova / audio — SKROLABILAN (strelice + touch)
                 if (menu != TrackMenuKind.NONE) {
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(end = 40.dp, bottom = 140.dp)
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color.Black.copy(alpha = 0.88f))
+                            .background(Color.Black.copy(alpha = 0.92f))
+                            .widthIn(min = 220.dp)
+                            .heightIn(max = 320.dp)
+                            .verticalScroll(rememberScrollState())
                             .padding(12.dp)
-                            .widthIn(min = 200.dp)
                     ) {
                         Text(
                             text = if (menu == TrackMenuKind.SUBTITLES) "Titlovi" else "Audio",
