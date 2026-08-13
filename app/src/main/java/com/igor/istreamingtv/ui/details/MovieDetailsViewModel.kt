@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.igor.istreamingtv.BuildConfig
 import com.igor.istreamingtv.data.remote.StreamPicker
 import com.igor.istreamingtv.data.remote.SubtitleFetcher
+import com.igor.istreamingtv.data.remote.SubtitleTrack
 import com.igor.istreamingtv.data.remote.TmdbEpisode
 import com.igor.istreamingtv.data.remote.TmdbHeroDetails
 import com.igor.istreamingtv.data.remote.TmdbMovie
@@ -29,8 +30,9 @@ data class DetailsUiState(
     val preparingStreams: Boolean = false,
     val movieCandidates: List<StreamPicker.Candidate> = emptyList(),
     val episodeCandidates: Map<String, List<StreamPicker.Candidate>> = emptyMap(),
-    val movieSubtitleUrls: List<String> = emptyList(),
-    val episodeSubtitleUrls: Map<String, List<String>> = emptyMap(),
+    // Titlovi SA JEZIKOM (sr/hr) — rankovani po sinhronizaciji
+    val movieSubtitleTracks: List<SubtitleTrack> = emptyList(),
+    val episodeSubtitleTracks: Map<String, List<SubtitleTrack>> = emptyMap(),
     val error: String? = null
 )
 
@@ -155,22 +157,24 @@ class MovieDetailsViewModel : ViewModel() {
         return prepared
     }
 
-    suspend fun subtitlesForEpisode(season: Int, episode: Int): List<String> {
+    suspend fun subtitlesForEpisode(season: Int, episode: Int): List<SubtitleTrack> {
         val key = "$season:$episode"
-        _uiState.value.episodeSubtitleUrls[key]?.let { return it }
+        _uiState.value.episodeSubtitleTracks[key]?.let { return it }
 
         val imdb = _uiState.value.details?.pickImdbId() ?: return emptyList()
         val ep = _uiState.value.episodes.firstOrNull {
             it.season_number == season && it.episode_number == episode
         }
-        val urls = fetchRankedSubtitles("series", imdb, season, episode, ep?.runtime?.times(60))
-        if (urls.isNotEmpty()) {
+        val tracks = fetchRankedTracks("series", imdb, season, episode, ep?.runtime?.times(60))
+        if (tracks.isNotEmpty()) {
             _uiState.value = _uiState.value.copy(
-                episodeSubtitleUrls = _uiState.value.episodeSubtitleUrls + (key to urls)
+                episodeSubtitleTracks = _uiState.value.episodeSubtitleTracks + (key to tracks)
             )
         }
-        return urls
+        return tracks
     }
+
+    // ===== PRIVATE =====
 
     private fun prepareMovieStreams(imdb: String) {
         viewModelScope.launch {
@@ -185,9 +189,9 @@ class MovieDetailsViewModel : ViewModel() {
 
     private fun prepareMovieSubtitles(imdb: String, runtimeSeconds: Int?) {
         viewModelScope.launch {
-            val urls = fetchRankedSubtitles("movie", imdb, -1, -1, runtimeSeconds)
-            if (urls.isNotEmpty()) {
-                _uiState.value = _uiState.value.copy(movieSubtitleUrls = urls)
+            val tracks = fetchRankedTracks("movie", imdb, -1, -1, runtimeSeconds)
+            if (tracks.isNotEmpty()) {
+                _uiState.value = _uiState.value.copy(movieSubtitleTracks = tracks)
             }
         }
     }
@@ -210,33 +214,30 @@ class MovieDetailsViewModel : ViewModel() {
     private fun prepareEpisodeSubtitles(imdb: String, episode: TmdbEpisode) {
         viewModelScope.launch {
             val key = "${episode.season_number}:${episode.episode_number}"
-            if (_uiState.value.episodeSubtitleUrls.containsKey(key)) return@launch
-            val urls = fetchRankedSubtitles(
+            if (_uiState.value.episodeSubtitleTracks.containsKey(key)) return@launch
+            val tracks = fetchRankedTracks(
                 "series", imdb, episode.season_number, episode.episode_number,
                 episode.runtime?.times(60)
             )
-            if (urls.isNotEmpty()) {
+            if (tracks.isNotEmpty()) {
                 _uiState.value = _uiState.value.copy(
-                    episodeSubtitleUrls = _uiState.value.episodeSubtitleUrls + (key to urls)
+                    episodeSubtitleTracks = _uiState.value.episodeSubtitleTracks + (key to tracks)
                 )
             }
         }
     }
 
-    /**
-     * Povuci srpske + hrvatske titlove, ranguj po sinhronizaciji.
-     * Redosled: srpski (rankovani) pa hrvatski (rankovani) — srpski uvek prioritet.
-     */
-    private suspend fun fetchRankedSubtitles(
+    /** Srpski (rankovani) pa hrvatski (rankovani) — SA oznakom jezika */
+    private suspend fun fetchRankedTracks(
         type: String,
         imdb: String,
         season: Int,
         episode: Int,
         expectedSeconds: Int?
-    ): List<String> = try {
+    ): List<SubtitleTrack> = try {
         val entries = SubtitleFetcher.getAcceptedSubtitles(type, imdb, season, episode)
         val ranked = SubtitleFetcher.rankBySync(entries, expectedSeconds)
-        ranked.take(6).map { it.url }
+        SubtitleFetcher.toTracks(ranked, 6)
     } catch (_: Exception) {
         emptyList()
     }
