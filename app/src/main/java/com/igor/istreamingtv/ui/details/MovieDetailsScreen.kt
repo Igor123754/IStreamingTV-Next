@@ -33,7 +33,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.google.gson.Gson
 import com.igor.istreamingtv.data.remote.*
-import com.igor.istreamingtv.data.remote.stremio.StremioStream
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.player.PlayerActivity
 import kotlinx.coroutines.launch
@@ -46,16 +45,19 @@ private val TextPrimary = Color.White
 private val TextSecondary = Color(0xB3FFFFFF)
 private val CardShape = RoundedCornerShape(12.dp)
 
-/** Pokreće plejer sa stream-om (+ podaci za "sledeća epizoda") */
+/**
+ * Pokreće plejer sa LISTOM kandidata (već sortirano: validirani 4K → 1080p → ...).
+ * Plejer sam prelazi na sledećeg ako izvor ne radi.
+ */
 private fun startPlayer(
     context: Context,
-    stream: StremioStream,
+    candidates: List<StreamPicker.Candidate>,
     seriesImdb: String? = null,
     season: Int = -1,
     episode: Int = -1
 ) {
     val intent = Intent(context, PlayerActivity::class.java).apply {
-        putExtra("stream", Gson().toJson(stream))
+        putExtra("candidates", Gson().toJson(candidates.map { it.url }))
         if (seriesImdb != null) {
             putExtra("series_imdb", seriesImdb)
             putExtra("season", season)
@@ -78,26 +80,22 @@ fun MovieDetailsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Klik na epizodu → stream-ovi → plejer
+    // Klik na epizodu: keširani kandidati ili brzi fetch → plejer
     val playEpisode: (TmdbEpisode) -> Unit = { episode ->
-        val imdb = state.details?.pickImdbId()
-        if (imdb.isNullOrBlank()) {
-            Toast.makeText(context, "Nema IMDb ID za ovu seriju", Toast.LENGTH_SHORT).show()
-        } else {
-            scope.launch {
-                val streams = viewModel.getEpisodeStreams(
-                    imdb, episode.season_number, episode.episode_number
+        scope.launch {
+            val cached = state.episodeCandidates["${episode.season_number}:${episode.episode_number}"]
+            val candidates = cached ?: viewModel.candidatesForEpisode(
+                episode.season_number, episode.episode_number
+            )
+            if (candidates.isNotEmpty()) {
+                startPlayer(
+                    context, candidates,
+                    seriesImdb = state.details?.pickImdbId(),
+                    season = episode.season_number,
+                    episode = episode.episode_number
                 )
-                if (streams.isNotEmpty()) {
-                    startPlayer(
-                        context, streams.first(),
-                        seriesImdb = imdb,
-                        season = episode.season_number,
-                        episode = episode.episode_number
-                    )
-                } else {
-                    Toast.makeText(context, "Nema dostupnih izvora za ovu epizodu", Toast.LENGTH_SHORT).show()
-                }
+            } else {
+                Toast.makeText(context, "Nema dostupnih izvora za ovu epizodu", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -147,9 +145,12 @@ private fun DetailsScrollContent(
                 DetailsHero(
                     movie = movie,
                     details = state.details,
-                    streams = state.streams,
                     isTv = isTv,
+                    preparingStreams = state.preparingStreams,
+                    hasMovieCandidates = state.movieCandidates.isNotEmpty(),
                     firstEpisode = state.episodes.firstOrNull(),
+                    firstEpisodeReady = state.episodeCandidates.isNotEmpty(),
+                    movieCandidates = state.movieCandidates,
                     onBack = onBack,
                     onPlayEpisode = onPlayEpisode
                 )
@@ -235,16 +236,19 @@ private fun EnterAnimatedRow(content: @Composable () -> Unit) {
 private fun DetailsHero(
     movie: TmdbMovie,
     details: TmdbHeroDetails?,
-    streams: List<StremioStream>,
     isTv: Boolean,
+    preparingStreams: Boolean,
+    hasMovieCandidates: Boolean,
     firstEpisode: TmdbEpisode?,
+    firstEpisodeReady: Boolean,
+    movieCandidates: List<StreamPicker.Candidate>,
     onBack: () -> Unit,
     onPlayEpisode: (TmdbEpisode) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var inLibrary by remember { mutableStateOf(false) }
-    var selectedStream by remember { mutableIntStateOf(0) }
     var notice by remember { mutableStateOf<String?>(null) }
 
     val logoUrl = details?.pickClearLogoUrl()
@@ -264,9 +268,9 @@ private fun DetailsHero(
     val backdropUrl = "https://image.tmdb.org/t/p/w1280" +
         (details?.backdrop_path ?: movie.backdropPath ?: details?.poster_path ?: movie.posterPath ?: "")
 
-    fun playMovieStream(stream: StremioStream) {
-        startPlayer(context, stream)
-    }
+    // Prikaz kvaliteta koji je spreman (npr. "4K" / "1080p")
+    val readyLabel = if (!isTv) movieCandidates.firstOrNull()?.qualityLabel
+        else null
 
     Box(modifier = Modifier.fillMaxSize()) {
 
@@ -351,14 +355,18 @@ private fun DetailsHero(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TvFocusableButton(onClick = {
                         when {
-                            // FILM: postojeći stream-ovi
-                            !isTv && streams.isNotEmpty() ->
-                                playMovieStream(streams[selectedStream.coerceIn(0, streams.size - 1)])
-                            // SERIJA: prva epizoda izabrane sezone
-                            isTv && firstEpisode != null ->
-                                onPlayEpisode(firstEpisode)
-                            else -> notice = if (isTv) "Nema epizoda za reprodukciju"
-                            else "Nema dostupnih izvora za ovaj naslov"
+                            // FILM: spremni kandidati → odmah plejer
+                            !isTv && movieCandidates.isNotEmpty() ->
+                                startPlayer(context, movieCandidates)
+
+                            // FILM: još se priprema
+                            !isTv && preparingStreams ->
+                                notice = "Pripremamo najbolji izvor..."
+
+                            // SERIJA: prva epizoda (keš ili brzi fetch)
+                            isTv && firstEpisode != null -> onPlayEpisode(firstEpisode)
+
+                            else -> notice = "Nema dostupnih izvora za ovaj naslov"
                         }
                     }) { focused ->
                         val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
@@ -378,6 +386,15 @@ private fun DetailsHero(
                                 modifier = Modifier.size(20.dp)
                             )
                             Text("Gledaj", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            // Diskretna oznaka spremnog kvaliteta (npr. 4K)
+                            if (readyLabel != null) {
+                                Text(
+                                    text = readyLabel,
+                                    color = Color.Black.copy(alpha = 0.6f),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
 
@@ -455,34 +472,6 @@ private fun DetailsHero(
                             .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     )
-                }
-            }
-
-            if (!isTv && streams.size > 1) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    repeat(minOf(streams.size, 5)) { index ->
-                        TvFocusableButton(onClick = { selectedStream = index }) { focused ->
-                            val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(150), label = "")
-                            Box(
-                                modifier = Modifier
-                                    .scale(scale)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(
-                                        if (index == selectedStream) Color.White
-                                        else Color.White.copy(alpha = 0.14f)
-                                    )
-                                    .padding(horizontal = 18.dp, vertical = 8.dp)
-                            ) {
-                                Text(
-                                    text = "Izvor ${index + 1}",
-                                    color = if (index == selectedStream) Color.Black else Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -742,7 +731,6 @@ private fun EpisodeCard(
                     )
                 }
 
-                // Play ikonica pri fokusu
                 if (focused) {
                     Box(
                         modifier = Modifier
