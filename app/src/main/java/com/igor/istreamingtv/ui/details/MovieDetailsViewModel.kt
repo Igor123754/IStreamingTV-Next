@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.igor.istreamingtv.BuildConfig
 import com.igor.istreamingtv.data.remote.StreamPicker
+import com.igor.istreamingtv.data.remote.SubtitleFetcher
 import com.igor.istreamingtv.data.remote.TmdbEpisode
 import com.igor.istreamingtv.data.remote.TmdbHeroDetails
 import com.igor.istreamingtv.data.remote.TmdbMovie
@@ -25,10 +26,12 @@ data class DetailsUiState(
     val selectedSeasonNumber: Int = 0,
     val episodes: List<TmdbEpisode> = emptyList(),
     val similar: List<TmdbMovie> = emptyList(),
-    // Pametni stream-ovi (pripremljeni u pozadini)
     val preparingStreams: Boolean = false,
     val movieCandidates: List<StreamPicker.Candidate> = emptyList(),
     val episodeCandidates: Map<String, List<StreamPicker.Candidate>> = emptyMap(),
+    // Srpski titlovi (prefetch u pozadini)
+    val movieSubtitleUrl: String? = null,
+    val episodeSubtitleUrls: Map<String, String> = emptyMap(),
     val error: String? = null
 )
 
@@ -96,20 +99,20 @@ class MovieDetailsViewModel : ViewModel() {
                     episodes = episodes
                 )
 
-                // similar u pozadini
                 viewModelScope.launch {
-                    val similar = similarDeferred.await()
-                    _uiState.value = _uiState.value.copy(similar = similar)
+                    _uiState.value = _uiState.value.copy(similar = similarDeferred.await())
                 }
 
-                // STREAM-OVI U POZADINI (Apple TV+ iskustvo — bez biranja)
+                // STREAM-OVI + TITLOVI u pozadini
                 val imdb = details.pickImdbId()
                 if (!imdb.isNullOrBlank()) {
                     if (!isTv) {
                         prepareMovieStreams(imdb)
+                        prepareMovieSubtitle(imdb)
                     } else {
                         episodes.firstOrNull()?.let { first ->
-                            prepareEpisodeStreams(imdb, first, silent = true)
+                            prepareEpisodeStreams(imdb, first)
+                            prepareEpisodeSubtitle(imdb, first)
                         }
                     }
                 } else {
@@ -133,13 +136,14 @@ class MovieDetailsViewModel : ViewModel() {
                 selectedSeasonNumber = seasonNumber,
                 episodes = episodes
             )
-            // Prefetch prve epizode nove sezone
             val imdb = _uiState.value.details?.pickImdbId() ?: return@launch
-            episodes.firstOrNull()?.let { prepareEpisodeStreams(imdb, it, silent = true) }
+            episodes.firstOrNull()?.let { first ->
+                prepareEpisodeStreams(imdb, first)
+                prepareEpisodeSubtitle(imdb, first)
+            }
         }
     }
 
-    /** Kandidati za epizodu: keš → ili brzi fetch */
     suspend fun candidatesForEpisode(season: Int, episode: Int): List<StreamPicker.Candidate> {
         val key = "$season:$episode"
         _uiState.value.episodeCandidates[key]?.let { return it }
@@ -153,6 +157,21 @@ class MovieDetailsViewModel : ViewModel() {
         return prepared
     }
 
+    /** Srpski titl za epizodu: keš → ili fetch */
+    suspend fun subtitleForEpisode(season: Int, episode: Int): String? {
+        val key = "$season:$episode"
+        _uiState.value.episodeSubtitleUrls[key]?.let { return it }
+
+        val imdb = _uiState.value.details?.pickImdbId() ?: return null
+        val sub = safeSubtitle("series", imdb, season, episode) ?: return null
+        _uiState.value = _uiState.value.copy(
+            episodeSubtitleUrls = _uiState.value.episodeSubtitleUrls + (key to sub)
+        )
+        return sub
+    }
+
+    // ===== PRIVATE =====
+
     private fun prepareMovieStreams(imdb: String) {
         viewModelScope.launch {
             val candidates = StreamPicker.getCandidates("movie", imdb)
@@ -164,12 +183,17 @@ class MovieDetailsViewModel : ViewModel() {
         }
     }
 
-    private fun prepareEpisodeStreams(imdb: String, episode: TmdbEpisode, silent: Boolean) {
+    private fun prepareMovieSubtitle(imdb: String) {
+        viewModelScope.launch {
+            val sub = safeSubtitle("movie", imdb) ?: return@launch
+            _uiState.value = _uiState.value.copy(movieSubtitleUrl = sub)
+        }
+    }
+
+    private fun prepareEpisodeStreams(imdb: String, episode: TmdbEpisode) {
         viewModelScope.launch {
             val key = "${episode.season_number}:${episode.episode_number}"
             if (_uiState.value.episodeCandidates.containsKey(key)) return@launch
-            if (!silent) _uiState.value = _uiState.value.copy(preparingStreams = true)
-
             val candidates = StreamPicker.getCandidates(
                 "series", imdb, episode.season_number, episode.episode_number
             )
@@ -179,6 +203,29 @@ class MovieDetailsViewModel : ViewModel() {
                 episodeCandidates = _uiState.value.episodeCandidates + (key to prepared)
             )
         }
+    }
+
+    private fun prepareEpisodeSubtitle(imdb: String, episode: TmdbEpisode) {
+        viewModelScope.launch {
+            val key = "${episode.season_number}:${episode.episode_number}"
+            if (_uiState.value.episodeSubtitleUrls.containsKey(key)) return@launch
+            val sub = safeSubtitle("series", imdb, episode.season_number, episode.episode_number)
+                ?: return@launch
+            _uiState.value = _uiState.value.copy(
+                episodeSubtitleUrls = _uiState.value.episodeSubtitleUrls + (key to sub)
+            )
+        }
+    }
+
+    private suspend fun safeSubtitle(
+        type: String,
+        imdb: String,
+        season: Int = -1,
+        episode: Int = -1
+    ): String? = try {
+        SubtitleFetcher.getBestSerbianSubtitle(type, imdb, season, episode)
+    } catch (_: Exception) {
+        null
     }
 
     private suspend fun fetchEpisodes(tvId: Int, seasonNumber: Int): List<TmdbEpisode> {
