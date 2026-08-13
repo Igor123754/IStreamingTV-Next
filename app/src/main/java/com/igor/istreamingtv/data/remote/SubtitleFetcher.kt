@@ -13,9 +13,17 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 /**
+ * Traka titla SA JEZIKOM — putuje od fetch-ja do player-a.
+ * TOP-LEVEL klasa (importuje se direktno iz svih fajlova!)
+ */
+data class SubtitleTrack(
+    val url: String,
+    val lang: String   // "sr" | "hr"
+)
+
+/**
  * TITLOVI — OpenSubtitles Stremio addon.
  * PRIORITET: srpski > hrvatski, sa AUTO-SINHRONIZACIJOM (duration matching).
- * Jezik putuje UZ svaku traku (SubtitleTrack.lang) — player ne nagađa!
  */
 object SubtitleFetcher {
 
@@ -40,12 +48,6 @@ object SubtitleFetcher {
     ) {
         val isSerbian: Boolean get() = language == "sr"
     }
-
-    /** Traka sa jezikom — ovo ide u player (labela se ispravno!) */
-    data class SubtitleTrack(
-        val url: String,
-        val lang: String           // "sr" | "hr"
-    )
 
     /** Svi prihvaćeni titlovi: srpski PRVO, pa hrvatski (do 10) */
     suspend fun getAcceptedSubtitles(
