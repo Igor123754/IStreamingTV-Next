@@ -168,9 +168,7 @@ private fun DetailsScrollContent(
                     preparingStreams = state.preparingStreams,
                     movieCandidates = state.movieCandidates,
                     movieSubtitleTracks = state.movieSubtitleTracks,
-                    firstEpisode = state.episodes.firstOrNull(),
-                    onBack = onBack,
-                    onPlayEpisode = onPlayEpisode
+                    firstEpisode = state.episodes.firstOrNull()
                 )
             }
         }
@@ -258,9 +256,7 @@ private fun DetailsHero(
     preparingStreams: Boolean,
     movieCandidates: List<StreamPicker.Candidate>,
     movieSubtitleTracks: List<SubtitleTrack>,
-    firstEpisode: TmdbEpisode?,
-    onBack: () -> Unit,
-    onPlayEpisode: (TmdbEpisode) -> Unit
+    firstEpisode: TmdbEpisode?
 ) {
     val context = LocalContext.current
 
@@ -336,24 +332,6 @@ private fun DetailsHero(
             }
         }
 
-        TvFocusableButton(
-            onClick = onBack,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(end = 48.dp, top = 44.dp)
-        ) { focused ->
-            val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
-            Box(
-                modifier = Modifier
-                    .scale(scale)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.White.copy(alpha = 0.22f))
-                    .padding(horizontal = 20.dp, vertical = 10.dp)
-            ) {
-                Text("← Nazad", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -381,7 +359,7 @@ private fun DetailsHero(
                             !isTv && preparingStreams ->
                                 notice = "Pripremamo najbolji izvor..."
 
-                            isTv && firstEpisode != null -> onPlayEpisode(firstEpisode)
+                            isTv && firstEpisode != null -> firstEpisode
 
                             else -> notice = "Nema dostupnih izvora za ovaj naslov"
                         }
