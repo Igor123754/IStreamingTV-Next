@@ -11,6 +11,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -88,9 +89,8 @@ import kotlin.math.abs
 
 /**
  * MOĆNI PLEJER — Media3 ExoPlayer (2GB RAM optimizovan)
- * APPLE TV+ UI + TAČNA AUTO-SINHRONIZACIJA TITLOVA:
- * kad plejer zna tačno trajanje videa, tiho bira titl čije
- * izmereno trajanje najbliže — bez restarta, bez diranja.
+ * APPLE TV+ UI + tačna auto-sinhronizacija titlova + SKIP INTRO
+ * (heuristika + učenje po seriji/sezone).
  */
 class PlayerActivity : ComponentActivity() {
 
@@ -102,6 +102,11 @@ class PlayerActivity : ComponentActivity() {
     internal var playerPoster: String = ""
     internal var playerOverview: String = ""
 
+    // SKIP INTRO (serije)
+    internal var isSeriesPlay: Boolean = false
+    internal var introStartMs: Long = DEFAULT_INTRO_START
+    internal var introEndMs: Long = DEFAULT_INTRO_END
+
     private val candidateUrls = mutableListOf<String>()
     private var candidateIndex = 0
     private var currentUrl: String? = null
@@ -111,6 +116,12 @@ class PlayerActivity : ComponentActivity() {
     private var seasonNumber: Int = -1
     private var episodeNumber: Int = -1
     private var runtimeSec: Int = -1
+
+    companion object {
+        private const val DEFAULT_INTRO_START = 60_000L     // 60s
+        private const val DEFAULT_INTRO_END = 170_000L      // 170s
+        private const val INTRO_LENGTH = 100_000L           // tipičan uvod ~100s
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -134,6 +145,8 @@ class PlayerActivity : ComponentActivity() {
         playerEpisode = episodeNumber
         playerPoster = intent.getStringExtra("poster") ?: ""
         playerOverview = intent.getStringExtra("overview") ?: ""
+
+        loadIntroWindow()
 
         val composeView = ComposeView(this)
         composeView.setBackgroundColor(android.graphics.Color.BLACK)
@@ -191,6 +204,43 @@ class PlayerActivity : ComponentActivity() {
         }
         return super.onKeyDown(keyCode, event)
     }
+
+    // ================= SKIP INTRO =================
+
+    /** Učitaj naučeni (ili default) prozor uvoda za ovu seriju+sezonu */
+    private fun loadIntroWindow() {
+        if (seasonNumber < 0 || imdbId.isNullOrBlank()) {
+            isSeriesPlay = false
+            return
+        }
+        isSeriesPlay = true
+        val prefs = getSharedPreferences("intro_skip", MODE_PRIVATE)
+        val key = "${imdbId}_$seasonNumber"
+        introStartMs = prefs.getLong(key + "_start", DEFAULT_INTRO_START)
+        introEndMs = prefs.getLong(key + "_end", DEFAULT_INTRO_END)
+    }
+
+    /** Preskoči uvod + zapamti za sledeće epizode */
+    internal fun skipIntro() {
+        val p = player ?: return
+        val pressTime = p.currentPosition
+        val target = pressTime + INTRO_LENGTH
+
+        p.seekTo(target)
+
+        if (!imdbId.isNullOrBlank() && seasonNumber >= 0) {
+            val prefs = getSharedPreferences("intro_skip", MODE_PRIVATE)
+            val key = "${imdbId}_$seasonNumber"
+            prefs.edit()
+                .putLong(key + "_start", pressTime)   // nauči početak uvoda
+                .putLong(key + "_end", target)        // nauči kraj uvoda
+                .apply()
+            introStartMs = pressTime
+            introEndMs = target
+        }
+    }
+
+    // ================= PARSE / PLAYER =================
 
     private fun parseIntent() {
         intent.getStringExtra("candidates")?.let { json ->
@@ -266,10 +316,7 @@ class PlayerActivity : ComponentActivity() {
         buildPlayer(currentUrl!!, currentSubtitleTracks.toList())
     }
 
-    /**
-     * ✅ TAČNA AUTO-SINHRONIZACIJA: kad plejer zna TAČNO trajanje videa,
-     * tiho prebacuje na titl čije izmereno trajanje najbliže.
-     */
+    /** Tačna auto-sinhronizacija titlova po TAČNOM trajanju videa */
     private fun autoPickSyncedSubtitle(exoPlayer: ExoPlayer, tracks: List<SubtitleTrack>) {
         val actualMs = exoPlayer.duration
         if (actualMs <= 0) return
@@ -280,10 +327,7 @@ class PlayerActivity : ComponentActivity() {
         if (measured.isEmpty()) return
 
         val best = measured.minByOrNull { it.third } ?: return
-        val currentBest = measured.firstOrNull() // tracks[0] je trenutno izabran
-        // Ako već izabrani (index 0) nije najbolji po tačnom trajanju → prebaci
-        val currentIndex = 0
-        if (best.first != currentIndex && best.third < 3 * 60 * 1000L) {
+        if (best.first != 0 && best.third < 3 * 60 * 1000L) {
             applySubtitleByIndex(exoPlayer, best.first)
         }
     }
@@ -413,7 +457,6 @@ class PlayerActivity : ComponentActivity() {
                 if (state == Player.STATE_ENDED) {
                     tryNextEpisode()
                 }
-                // ✅ Kad je video spreman → znamo TAČNO trajanje → auto-korekcija titla
                 if (state == Player.STATE_READY && !autoSyncDone && tracks.size > 1) {
                     autoSyncDone = true
                     autoPickSyncedSubtitle(exoPlayer, tracks)
@@ -457,6 +500,7 @@ class PlayerActivity : ComponentActivity() {
                 currentSubtitleTracks.addAll(nextTracks)
                 candidateUrls.clear()
                 candidateUrls.addAll(urls)
+                loadIntroWindow()   // ✅ naučeni prozor za sledeću epizodu
                 playCandidate(0)
             }
         }
@@ -472,7 +516,7 @@ class PlayerActivity : ComponentActivity() {
             val duration = p.duration
             val prefs = getSharedPreferences("player_positions", MODE_PRIVATE)
             when {
-            duration > 0 && position > duration - 15_000 -> prefs.edit().remove(url).apply()
+                duration > 0 && position > duration - 15_000 -> prefs.edit().remove(url).apply()
                 position > 5_000 -> prefs.edit().putLong(url, position).apply()
             }
         } catch (_: Exception) {
@@ -793,6 +837,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         Date(nowMillis + (duration - position).coerceAtLeast(0))
     )
 
+    // ✅ SKIP INTRO vidljivost: serija + reprodukcija + unutar prozora uvoda
+    val showSkipIntro = activity.isSeriesPlay &&
+        isPlaying &&
+        position in activity.introStartMs..activity.introEndMs
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -815,17 +864,15 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     useController = false
                     setBackgroundColor(android.graphics.Color.BLACK)
 
-                    // ✅ Apple TV+ stil titlova: beli tekst + blaga senka,
-                    //    providna pozadina (NEMA crnog okvira/box-a)
                     subtitleView?.apply {
                         setApplyEmbeddedStyles(false)
                         setStyle(
                             CaptionStyleCompat(
-                                android.graphics.Color.WHITE,               // tekst
-                                android.graphics.Color.TRANSPARENT,          // pozadina teksta
-                                android.graphics.Color.TRANSPARENT,          // prozor
-                                CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,    // senka
-                                android.graphics.Color.argb(180, 0, 0, 0),   // boja senke
+                                android.graphics.Color.WHITE,
+                                android.graphics.Color.TRANSPARENT,
+                                android.graphics.Color.TRANSPARENT,
+                                CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
+                                android.graphics.Color.argb(180, 0, 0, 0),
                                 null
                             )
                         )
@@ -866,6 +913,50 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     .size(56.dp)
                     .align(Alignment.Center)
             )
+        }
+
+        // ✅ SKIP INTRO dugme (Netflix stil, dole desno) — vidljivo i bez kontrola
+        if (showSkipIntro) {
+            TvFocusableButton(
+                onClick = {
+                    interact()
+                    activity.skipIntro()
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 40.dp, bottom = 120.dp)
+            ) { focused ->
+                val scale by animateFloatAsState(
+                    if (focused) 1.06f else 1f, tween(150), label = ""
+                )
+                Row(
+                    modifier = Modifier
+                        .scale(scale)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.75f))
+                        .border(
+                            1.dp,
+                            Color.White.copy(alpha = if (focused) 0.9f else 0.5f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Preskoči uvod",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "▶▶",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
 
         // GORE DESNO: SAT + KRAJ — UVEK kad su kontrole prikazane
@@ -970,7 +1061,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                                         .width(90.dp)
                                         .height(135.dp)
                                         .clip(RoundedCornerShape(10.dp)),
-                                    contentScale = ContentScale.Crop
+                                        contentScale = ContentScale.Crop
                                 )
                             }
                             Column(modifier = Modifier.weight(1f)) {
@@ -1132,7 +1223,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
 
                 // MENI titlova / audio — SKROLABILAN
                 if (menu != TrackMenuKind.NONE) {
-    Column(
+                    Column(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(end = 40.dp, bottom = 140.dp)
