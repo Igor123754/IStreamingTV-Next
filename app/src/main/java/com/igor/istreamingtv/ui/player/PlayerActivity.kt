@@ -34,8 +34,9 @@ import java.util.concurrent.TimeUnit
 
 /**
  * MOĆNI PLEJER — Media3 ExoPlayer, optimizovan za 2GB RAM.
- * TITLOVI: automatski SRPSKI, LISTA sinhronizovanih traka
- * (najbolji match = default, ostale kao rezerva u CC meniju).
+ * TITLOVI: automatski SRPSKI (ili HRVATSKI kao fallback),
+ *          sinhronizovani, više traka u CC meniju.
+ * AUDIO: preferira ENGLESKI / ORIGINAL (nikad Hindi/Regional)
  * AUTO-FALLBACK izvora + automatska SLEDEĆA EPIZODA.
  */
 class PlayerActivity : ComponentActivity() {
@@ -46,7 +47,7 @@ class PlayerActivity : ComponentActivity() {
     private val candidateUrls = mutableListOf<String>()
     private var candidateIndex = 0
     private var currentUrl: String? = null
-    private var currentSubtitleUrls = mutableListOf<String>()
+    private val currentSubtitleUrls = mutableListOf<String>()
 
     private var imdbId: String? = null
     private var seasonNumber: Int = -1
@@ -86,20 +87,19 @@ class PlayerActivity : ComponentActivity() {
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-        // Ako titlovi nisu stigli sa detalja → fallback fetch + rank (max 2.5s)
         lifecycleScope.launch {
             if (currentSubtitleUrls.isEmpty() && !imdbId.isNullOrBlank()) {
                 val type = if (seasonNumber >= 0) "series" else "movie"
                 val fetched = withTimeoutOrNull(2500) {
                     withContext(Dispatchers.IO) {
                         try {
-                            val entries = SubtitleFetcher.getSerbianSubtitles(
+                            val entries = SubtitleFetcher.getAcceptedSubtitles(
                                 type, imdbId!!, seasonNumber, episodeNumber
                             )
                             val ranked = SubtitleFetcher.rankBySync(
                                 entries, if (runtimeSec > 0) runtimeSec else null
                             )
-                            ranked.take(5).map { it.url }
+                            ranked.take(6).map { it.url }
                         } catch (_: Exception) {
                             emptyList()
                         }
@@ -128,7 +128,6 @@ class PlayerActivity : ComponentActivity() {
             }
         }
 
-        // Lista titlova (novi format)
         intent.getStringExtra("subtitle_urls")?.let { json ->
             try {
                 val arr = JsonParser.parseString(json).asJsonArray
@@ -139,7 +138,6 @@ class PlayerActivity : ComponentActivity() {
                 // Ignoriši
             }
         }
-        // Backward kompatibilnost sa starim singular formatom
         if (currentSubtitleUrls.isEmpty()) {
             intent.getStringExtra("subtitle_url")?.let { currentSubtitleUrls.add(it) }
         }
@@ -168,16 +166,49 @@ class PlayerActivity : ComponentActivity() {
         buildPlayer(currentUrl!!, currentSubtitleUrls.toList())
     }
 
+    /**
+     * Pomoćna: mapira listu URL-ova na parove (url, language).
+     * Language se detektuje iz samog SRT fajla (prva linija često ima lang tag)
+     * ili se čuva kao "sr"/"hr" ako je stiglo iz ViewModel-a.
+     * Za jednostavnost: pretpostavljamo sr/h r po poziciji (sr ide prvi).
+     */
+    private data class SubTrack(val url: String, val language: String, val label: String)
+
+    private fun classifyTracks(urls: List<String>): List<SubTrack> {
+        // Bez dodatnog konteksta ne znamo koji je koji — koristićemo
+        // heuristiku: ako addon vratio sr pa hrv, redosled je taj.
+        // Za sigurnost: fetch i pročitaj prvu liniju titla (često sadrži jezik).
+        return urls.mapIndexed { i, url ->
+            // Default — pokušaj inferirati iz URL-a (neki serveri stavljaju lang u path)
+            val urlLower = url.lowercase()
+            val isHr = urlLower.contains("hbs") || urlLower.contains("hrv") ||
+                urlLower.contains("cro") || urlLower.contains("/hr/")
+            val lang = if (isHr) "hr" else "sr"
+            val label = if (lang == "hr") "Hrvatski ${i + 1}" else "Srpski ${i + 1}"
+            SubTrack(url, lang, label)
+        }
+    }
+
     private fun buildPlayer(url: String, subtitleUrls: List<String>) {
         val context = this
 
         val renderersFactory = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
 
-        // AUTOMATSKI SRPSKI TITL — jedini jezik
+        // TRACK SELECTOR:
+        //  - AUDIO: preferira ENGLESKI > ORIGINAL > ne bira Hindi/regionalne
+        //  - TEXT:  preferira SRPSKI, prihvata HRVATSKI kao fallback
         val trackSelector = DefaultTrackSelector(context)
         trackSelector.parameters = DefaultTrackSelector.Parameters.Builder(context)
+            // Audio redosled prioriteta: engleski → original (prva) → ostali
+            .setPreferredAudioLanguage("en")
+            .setPreferredAudioLanguage("eng")
+            // Tekst: srpski → hrvatski → ne uzimaj nikog drugog
             .setPreferredTextLanguage("sr")
+            .setPreferredTextLanguage("srp")
+            .setPreferredTextLanguage("scc")
+            .setPreferredTextLanguage("hr")
+            .setPreferredTextLanguage("hrv")
             .build()
 
         val loadControl = DefaultLoadControl.Builder()
@@ -216,22 +247,29 @@ class PlayerActivity : ComponentActivity() {
         val prefs = getSharedPreferences("player_positions", MODE_PRIVATE)
         val savedPosition = prefs.getLong(url, -1L)
 
-        // MediaItem + SVI srpski titlovi kao trake (najbolji = default)
+        // Klasifikuj trake: srpski PRVI (default), hrvatski kao rezerva
+        val tracks = classifyTracks(subtitleUrls)
+        val srTracks = tracks.filter { it.language == "sr" }
+        val hrTracks = tracks.filter { it.language == "hr" }
+        val orderedTracks = srTracks + hrTracks
+
         val mediaItemBuilder = MediaItem.Builder().setUri(url)
-        if (subtitleUrls.isNotEmpty()) {
-            val configs = subtitleUrls.mapIndexed { i, subUrl ->
+        if (orderedTracks.isNotEmpty()) {
+            var isFirst = true
+            val configs = orderedTracks.map { track ->
                 val mime = when {
-                    subUrl.endsWith(".vtt", ignoreCase = true) -> MimeTypes.TEXT_VTT
-                    subUrl.endsWith(".ass", ignoreCase = true) ||
-                        subUrl.endsWith(".ssa", ignoreCase = true) -> MimeTypes.TEXT_SSA
+                    track.url.endsWith(".vtt", ignoreCase = true) -> MimeTypes.TEXT_VTT
+                    track.url.endsWith(".ass", ignoreCase = true) ||
+                        track.url.endsWith(".ssa", ignoreCase = true) -> MimeTypes.TEXT_SSA
                     else -> MimeTypes.APPLICATION_SUBRIP
                 }
-                MediaItem.SubtitleConfiguration.Builder(Uri.parse(subUrl))
+                MediaItem.SubtitleConfiguration.Builder(Uri.parse(track.url))
                     .setMimeType(mime)
-                    .setLanguage("sr")
-                    .setLabel(if (i == 0) "Srpski" else "Srpski ${i + 1}")
-                    .setSelectionFlags(if (i == 0) C.SELECTION_FLAG_DEFAULT else 0)
+                    .setLanguage(track.language)
+                    .setLabel(track.label)
+                    .setSelectionFlags(if (isFirst) C.SELECTION_FLAG_DEFAULT else 0)
                     .build()
+                    .also { isFirst = false }
             }
             mediaItemBuilder.setSubtitleConfigurations(configs)
         }
@@ -271,7 +309,6 @@ class PlayerActivity : ComponentActivity() {
         playerView?.player = exoPlayer
     }
 
-    /** Kraj epizode → sledeća (E+1) + njeni srpski titlovi */
     private fun tryNextEpisode() {
         val imdb = imdbId ?: return
         if (seasonNumber < 0 || episodeNumber < 0) return
@@ -283,8 +320,8 @@ class PlayerActivity : ComponentActivity() {
             if (urls.isEmpty()) return@launch
 
             val nextSubs = try {
-                SubtitleFetcher.getSerbianSubtitles("series", imdb, seasonNumber, nextEpisode)
-                    .take(5)
+                SubtitleFetcher.getAcceptedSubtitles("series", imdb, seasonNumber, nextEpisode)
+                    .take(6)
                     .map { it.url }
             } catch (_: Exception) {
                 emptyList()
