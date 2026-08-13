@@ -11,16 +11,15 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -39,6 +38,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
@@ -64,6 +64,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
 import com.google.gson.JsonParser
 import com.igor.istreamingtv.data.remote.StreamPicker
 import com.igor.istreamingtv.data.remote.SubtitleFetcher
@@ -76,13 +77,16 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
  * MOĆNI PLEJER — Media3 ExoPlayer (2GB RAM optimizovan)
- * APPLE TV+ UI: bez centralnih dugmadi — traka + vreme + naslov,
- * CC/Audio meniji za biranje, premotavanje strelicama na traci,
- * mali pause znak kad je pauza, crni letterbox.
+ * APPLE TV+ UI: traka + vreme + naslov, CC/Audio meniji,
+ * premotavanje strelicama, pause znak, poster+opis posle 5s pauze,
+ * sat + vreme kraja gore desno, double-tap pauza na tabletu.
  */
 class PlayerActivity : ComponentActivity() {
 
@@ -91,6 +95,8 @@ class PlayerActivity : ComponentActivity() {
     internal var playerTitle: String = ""
     internal var playerSeason: Int = -1
     internal var playerEpisode: Int = -1
+    internal var playerPoster: String = ""
+    internal var playerOverview: String = ""
 
     private val candidateUrls = mutableListOf<String>()
     private var candidateIndex = 0
@@ -122,6 +128,8 @@ class PlayerActivity : ComponentActivity() {
         playerTitle = intent.getStringExtra("title") ?: ""
         playerSeason = seasonNumber
         playerEpisode = episodeNumber
+        playerPoster = intent.getStringExtra("poster") ?: ""
+        playerOverview = intent.getStringExtra("overview") ?: ""
 
         val composeView = ComposeView(this)
         composeView.setBackgroundColor(android.graphics.Color.BLACK)
@@ -448,7 +456,7 @@ private fun PauseBars(modifier: Modifier = Modifier) {
     }
 }
 
-/** CC ikonica — pravougaonik sa dve linije (titl) */
+/** CC ikonica */
 @Composable
 private fun SubtitlesIcon(modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
@@ -520,7 +528,6 @@ private fun audioLanguageName(code: String?): String = when (code?.lowercase()) 
     else -> code.uppercase()
 }
 
-/** Skuplja opcije (titlovi ili audio) iz player-a */
 private fun collectOptions(player: Player, type: Int): List<TrackOption> {
     val list = mutableListOf<TrackOption>()
     player.currentTracks.groups.forEachIndexed { groupIndex, group ->
@@ -565,11 +572,7 @@ private fun disableSubtitles(player: Player) {
         .build()
 }
 
-/**
- * TANKA TRAKA — Apple TV+ stil.
- * Strelice LEVO/DESNO na traci = premotavanje ±10s.
- * Tap ili drag = skok na poziciju.
- */
+/** TANKA TRAKA — strelice LEVO/DESNO = ±10s, tap/drag = skok */
 @Composable
 private fun AppleSeekBar(
     fraction: Float,
@@ -605,14 +608,12 @@ private fun AppleSeekBar(
                     }
                 } else false
             }
-            // TAP na traku = skok na poziciju
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     onInteract()
                     onFractionSeek((offset.x / widthPx).coerceIn(0f, 1f))
                 }
             }
-            // DRAG po traci = kontinuirano premotavanje
             .pointerInput(Unit) {
                 detectHorizontalDragGestures { change, _ ->
                     onInteract()
@@ -621,7 +622,6 @@ private fun AppleSeekBar(
             },
         contentAlignment = Alignment.CenterStart
     ) {
-        // pozadina trake
         Box(
             Modifier
                 .fillMaxWidth()
@@ -629,7 +629,6 @@ private fun AppleSeekBar(
                 .clip(RoundedCornerShape(2.dp))
                 .background(Color.White.copy(alpha = 0.3f))
         )
-        // odgledano
         Box(
             Modifier
                 .fillMaxWidth(fraction.coerceIn(0f, 1f))
@@ -637,7 +636,6 @@ private fun AppleSeekBar(
                 .clip(RoundedCornerShape(2.dp))
                 .background(Color.White)
         )
-        // thumb kad je fokus
         if (focused) {
             val widthDp = with(density) { widthPx.toDp() }
             Box(
@@ -657,13 +655,16 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     var lastInteraction by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var menu by remember { mutableStateOf(TrackMenuKind.NONE) }
     var options by remember { mutableStateOf<List<TrackOption>>(emptyList()) }
+    var showPausedInfo by remember { mutableStateOf(false) }
 
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var isPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
+    var isReady by remember { mutableStateOf(false) }
 
     var sliderFraction by remember { mutableFloatStateOf(0f) }
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     // Polling stanja
     LaunchedEffect(Unit) {
@@ -674,6 +675,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 duration = p.duration.coerceAtLeast(0)
                 isPlaying = p.isPlaying
                 isBuffering = p.playbackState == Player.STATE_BUFFERING
+                isReady = p.playbackState == Player.STATE_READY
                 if (duration > 0) {
                     sliderFraction = position.toFloat() / duration.toFloat()
                 }
@@ -682,10 +684,28 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         }
     }
 
-    // Auto-hide 4s (ne dok je meni otvoren)
-    LaunchedEffect(lastInteraction, menu) {
+    // Posle 5s PAUZE → poster + opis + sat
+    LaunchedEffect(isPlaying, isReady) {
+        if (!isPlaying && isReady) {
+            delay(5000)
+            showPausedInfo = true
+        } else {
+            showPausedInfo = false
+        }
+    }
+
+    // Sat kuca dok je paused info prikazan
+    LaunchedEffect(showPausedInfo) {
+        while (showPausedInfo) {
+            nowMillis = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+
+    // Auto-hide 4s (ne dok je meni ili paused info)
+    LaunchedEffect(lastInteraction, menu, showPausedInfo) {
         controlsVisible = true
-        if (menu == TrackMenuKind.NONE) {
+        if (menu == TrackMenuKind.NONE && !showPausedInfo) {
             delay(4000)
             controlsVisible = false
         }
@@ -712,11 +732,16 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
 
     val groups = activity.player?.currentTracks?.groups ?: emptyList()
 
+    val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val clockText = timeFmt.format(Date(nowMillis))
+    val endText = timeFmt.format(
+        Date(nowMillis + (duration - position).coerceAtLeast(0))
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            // OK/center na daljinski kad su kontrole skrivene = play/pause
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown &&
                     event.key == Key.DirectionCenter &&
@@ -742,16 +767,21 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             modifier = Modifier.fillMaxSize()
         )
 
-        // TAP = prikaži/sakrij kontrole
+        // TAP = kontrole | DOUBLE-TAP = play/pause (tablet!)
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() }
-                ) {
-                    interact()
-                    controlsVisible = !controlsVisible
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = {
+                            interact()
+                            controlsVisible = !controlsVisible
+                        },
+                        onDoubleTap = {
+                            interact()
+                            togglePlay()
+                        }
+                    )
                 }
         )
 
@@ -765,18 +795,42 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             )
         }
 
-        if (controlsVisible) {
+        // GORE DESNO: sat + vreme kraja (posle 5s pauze)
+        if (showPausedInfo) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 28.dp, top = 28.dp),
+                horizontalAlignment = Alignment.End
+            ) {
+                Text(
+                    text = clockText,
+                    color = Color.White,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Kraj: $endText",
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        if (controlsVisible || showPausedInfo) {
             Box(modifier = Modifier.fillMaxSize()) {
 
                 // Donji gradient
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(220.dp)
+                        .height(260.dp)
                         .align(Alignment.BottomCenter)
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))
                             )
                         )
                 )
@@ -811,21 +865,66 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 }
 
                 // Mali PAUSE znak iznad trake kad je pauza
-                if (!isPlaying && !isBuffering) {
+                if (!isPlaying && !isBuffering && isReady) {
                     PauseBars(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = 118.dp)
+                            .padding(bottom = 128.dp)
                     )
                 }
 
-                // Dole: naslov + epizoda + traka + vremena + CC/Audio
+                // Dole: poster+opis (pauza) + naslov + traka + vremena + dugmad
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .padding(start = 40.dp, end = 40.dp, bottom = 24.dp)
                 ) {
+                    // POSTER + OPIS iznad trake (posle 5s pauze)
+                    if (showPausedInfo) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 18.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (activity.playerPoster.isNotBlank()) {
+                                AsyncImage(
+                                    model = activity.playerPoster,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .width(90.dp)
+                                        .height(135.dp)
+                                        .clip(RoundedCornerShape(10.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                if (activity.playerTitle.isNotBlank()) {
+                                    Text(
+                                        text = activity.playerTitle,
+                                        color = Color.White,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                }
+                                if (activity.playerOverview.isNotBlank()) {
+                                    Text(
+                                        text = activity.playerOverview,
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp,
+                                        maxLines = 3,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Oznaka epizode (S1, E2)
                     if (activity.playerSeason >= 0) {
                         Text(
@@ -874,7 +973,33 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             modifier = Modifier.weight(1f)
                         )
 
-                        // CC dugme — otvara MENI titlova
+                        // PLAY/PAUSE dugme (tablet + TV)
+                        TvFocusableButton(onClick = { interact(); togglePlay() }) { focused ->
+                            val scale by animateFloatAsState(
+                                if (focused) 1.1f else 1f, tween(150), label = ""
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .scale(scale)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = if (focused) 0.3f else 0.15f))
+                                    .size(44.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isPlaying) {
+                                    PauseBars()
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = "Play",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // CC dugme — MENI titlova
                         TvFocusableButton(onClick = { openMenu(TrackMenuKind.SUBTITLES) }) { focused ->
                             val scale by animateFloatAsState(
                                 if (focused) 1.1f else 1f, tween(150), label = ""
@@ -891,7 +1016,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             }
                         }
 
-                        // Audio dugme — otvara MENI audio jezika
+                        // Audio dugme — MENI audio
                         TvFocusableButton(onClick = { openMenu(TrackMenuKind.AUDIO) }) { focused ->
                             val scale by animateFloatAsState(
                                 if (focused) 1.1f else 1f, tween(150), label = ""
@@ -911,7 +1036,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Vremena: odgledano levo, preostalo desno (-36:43)
+                    // Vremena
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
