@@ -1,5 +1,6 @@
 package com.igor.istreamingtv.ui.player
 
+import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
@@ -8,7 +9,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -20,20 +23,19 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import com.google.gson.JsonParser
 import com.igor.istreamingtv.data.remote.StreamPicker
+import com.igor.istreamingtv.data.remote.SubtitleFetcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 /**
- * MOĆNI PLEJER — Media3 ExoPlayer (720p → 4K REMUX).
- * OPTIMIZOVAN ZA SLABE UREĐAJE (2GB RAM):
- * - Manji buffer (24 MB umesto 96 MB)
- * - Brži start (2s)
- * - Kraći back-buffer (15s) — manje RAM-a za rewind
- * AUTO-FALLBACK: ako izvor crkne, tiho prelazi na sledećeg kandidata.
- * Za serije: na kraju epizode automatski pušta SLEDEĆU.
+ * MOĆNI PLEJER — Media3 ExoPlayer (720p → 4K REMUX), optimizovan za 2GB RAM.
+ * TITLOVI: automatski SRPSKI (jedini jezik), sinhronizovani najbolji match.
+ * AUTO-FALLBACK izvora + automatska SLEDEĆA EPIZODA.
  */
 class PlayerActivity : ComponentActivity() {
 
@@ -43,8 +45,9 @@ class PlayerActivity : ComponentActivity() {
     private val candidateUrls = mutableListOf<String>()
     private var candidateIndex = 0
     private var currentUrl: String? = null
+    private var currentSubtitleUrl: String? = null
 
-    private var seriesImdb: String? = null
+    private var imdbId: String? = null
     private var seasonNumber: Int = -1
     private var episodeNumber: Int = -1
 
@@ -59,9 +62,11 @@ class PlayerActivity : ComponentActivity() {
             return
         }
 
-        seriesImdb = intent.getStringExtra("series_imdb")
+        imdbId = intent.getStringExtra("imdb_id")
+            ?: intent.getStringExtra("series_imdb")
         seasonNumber = intent.getIntExtra("season", -1)
         episodeNumber = intent.getIntExtra("episode", -1)
+        currentSubtitleUrl = intent.getStringExtra("subtitle_url")
 
         val view = PlayerView(this).apply {
             controllerShowTimeoutMs = 4000
@@ -79,7 +84,26 @@ class PlayerActivity : ComponentActivity() {
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-        playCandidate(0)
+        // Ako titl nije stigao sa detalja → brzi fallback fetch (max 2s), pa start
+        lifecycleScope.launch {
+            if (currentSubtitleUrl == null && !imdbId.isNullOrBlank()) {
+                val type = if (seasonNumber >= 0) "series" else "movie"
+                currentSubtitleUrl = withTimeoutOrNull(2000) {
+                    withContext(Dispatchers.IO) {
+                        try {
+                            SubtitleFetcher.getBestSerbianSubtitle(
+                                type, imdbId!!, seasonNumber, episodeNumber
+                            )
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                }
+            }
+            withContext(Dispatchers.Main) {
+                playCandidate(0)
+            }
+        }
     }
 
     private fun parseIntent() {
@@ -114,30 +138,24 @@ class PlayerActivity : ComponentActivity() {
 
     private fun playCandidate(index: Int) {
         candidateIndex = index
-        val url = candidateUrls[index]
-        currentUrl = url
-        buildPlayer(url)
+        currentUrl = candidateUrls[index]
+        buildPlayer(currentUrl!!, currentSubtitleUrl)
     }
 
-    private fun buildPlayer(url: String) {
+    private fun buildPlayer(url: String, subtitleUrl: String?) {
         val context = this
 
         val renderersFactory = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
 
+        // AUTOMATSKI SRPSKI TITL — jedini jezik koji se bira
         val trackSelector = DefaultTrackSelector(context)
+        trackSelector.parameters = DefaultTrackSelector.Parameters.Builder(context)
+            .setPreferredTextLanguage("sr")
+            .build()
 
-        // OPTIMIZOVAN LOAD CONTROL ZA SLABE UREĐAJE (2GB RAM):
-        // - 24 MB buffer (umesto 96 MB) — ne guši RAM
-        // - 8s min buffer → brži start
-        // - 15s back-buffer → manje memorije za premotavanje
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                /* minBufferMs = */ 8_000,
-                /* maxBufferMs = */ 30_000,
-                /* bufferForPlaybackMs = */ 2_000,
-                /* bufferForPlaybackAfterRebufferMs = */ 5_000
-            )
+            .setBufferDurationsMs(8_000, 30_000, 2_000, 5_000)
             .setTargetBufferBytes(24 * 1024 * 1024)
             .setBackBuffer(15_000, false)
             .build()
@@ -158,7 +176,6 @@ class PlayerActivity : ComponentActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(context)
             .setDataSourceFactory(dataSourceFactory)
 
-        // Oslobodi stari plejer ako postoji (fallback scenario)
         player?.release()
 
         val exoPlayer = ExoPlayer.Builder(context)
@@ -173,7 +190,28 @@ class PlayerActivity : ComponentActivity() {
         val prefs = getSharedPreferences("player_positions", MODE_PRIVATE)
         val savedPosition = prefs.getLong(url, -1L)
 
-        val mediaItem = MediaItem.Builder().setUri(url).build()
+        // MediaItem + srpski titl (ako postoji)
+        val mediaItemBuilder = MediaItem.Builder().setUri(url)
+        if (!subtitleUrl.isNullOrBlank()) {
+            val mime = when {
+                subtitleUrl.endsWith(".vtt", ignoreCase = true) -> MimeTypes.TEXT_VTT
+                subtitleUrl.endsWith(".ass", ignoreCase = true) ||
+                    subtitleUrl.endsWith(".ssa", ignoreCase = true) -> MimeTypes.TEXT_SSA
+                else -> MimeTypes.APPLICATION_SUBRIP
+            }
+            mediaItemBuilder.setSubtitleConfigurations(
+                listOf(
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+                        .setMimeType(mime)
+                        .setLanguage("sr")
+                        .setLabel("Srpski")
+                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                        .build()
+                )
+            )
+        }
+
+        val mediaItem = mediaItemBuilder.build()
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
         if (savedPosition > 0) exoPlayer.seekTo(savedPosition)
@@ -181,7 +219,6 @@ class PlayerActivity : ComponentActivity() {
 
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                // AUTO-FALLBACK: sledeći kandidat u listi (4K → 1080p → ...)
                 if (candidateIndex < candidateUrls.size - 1) {
                     Toast.makeText(
                         context,
@@ -209,9 +246,9 @@ class PlayerActivity : ComponentActivity() {
         playerView?.player = exoPlayer
     }
 
-    /** Kraj epizode → automatski sledeća (E+1) preko StreamPicker-a */
+    /** Kraj epizode → sledeća (E+1) + njen srpski titl */
     private fun tryNextEpisode() {
-        val imdb = seriesImdb ?: return
+        val imdb = imdbId ?: return
         if (seasonNumber < 0 || episodeNumber < 0) return
         val nextEpisode = episodeNumber + 1
 
@@ -220,13 +257,20 @@ class PlayerActivity : ComponentActivity() {
             val urls = candidates.map { it.url }
             if (urls.isEmpty()) return@launch
 
-            launch {
+            val nextSub = try {
+                SubtitleFetcher.getBestSerbianSubtitle("series", imdb, seasonNumber, nextEpisode)
+            } catch (_: Exception) {
+                null
+            }
+
+            withContext(Dispatchers.Main) {
                 Toast.makeText(
                     this@PlayerActivity,
                     "Sledeća epizoda: S$seasonNumber · E$nextEpisode",
                     Toast.LENGTH_SHORT
                 ).show()
                 episodeNumber = nextEpisode
+                currentSubtitleUrl = nextSub
                 candidateUrls.clear()
                 candidateUrls.addAll(urls)
                 playCandidate(0)
