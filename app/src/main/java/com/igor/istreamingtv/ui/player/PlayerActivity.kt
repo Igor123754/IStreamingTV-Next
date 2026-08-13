@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -195,7 +194,7 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    // Daljinski PLAY/PAUSE tasteri
+    // Daljinski BACK + PLAY/PAUSE tasteri
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
@@ -203,6 +202,11 @@ class PlayerActivity : ComponentActivity() {
             KeyEvent.KEYCODE_MEDIA_PAUSE -> {
                 val p = player ?: return true
                 if (p.isPlaying) p.pause() else p.play()
+                return true
+            }
+            // Daljinski BACK zatvara plejer
+            KeyEvent.KEYCODE_BACK -> {
+                finish()
                 return true
             }
         }
@@ -1024,35 +1028,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             )
                         )
                 )
-
-                // Gore levo: nazad
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(start = 28.dp, top = 28.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TvFocusableButton(onClick = { activity.finish() }) { focused ->
-                        val scale by animateFloatAsState(
-                            if (focused) 1.1f else 1f, tween(150), label = ""
-                        )
-                        Box(
-                            modifier = Modifier
-                                .scale(scale)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = if (focused) 0.25f else 0.12f))
-                                .padding(10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Nazad",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                }
 
                 // Mali PAUSE znak iznad trake kad je pauza
                 if (!isPlaying && !isBuffering && isReady) {
