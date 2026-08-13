@@ -12,37 +12,29 @@ import java.util.concurrent.TimeUnit
 
 /**
  * PAMETAN IZBOR STREAM-A — bez ručnog biranja.
- * 1) Povuče stream-ove sa addona
- * 2) Odbaci torrente/magnete (samo https://)
- * 3) Sortira po kvalitetu: 4K → 1080p → 720p → 480p
- * 4) Validira u pozadini (HTTP probe) da "Gledaj" ima najbolji RADNI stream
+ * Optimizovan za slabe uređaje: manji probe, brži timeout-i.
  */
 object StreamPicker {
 
-    // 🔧 ADDON ZA STRIMOVANJE — HTTPS direktan (hdhub, konfigurisan:
-    //    qualities=2160p,1080p,720p, sort=desc, bez torenata)
-    //    Ako ikada zameniš addon, menjaš SAMO ovu liniju (bez /manifest.json).
     const val ADDON_BASE_URL =
         "https://hdhub.thevolecitor.qzz.io/eyJ0b3Jib3giOiJ1bnNldCIsInF1YWxpdGllcyI6IjIxNjBwLDEwODBwLDcyMHAiLCJzb3J0IjoiZGVzYyIsImNhdGFsb2dzIjoiIn0"
 
-    // Malo duži timeout-i jer addon radi search po izvorima
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
 
     data class Candidate(
         val url: String,
-        val quality: Int,          // 4 = 4K, 3 = 1080p, 2 = 720p, 1 = 480p, 0 = nepoznato
+        val quality: Int,
         val qualityLabel: String,
         val validated: Boolean = false
     )
 
-    /** Povuci + filtriraj (bez torenata) + sortira po kvalitetu */
     suspend fun getCandidates(
-        type: String,               // "movie" | "series"
+        type: String,
         imdbId: String,
         season: Int = -1,
         episode: Int = -1
@@ -65,7 +57,6 @@ object StreamPicker {
                 val o = el.asJsonObject
                 val url = o.get("url")?.takeIf { !it.isJsonNull }?.asString
                     ?: return@mapNotNull null
-                // ❌ TORRENTI NAPOLJE — samo direktan HTTPS
                 if (!url.startsWith("http")) return@mapNotNull null
 
                 val text = buildString {
@@ -83,10 +74,6 @@ object StreamPicker {
         }
     }
 
-    /**
-     * Priprema u pozadini: validira prvih N kandidata paralelno.
-     * Redosled na kraju: prvo VALIDIRANI (po kvalitetu), pa ostali kao rezerva.
-     */
     suspend fun prepare(candidates: List<Candidate>, maxChecks: Int = 5): List<Candidate> {
         if (candidates.isEmpty()) return candidates
         return withContext(Dispatchers.IO) {
@@ -101,12 +88,12 @@ object StreamPicker {
         }
     }
 
-    /** HTTP probe: da li stream odgovara (2xx / 3xx / 206) */
     private fun probe(url: String): Boolean {
         return try {
             val request = Request.Builder()
                 .url(url)
-                .header("Range", "bytes=0-1")
+                .header("Range", "bytes=0-8191")  // 8KB umesto 1B — pouzdaniji probe
+                .header("Connection", "close")     // Bez keep-alive overhead
                 .get()
                 .build()
             val response = client.newCall(request).execute()
@@ -129,7 +116,6 @@ object StreamPicker {
         }
     }
 
-    /** Sinhrona verzija za plejer (sledeća epizoda) */
     fun getCandidatesBlocking(type: String, imdbId: String, season: Int, episode: Int): List<Candidate> =
         runBlocking { getCandidates(type, imdbId, season, episode) }
 }
