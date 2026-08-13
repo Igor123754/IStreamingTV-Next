@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -138,7 +139,6 @@ fun MovieDetailsScreen(
                 movie = movie,
                 state = state,
                 isTv = isTv,
-                onBack = onBack,
                 onMovieClick = onMovieClick,
                 onSelectSeason = { season -> viewModel.selectSeason(movie.id, season) },
                 onPlayEpisode = playEpisode
@@ -152,15 +152,22 @@ private fun DetailsScrollContent(
     movie: TmdbMovie,
     state: DetailsUiState,
     isTv: Boolean,
-    onBack: () -> Unit,
     onMovieClick: (TmdbMovie) -> Unit,
     onSelectSeason: (Int) -> Unit,
     onPlayEpisode: (TmdbEpisode) -> Unit
 ) {
+    // ✅ FIX: eksplicitna visina ekrana umesto fillParentMaxSize()
+    // (rešava bug sa "pola učitanog" hero-a pri skrolu nazad)
+    val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
+
     LazyColumn(modifier = Modifier.fillMaxSize()) {
 
         item(key = "hero") {
-            Box(modifier = Modifier.fillParentMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(screenHeightDp)
+            ) {
                 DetailsHero(
                     movie = movie,
                     details = state.details,
@@ -384,14 +391,23 @@ private fun DetailsHero(
                         }
                     }
 
+                    // ✅ FIX: BELI okvir kad je fokusirano (isto kao "Gledaj")
                     TvFocusableButton(onClick = { inLibrary = !inLibrary }) { focused ->
                         val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
                         Box(
                             modifier = Modifier
                                 .scale(scale)
                                 .clip(RoundedCornerShape(24.dp))
-                                .background(Color.Black.copy(alpha = 0.6f))
-                                .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(24.dp))
+                                .background(
+                                    if (focused) Color.White.copy(alpha = 0.25f)
+                                    else Color.Black.copy(alpha = 0.6f)
+                                )
+                                .border(
+                                    width = if (focused) 3.dp else 1.dp,
+                                    color = if (focused) Color.White
+                                    else Color.White.copy(alpha = 0.3f),
+                                    shape = RoundedCornerShape(24.dp)
+                                )
                                 .padding(horizontal = 26.dp, vertical = 12.dp)
                         ) {
                             Text(
