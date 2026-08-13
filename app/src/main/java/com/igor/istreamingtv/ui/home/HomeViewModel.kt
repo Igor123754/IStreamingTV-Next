@@ -3,7 +3,6 @@ package com.igor.istreamingtv.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.igor.istreamingtv.BuildConfig
-import com.igor.istreamingtv.data.remote.SubtitleFetcher
 import com.igor.istreamingtv.data.remote.TmdbHeroDetails
 import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.data.remote.pickCertification
@@ -102,31 +101,23 @@ class HomeViewModel : ViewModel() {
                 )
 
                 // 2) KATALOZI SEKVENCIJALNO — dodaju se kako stižu
-                val catalogFetchers = listOf(
-                    Triple("popular-movies", "Popularni filmovi", false) to { repository.getPopularMovies() },
-                    Triple("popular-series", "Popularne serije", true) to { repository.getPopularSeries() },
-                    Triple("top-movies", "Najbolje ocenjeni filmovi", false) to { repository.getTopRatedMovies() },
-                    Triple("top-series", "Najbolje ocenjene serije", true) to { repository.getTopRatedSeries() },
-                    Triple("trending-movies", "Trending filmovi ove nedelje", false) to { repository.getTrendingMovies() },
-                    Triple("trending-series", "Trending serije ove nedelje", true) to { repository.getTrendingSeries() }
-                )
-
-                for ((meta, fetcher) in catalogFetchers) {
-                    try {
-                        val items = fetcher()
-                        if (items.isNotEmpty()) {
-                            _uiState.value = _uiState.value.copy(
-                                catalogs = _uiState.value.catalogs + Catalog(
-                                    id = meta.first,
-                                    title = meta.second,
-                                    isTv = meta.third,
-                                    items = items.take(CATALOG_LIMIT)
-                                )
-                            )
-                        }
-                    } catch (_: Exception) {
-                        // Preskoči neuspešan katalog — stranica nastavlja da radi
-                    }
+                loadCatalog("popular-movies", "Popularni filmovi", false) {
+                    repository.getPopularMovies()
+                }
+                loadCatalog("popular-series", "Popularne serije", true) {
+                    repository.getPopularSeries()
+                }
+                loadCatalog("top-movies", "Najbolje ocenjeni filmovi", false) {
+                    repository.getTopRatedMovies()
+                }
+                loadCatalog("top-series", "Najbolje ocenjene serije", true) {
+                    repository.getTopRatedSeries()
+                }
+                loadCatalog("trending-movies", "Trending filmovi ove nedelje", false) {
+                    repository.getTrendingMovies()
+                }
+                loadCatalog("trending-series", "Trending serije ove nedelje", true) {
+                    repository.getTrendingSeries()
                 }
             } catch (e: Exception) {
                 _uiState.value = HomeUiState(
@@ -134,6 +125,33 @@ class HomeViewModel : ViewModel() {
                     error = e.message ?: "Unknown error"
                 )
             }
+        }
+    }
+
+    /**
+     * ✅ Pomoćna suspend funkcija — ispravno poziva suspend fetch
+     * i dodaje katalog u state čim stigne (bez keširanja)
+     */
+    private suspend fun loadCatalog(
+        id: String,
+        title: String,
+        isTv: Boolean,
+        fetch: suspend () -> List<TmdbMovie>
+    ) {
+        try {
+            val items = fetch()
+            if (items.isNotEmpty()) {
+                _uiState.value = _uiState.value.copy(
+                    catalogs = _uiState.value.catalogs + Catalog(
+                        id = id,
+                        title = title,
+                        isTv = isTv,
+                        items = items.take(CATALOG_LIMIT)
+                    )
+                )
+            }
+        } catch (_: Exception) {
+            // Preskoči neuspešan katalog — stranica nastavlja da radi
         }
     }
 
