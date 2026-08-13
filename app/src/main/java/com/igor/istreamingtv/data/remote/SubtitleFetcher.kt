@@ -14,9 +14,8 @@ import kotlin.math.abs
 
 /**
  * TITLOVI — OpenSubtitles Stremio addon.
- * PRIORITET: srpski (sr/scc/srp) > hrvatski (hr/hrv/hbs)
- * AUTO-SINHRONIZACIJA: duration matching (trajanje titla vs TMDB runtime)
- * odbacuje PAL/25fps titlove koji ne odgovaraju 23.976fps stream-u.
+ * PRIORITET: srpski > hrvatski, sa AUTO-SINHRONIZACIJOM (duration matching).
+ * Jezik putuje UZ svaku traku (SubtitleTrack.lang) — player ne nagađa!
  */
 object SubtitleFetcher {
 
@@ -29,11 +28,8 @@ object SubtitleFetcher {
         .followSslRedirects(true)
         .build()
 
-    // Srpski kodovi (ISO 639-1, 2, 3, bibliografski)
     private val serbianCodes = setOf("sr", "scc", "srp", "sr-rs", "serbian")
-    // Hrvatski kodovi (fallback)
     private val croatianCodes = setOf("hr", "hrv", "hr-hr", "croatian", "hbs", "bos", "bosnian")
-    // Unija prihvaćenih jezika
     private val acceptedCodes = serbianCodes + croatianCodes
 
     data class SubtitleEntry(
@@ -45,7 +41,13 @@ object SubtitleFetcher {
         val isSerbian: Boolean get() = language == "sr"
     }
 
-    /** Svi prihvaćeni titlovi (sr > hr), do 10, po prioritetu */
+    /** Traka sa jezikom — ovo ide u player (labela se ispravno!) */
+    data class SubtitleTrack(
+        val url: String,
+        val lang: String           // "sr" | "hr"
+    )
+
+    /** Svi prihvaćeni titlovi: srpski PRVO, pa hrvatski (do 10) */
     suspend fun getAcceptedSubtitles(
         type: String,
         imdbId: String,
@@ -75,14 +77,12 @@ object SubtitleFetcher {
                 val url = o.str("url") ?: return@forEach
                 val langRaw = (o.str("lang") ?: "").lowercase()
                 if (langRaw !in acceptedCodes) return@forEach
-                // MikroDVD (.sub) ExoPlayer ne podržava dobro
                 if (url.endsWith(".sub", ignoreCase = true)) return@forEach
 
                 val code = if (langRaw in serbianCodes) "sr" else "hr"
                 val entry = SubtitleEntry(url, code, o.str("SubEncoding"), idx++)
                 if (code == "sr") serbian.add(entry) else croatian.add(entry)
             }
-            // Srpski PRVO, pa hrvatski
             (serbian + croatian).take(10)
         } catch (_: Exception) {
             emptyList()
@@ -90,9 +90,8 @@ object SubtitleFetcher {
     }
 
     /**
-     * AUTO-SINHRONIZACIJA po trajanju.
-     * Unutar svake jezičke grupe rangira po sinhronizaciji,
-     * ali SRPSKI ostaju ISPRED HRVATSKOG u konačnoj listi.
+     * AUTO-SINHRONIZACIJA: rank po trajanju unutar svake jezičke grupe,
+     * srpski uvek ispred hrvatskog.
      */
     suspend fun rankBySync(
         entries: List<SubtitleEntry>,
@@ -100,19 +99,15 @@ object SubtitleFetcher {
     ): List<SubtitleEntry> {
         if (entries.size < 2 || expectedSeconds == null || expectedSeconds <= 0) return entries
 
-        val serbian = entries.filter { it.isSerbian }
-        val croatian = entries.filter { !it.isSerbian }
-
-        val rankedSerbian = rankGroup(serbian, expectedSeconds)
-        val rankedCroatian = rankGroup(croatian, expectedSeconds)
-
+        val rankedSerbian = rankGroup(entries.filter { it.isSerbian }, expectedSeconds)
+        val rankedCroatian = rankGroup(entries.filter { !it.isSerbian }, expectedSeconds)
         return rankedSerbian + rankedCroatian
     }
 
-    /**
-     * Paralelno preuzmi trajanja prvih 4 i rangiraj po najmanjoj razlici.
-     * NAPOMENA: coroutineScope {} obezbeđuje CoroutineScope za async {}
-     */
+    /** Konverzija u trake (url + lang) za player */
+    fun toTracks(entries: List<SubtitleEntry>, limit: Int = 6): List<SubtitleTrack> =
+        entries.take(limit).map { SubtitleTrack(it.url, it.language) }
+
     private suspend fun rankGroup(
         group: List<SubtitleEntry>,
         expectedSeconds: Int
@@ -134,7 +129,6 @@ object SubtitleFetcher {
         }
     }
 
-    /** Preuzme titl i vrati njegovo ukupno trajanje u sekundama */
     private suspend fun fetchDurationSeconds(url: String): Int? {
         return try {
             val request = Request.Builder().url(url).get().build()
@@ -149,7 +143,6 @@ object SubtitleFetcher {
 
     private val TIME_REGEX = Regex("""(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})""")
 
-    /** Parse SRT/VTT timestamp-ove → max trajanje u sekundama */
     private fun parseMaxSeconds(text: String): Int? {
         var max = -1.0
         var count = 0
