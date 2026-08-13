@@ -46,7 +46,7 @@ private val TextSecondary = Color(0xB3FFFFFF)
 private val CardShape = RoundedCornerShape(12.dp)
 
 /**
- * Pokreće plejer: kandidati + IMDb + trake titlova SA JEZIKOM (sr/hr) + NASLOV.
+ * Pokreće plejer: kandidati + IMDb + titlovi + NASLOV + POSTER + OPIS.
  */
 private fun startPlayer(
     context: Context,
@@ -56,7 +56,9 @@ private fun startPlayer(
     episode: Int = -1,
     subtitleTracks: List<SubtitleTrack> = emptyList(),
     runtimeSeconds: Int = -1,
-    title: String? = null
+    title: String? = null,
+    posterUrl: String? = null,
+    overviewText: String? = null
 ) {
     val intent = Intent(context, PlayerActivity::class.java).apply {
         putExtra("candidates", Gson().toJson(candidates.map { it.url }))
@@ -68,6 +70,8 @@ private fun startPlayer(
         }
         if (runtimeSeconds > 0) putExtra("runtime_sec", runtimeSeconds)
         if (!title.isNullOrBlank()) putExtra("title", title)
+        if (!posterUrl.isNullOrBlank()) putExtra("poster", posterUrl)
+        if (!overviewText.isNullOrBlank()) putExtra("overview", overviewText)
     }
     context.startActivity(intent)
 }
@@ -95,6 +99,9 @@ fun MovieDetailsScreen(
             if (candidates.isNotEmpty()) {
                 val subs = state.episodeSubtitleTracks[key]
                     ?: viewModel.subtitlesForEpisode(episode.season_number, episode.episode_number)
+                val epOverview = episode.overview?.takeIf { it.isNotBlank() }
+                    ?: state.details?.pickSerbianOverview()
+                    ?: state.details?.overview
                 startPlayer(
                     context, candidates,
                     imdbId = state.details?.pickImdbId(),
@@ -102,7 +109,9 @@ fun MovieDetailsScreen(
                     episode = episode.episode_number,
                     subtitleTracks = subs,
                     runtimeSeconds = (episode.runtime ?: 0) * 60,
-                    title = movie.displayTitle
+                    title = movie.displayTitle,
+                    posterUrl = movie.posterPath?.let { "https://image.tmdb.org/t/p/w342$it" },
+                    overviewText = epOverview
                 )
             } else {
                 Toast.makeText(context, "Nema dostupnih izvora za ovu epizodu", Toast.LENGTH_SHORT).show()
@@ -364,7 +373,9 @@ private fun DetailsHero(
                                     imdbId = details?.pickImdbId(),
                                     subtitleTracks = movieSubtitleTracks,
                                     runtimeSeconds = (runtimeMin ?: 0) * 60,
-                                    title = movie.displayTitle
+                                    title = movie.displayTitle,
+                                    posterUrl = movie.posterPath?.let { "https://image.tmdb.org/t/p/w342$it" },
+                                    overviewText = overview
                                 )
 
                             !isTv && preparingStreams ->
