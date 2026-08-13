@@ -30,6 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -89,7 +91,7 @@ import kotlin.math.abs
 /**
  * MOĆNI PLEJER — Media3 ExoPlayer (2GB RAM optimizovan)
  * APPLE TV+ UI + tačna auto-sinhronizacija titlova + SKIP INTRO
- * preko introdb.app API (tačni timestamp-ovi, bez učenja).
+ * OPTIMIZOVANO ZA TV: manje recomposition-a, bolja navigacija fokusom
  */
 class PlayerActivity : ComponentActivity() {
 
@@ -101,7 +103,6 @@ class PlayerActivity : ComponentActivity() {
     internal var playerPoster: String = ""
     internal var playerOverview: String = ""
 
-    // SKIP INTRO (serije) - tačni timestamp-ovi sa introdb.app
     internal var isSeriesPlay: Boolean = false
     internal var introStartMs: Long = -1
     internal var introEndMs: Long = -1
@@ -139,7 +140,6 @@ class PlayerActivity : ComponentActivity() {
         playerPoster = intent.getStringExtra("poster") ?: ""
         playerOverview = intent.getStringExtra("overview") ?: ""
 
-        // Fetch intro timestamp-ova sa introdb.app (za serije)
         if (!imdbId.isNullOrBlank() && seasonNumber >= 0 && episodeNumber >= 0) {
             isSeriesPlay = true
             lifecycleScope.launch {
@@ -194,7 +194,6 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    // Daljinski BACK + PLAY/PAUSE tasteri
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
@@ -204,7 +203,6 @@ class PlayerActivity : ComponentActivity() {
                 if (p.isPlaying) p.pause() else p.play()
                 return true
             }
-            // Daljinski BACK zatvara plejer
             KeyEvent.KEYCODE_BACK -> {
                 finish()
                 return true
@@ -213,12 +211,6 @@ class PlayerActivity : ComponentActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
-    // ================= SKIP INTRO API =================
-
-    /**
-     * Fetch intro timestamp-ova sa introdb.app.
-     * Vraća (startSec, endSec) ili null ako nema podataka.
-     */
     private suspend fun fetchIntroTimestamps(
         imdbId: String,
         season: Int,
@@ -247,15 +239,12 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    /** Preskoči uvod (skače na introEndMs) */
     internal fun skipIntro() {
         val p = player ?: return
         if (introEndMs > 0) {
             p.seekTo(introEndMs)
         }
     }
-
-    // ================= PARSE / PLAYER =================
 
     private fun parseIntent() {
         intent.getStringExtra("candidates")?.let { json ->
@@ -265,7 +254,6 @@ class PlayerActivity : ComponentActivity() {
                     el.takeIf { !it.isJsonNull }?.asString?.let { candidateUrls.add(it) }
                 }
             } catch (_: Exception) {
-                // Ignoriši
             }
         }
 
@@ -284,7 +272,6 @@ class PlayerActivity : ComponentActivity() {
                     currentSubtitleTracks.add(SubtitleTrack(url, lang, dur))
                 }
             } catch (_: Exception) {
-                // Ignoriši
             }
         }
         if (currentSubtitleTracks.isEmpty()) {
@@ -297,7 +284,6 @@ class PlayerActivity : ComponentActivity() {
                         }
                     }
                 } catch (_: Exception) {
-                    // Ignoriši
                 }
             }
         }
@@ -331,7 +317,6 @@ class PlayerActivity : ComponentActivity() {
         buildPlayer(currentUrl!!, currentSubtitleTracks.toList())
     }
 
-    /** Tačna auto-sinhronizacija titlova po TAČNOM trajanju videa */
     private fun autoPickSyncedSubtitle(exoPlayer: ExoPlayer, tracks: List<SubtitleTrack>) {
         val actualMs = exoPlayer.duration
         if (actualMs <= 0) return
@@ -516,7 +501,6 @@ class PlayerActivity : ComponentActivity() {
                 candidateUrls.clear()
                 candidateUrls.addAll(urls)
 
-                // Fetch intro za sledeću epizodu
                 if (!imdb.isNullOrBlank() && seasonNumber >= 0 && nextEpisode >= 0) {
                     isSeriesPlay = true
                     val intro = fetchIntroTimestamps(imdb, seasonNumber, nextEpisode)
@@ -548,7 +532,6 @@ class PlayerActivity : ComponentActivity() {
                 position > 5_000 -> prefs.edit().putLong(url, position).apply()
             }
         } catch (_: Exception) {
-            // Ignoriši
         }
 
         p.release()
@@ -570,7 +553,6 @@ private data class TrackOption(
     val type: Int
 )
 
-/** Pauza ikonica — dve vertikalne crte */
 @Composable
 private fun PauseBars(modifier: Modifier = Modifier) {
     Row(
@@ -583,7 +565,6 @@ private fun PauseBars(modifier: Modifier = Modifier) {
     }
 }
 
-/** CC ikonica */
 @Composable
 private fun SubtitlesIcon(modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
@@ -612,7 +593,6 @@ private fun SubtitlesIcon(modifier: Modifier = Modifier) {
     }
 }
 
-/** Zvučnik ikonica */
 @Composable
 private fun AudioIcon(modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
@@ -699,7 +679,6 @@ private fun disableSubtitles(player: Player) {
         .build()
 }
 
-/** TANKA TRAKA — strelice LEVO/DESNO = ±10s, tap/drag = skok */
 @Composable
 private fun AppleSeekBar(
     fraction: Float,
@@ -793,7 +772,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     var sliderFraction by remember { mutableFloatStateOf(0f) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    // Polling stanja
+    // ✅ OPTIMIZOVANO: polling na 500ms umesto 250ms (manje recomposition-a)
     LaunchedEffect(Unit) {
         while (true) {
             val p = activity.player
@@ -807,11 +786,10 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     sliderFraction = position.toFloat() / duration.toFloat()
                 }
             }
-            delay(250)
+            delay(500)  // ✅ 500ms umesto 250ms
         }
     }
 
-    // Posle 5s PAUZE → poster + opis
     LaunchedEffect(isPlaying, isReady) {
         if (!isPlaying && isReady) {
             delay(5000)
@@ -821,7 +799,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         }
     }
 
-    // SAT kuca SVAKI PUT kad su kontrole ili paused info prikazani
     LaunchedEffect(controlsVisible, showPausedInfo) {
         while (controlsVisible || showPausedInfo) {
             nowMillis = System.currentTimeMillis()
@@ -829,7 +806,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         }
     }
 
-    // Auto-hide 4s (ne dok je meni ili paused info)
     LaunchedEffect(lastInteraction, menu, showPausedInfo) {
         controlsVisible = true
         if (menu == TrackMenuKind.NONE && !showPausedInfo) {
@@ -865,21 +841,26 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         Date(nowMillis + (duration - position).coerceAtLeast(0))
     )
 
-    // ✅ SKIP INTRO vidljivost: serija + reprodukcija + unutar prozora uvoda (sa API)
     val showSkipIntro = activity.isSeriesPlay &&
         isPlaying &&
         activity.introStartMs >= 0 &&
         activity.introEndMs > 0 &&
         position in activity.introStartMs..activity.introEndMs
 
+    // ✅ Fokus requesteri za navigaciju
+    val playPauseFocus = remember { FocusRequester() }
+    val ccFocus = remember { FocusRequester() }
+    val audioFocus = remember { FocusRequester() }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            // ✅ OK uvek radi play/pause (osim kad je fokus na meniju ili interaktivnom elementu)
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown &&
                     event.key == Key.DirectionCenter &&
-                    !controlsVisible
+                    menu == TrackMenuKind.NONE
                 ) {
                     togglePlay()
                     interact()
@@ -887,7 +868,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 } else false
             }
     ) {
-        // VIDEO + TITLOVI U APPLE TV+ STILU (bez crnog okvira!)
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -917,7 +897,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             modifier = Modifier.fillMaxSize()
         )
 
-        // TAP = kontrole | DOUBLE-TAP = play/pause (tablet!)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -935,7 +914,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 }
         )
 
-        // BUFFERING
         if (isBuffering) {
             CircularProgressIndicator(
                 color = Color.White,
@@ -945,7 +923,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             )
         }
 
-        // ✅ SKIP INTRO dugme (Netflix stil, dole desno) — vidljivo i bez kontrola
         if (showSkipIntro) {
             TvFocusableButton(
                 onClick = {
@@ -989,7 +966,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             }
         }
 
-        // GORE DESNO: SAT + KRAJ — UVEK kad su kontrole prikazane
         if (controlsVisible || showPausedInfo) {
             Column(
                 modifier = Modifier
@@ -1016,7 +992,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         if (controlsVisible || showPausedInfo) {
             Box(modifier = Modifier.fillMaxSize()) {
 
-                // Donji gradient
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1029,7 +1004,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                         )
                 )
 
-                // Mali PAUSE znak iznad trake kad je pauza
                 if (!isPlaying && !isBuffering && isReady) {
                     PauseBars(
                         modifier = Modifier
@@ -1038,14 +1012,12 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     )
                 }
 
-                // Dole: poster+opis (pauza) + naslov + traka + vremena + dugmad
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .padding(start = 40.dp, end = 40.dp, bottom = 24.dp)
                 ) {
-                    // POSTER + OPIS iznad trake (posle 5s pauze)
                     if (showPausedInfo) {
                         Row(
                             modifier = Modifier
@@ -1090,7 +1062,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                         }
                     }
 
-                    // Oznaka epizode (S1, E2)
                     if (activity.playerSeason >= 0) {
                         Text(
                             text = "S${activity.playerSeason}, E${activity.playerEpisode}",
@@ -1101,7 +1072,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
-                    // Naslov
                     if (activity.playerTitle.isNotBlank()) {
                         Text(
                             text = activity.playerTitle,
@@ -1113,7 +1083,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                         Spacer(modifier = Modifier.height(10.dp))
                     }
 
-                    // Traka + okrugla dugmad desno
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(20.dp)
@@ -1138,8 +1107,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             modifier = Modifier.weight(1f)
                         )
 
-                        // PLAY/PAUSE dugme (tablet + TV)
-                        TvFocusableButton(onClick = { interact(); togglePlay() }) { focused ->
+                        // ✅ PLAY/PAUSE sa focusRequester
+                        TvFocusableButton(
+                            onClick = { interact(); togglePlay() },
+                            modifier = Modifier.focusRequester(playPauseFocus)
+                        ) { focused ->
                             val scale by animateFloatAsState(
                                 if (focused) 1.1f else 1f, tween(150), label = ""
                             )
@@ -1164,8 +1136,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             }
                         }
 
-                        // CC dugme — MENI titlova
-                        TvFocusableButton(onClick = { openMenu(TrackMenuKind.SUBTITLES) }) { focused ->
+                        // ✅ CC sa focusRequester
+                        TvFocusableButton(
+                            onClick = { openMenu(TrackMenuKind.SUBTITLES) },
+                            modifier = Modifier.focusRequester(ccFocus)
+                        ) { focused ->
                             val scale by animateFloatAsState(
                                 if (focused) 1.1f else 1f, tween(150), label = ""
                             )
@@ -1181,8 +1156,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             }
                         }
 
-                        // Audio dugme — MENI audio
-                        TvFocusableButton(onClick = { openMenu(TrackMenuKind.AUDIO) }) { focused ->
+                        // ✅ Audio sa focusRequester
+                        TvFocusableButton(
+                            onClick = { openMenu(TrackMenuKind.AUDIO) },
+                            modifier = Modifier.focusRequester(audioFocus)
+                        ) { focused ->
                             val scale by animateFloatAsState(
                                 if (focused) 1.1f else 1f, tween(150), label = ""
                             )
@@ -1201,7 +1179,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Vremena
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1222,7 +1199,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     }
                 }
 
-                // MENI titlova / audio — SKROLABILAN
                 if (menu != TrackMenuKind.NONE) {
                     Column(
                         modifier = Modifier
