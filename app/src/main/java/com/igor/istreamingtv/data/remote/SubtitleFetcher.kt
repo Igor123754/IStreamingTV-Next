@@ -13,22 +13,23 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 /**
- * Traka titla SA JEZIKOM — putuje od fetch-ja do player-a.
+ * Traka titla SA JEZIKOM i IZMERENIM TRAJANJEM —
+ * player pomoću trajanja bira sinhronizovan titl.
  */
 data class SubtitleTrack(
     val url: String,
-    val lang: String   // "sr" | "hr"
+    val lang: String,          // "sr" | "hr"
+    val durationSec: Int? = null
 )
 
 /**
  * TITLOVI — OpenSubtitles Stremio addon.
  * PRIORITET: srpski > hrvatski.
  *
- * AUTO-SINHRONIZACIJA:
- *  1) GLAVNI signal: |trajanje titla − TMDB runtime| (otkriva PAL/25fps
- *     i pogrešne release verzije)
- *  2) tie-breaker: pozicija u addon odgovoru (samo kad je trajanje isto)
- *  3) penala: prva replika posle 10 min = pogrešan release/intro
+ * AUTO-SINHRONIZACIJA (2 nivoa):
+ *  1) Pre gledanja: |trajanje titla − TMDB runtime| (grubi ranking)
+ *  2) Tokom gledanja: player zna TAČNO trajanje videa i tiho
+ *     prebacuje na titl čije izmereno trajanje najbliže
  */
 object SubtitleFetcher {
 
@@ -47,9 +48,10 @@ object SubtitleFetcher {
 
     data class SubtitleEntry(
         val url: String,
-        val language: String,      // "sr" ili "hr"
+        val language: String,
         val encoding: String?,
-        val order: Int
+        val order: Int,
+        val durationSec: Int? = null   // izmereno trajanje titla
     ) {
         val isSerbian: Boolean get() = language == "sr"
     }
@@ -101,10 +103,7 @@ object SubtitleFetcher {
         }
     }
 
-    /**
-     * AUTO-SINHRONIZACIJA: rank unutar svake jezičke grupe,
-     * srpski uvek ispred hrvatskog.
-     */
+    /** Grubi ranking pre gledanja (TMDB runtime u minutima) */
     suspend fun rankBySync(
         entries: List<SubtitleEntry>,
         expectedSeconds: Int?
@@ -116,12 +115,6 @@ object SubtitleFetcher {
         return rankedSerbian + rankedCroatian
     }
 
-    /**
-     * Score (manje = bolje):
-     *   GLAVNO: |trajanje − runtime|
-     *   + 5s po poziciji (SAMO tie-breaker, ne odlučuje!)
-     *   + 300s ako prva replika kreće posle 10 min
-     */
     private suspend fun rankGroup(
         group: List<SubtitleEntry>,
         expectedSeconds: Int
@@ -134,6 +127,7 @@ object SubtitleFetcher {
             val scored: List<Pair<SubtitleEntry, Int>> = toCheck.mapIndexed { index, entry ->
                 async {
                     val timing = fetchTiming(entry.url)
+                    val withDuration = entry.copy(durationSec = timing?.maxSec)
                     val score = if (timing == null) {
                         Int.MAX_VALUE / 2 + index
                     } else {
@@ -142,7 +136,7 @@ object SubtitleFetcher {
                         if (timing.firstSec > 600) s += 300            // pogrešan release
                         s
                     }
-                    entry to score
+                    withDuration to score
                 }
             }.awaitAll()
 
@@ -183,9 +177,9 @@ object SubtitleFetcher {
         return if (max > 0 && first >= 0) Timing(first.toInt(), max.toInt()) else null
     }
 
-    /** Konverzija u trake (url + lang) za player */
+    /** Konverzija u trake (url + lang + trajanje) za player */
     fun toTracks(entries: List<SubtitleEntry>, limit: Int = 6): List<SubtitleTrack> =
-        entries.take(limit).map { SubtitleTrack(it.url, it.language) }
+        entries.take(limit).map { SubtitleTrack(it.url, it.language, it.durationSec) }
 
     private fun JsonObject.str(key: String): String? =
         get(key)?.takeIf { !it.isJsonNull }?.asString
