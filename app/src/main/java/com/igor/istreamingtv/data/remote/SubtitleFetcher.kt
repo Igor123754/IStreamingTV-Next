@@ -12,10 +12,10 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 /**
- * TITLOVI — OpenSubtitles Stremio addon (srpski samo).
- * AUTO-SINHRONIZACIJA: meri trajanje titla i upoređuje sa trajanjem
- * filma/epizode (TMDB) — titl koji traje koliko i video = sinhronizovan.
- * (PAL 25fps titlovi traju ~4% kraće → automatski se odbacuju!)
+ * TITLOVI — OpenSubtitles Stremio addon.
+ * PRIORITET: srpski (sr/scc/srp) > hrvatski (hr/hrv)
+ * AUTO-SINHRONIZACIJA: duration matching (trajanje titla vs TMDB runtime)
+ * odbacuje PAL/25fps titlove koji ne odgovaraju 23.976fps stream-u.
  */
 object SubtitleFetcher {
 
@@ -28,17 +28,24 @@ object SubtitleFetcher {
         .followSslRedirects(true)
         .build()
 
-    // Svi mogući kodovi za srpski (addon vraća ISO 639-2: "scc"/"srp")
+    // Srpski kodovi (ISO 639-1, 2, 3, bibliografski)
     private val serbianCodes = setOf("sr", "scc", "srp", "sr-rs", "serbian")
+    // Hrvatski kodovi (fallback)
+    private val croatianCodes = setOf("hr", "hrv", "hr-hr", "croatian", "hbs", "bos", "bosnian")
+    // Unija prihvaćenih jezika
+    private val acceptedCodes = serbianCodes + croatianCodes
 
     data class SubtitleEntry(
         val url: String,
+        val language: String,      // "sr" ili "hr"
         val encoding: String?,
         val order: Int
-    )
+    ) {
+        val isSerbian: Boolean get() = language == "sr"
+    }
 
-    /** Svi srpski titlovi (do 8), redosled kakav vraća addon */
-    suspend fun getSerbianSubtitles(
+    /** Svi prihvaćeni titlovi (sr > hr), do 10, po prioritetu */
+    suspend fun getAcceptedSubtitles(
         type: String,
         imdbId: String,
         season: Int = -1,
@@ -58,26 +65,33 @@ object SubtitleFetcher {
             val obj = JsonParser.parseString(body).asJsonObject
             val arr = obj.getAsJsonArray("subtitles") ?: return@withContext emptyList<SubtitleEntry>()
 
-            val list = mutableListOf<SubtitleEntry>()
-            arr.forEachIndexed { index, el ->
+            val serbian = mutableListOf<SubtitleEntry>()
+            val croatian = mutableListOf<SubtitleEntry>()
+            var idx = 0
+
+            arr.forEach { el ->
                 val o = el.asJsonObject
-                val url = o.str("url") ?: return@forEachIndexed
-                val lang = (o.str("lang") ?: "").lowercase()
-                if (lang !in serbianCodes) return@forEachIndexed
+                val url = o.str("url") ?: return@forEach
+                val langRaw = (o.str("lang") ?: "").lowercase()
+                if (langRaw !in acceptedCodes) return@forEach
                 // MikroDVD (.sub) ExoPlayer ne podržava dobro
-                if (url.endsWith(".sub", ignoreCase = true)) return@forEachIndexed
-                list.add(SubtitleEntry(url, o.str("SubEncoding"), index))
+                if (url.endsWith(".sub", ignoreCase = true)) return@forEach
+
+                val code = if (langRaw in serbianCodes) "sr" else "hr"
+                val entry = SubtitleEntry(url, code, o.str("SubEncoding"), idx++)
+                if (code == "sr") serbian.add(entry) else croatian.add(entry)
             }
-            list.take(8)
+            // Srpski PRVO, pa hrvatski
+            (serbian + croatian).take(10)
         } catch (_: Exception) {
             emptyList()
         }
     }
 
     /**
-     * AUTO-SINHRONIZACIJA:
-     * za prvih 4 kandidata preuzme titl, izmeri trajanje i uporedi
-     * sa očekivanim trajanjem videa. Najbliži = prvi (default).
+     * AUTO-SINHRONIZACIJA po trajanju.
+     * Unutar svake jezičke grupe rangira po sinhronizaciji,
+     * ali SRPSKI ostaju ISPRED HRVATSKOG u konačnoj listi.
      */
     suspend fun rankBySync(
         entries: List<SubtitleEntry>,
@@ -85,20 +99,33 @@ object SubtitleFetcher {
     ): List<SubtitleEntry> {
         if (entries.size < 2 || expectedSeconds == null || expectedSeconds <= 0) return entries
         return withContext(Dispatchers.IO) {
-            val toCheck = entries.take(4)
-            val rest = entries.drop(4)
+            val serbian = entries.filter { it.isSerbian }
+            val croatian = entries.filter { !it.isSerbian }
 
-            val scored = toCheck.map { entry ->
-                async {
-                    val duration = fetchDurationSeconds(entry.url)
-                    val diff = duration?.let { abs(it - expectedSeconds) } ?: Int.MAX_VALUE
-                    entry to diff
-                }
-            }.awaitAll()
+            val rankedSerbian = rankGroup(serbian, expectedSeconds)
+            val rankedCroatian = rankGroup(croatian, expectedSeconds)
 
-            // Sinhronizovani prvi (najmanja razlika trajanja), ostali kao rezerva
-            scored.sortedBy { it.second }.map { it.first } + rest
+            rankedSerbian + rankedCroatian
         }
+    }
+
+    private suspend fun rankGroup(
+        group: List<SubtitleEntry>,
+        expectedSeconds: Int
+    ): List<SubtitleEntry> {
+        if (group.size < 2) return group
+        val toCheck = group.take(4)
+        val rest = group.drop(4)
+
+        val scored = toCheck.map { entry ->
+            async {
+                val duration = fetchDurationSeconds(entry.url)
+                val diff = duration?.let { abs(it - expectedSeconds) } ?: Int.MAX_VALUE
+                entry to diff
+            }
+        }.awaitAll()
+
+        return scored.sortedBy { it.second }.map { it.first } + rest
     }
 
     /** Preuzme titl i vrati njegovo ukupno trajanje u sekundama */
