@@ -13,6 +13,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -453,7 +455,6 @@ private fun SubtitlesIcon(modifier: Modifier = Modifier) {
         val w = size.width
         val h = size.height
         val stroke = w * 0.09f
-        // okvir
         drawRoundRect(
             color = Color.White,
             topLeft = androidx.compose.ui.geometry.Offset(stroke, stroke * 1.5f),
@@ -461,7 +462,6 @@ private fun SubtitlesIcon(modifier: Modifier = Modifier) {
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(stroke),
             style = androidx.compose.ui.graphics.drawscope.Stroke(stroke)
         )
-        // linije
         drawLine(
             Color.White,
             androidx.compose.ui.geometry.Offset(w * 0.25f, h * 0.42f),
@@ -483,14 +483,11 @@ private fun AudioIcon(modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val path = android.graphics.Path().apply { }
-        // telo zvučnika
         drawRect(
             Color.White,
             topLeft = androidx.compose.ui.geometry.Offset(w * 0.15f, h * 0.35f),
             size = androidx.compose.ui.geometry.Size(w * 0.2f, h * 0.3f)
         )
-        // konus
         val triangle = androidx.compose.ui.graphics.Path().apply {
             moveTo(w * 0.35f, h * 0.35f)
             lineTo(w * 0.6f, h * 0.15f)
@@ -499,7 +496,6 @@ private fun AudioIcon(modifier: Modifier = Modifier) {
             close()
         }
         drawPath(triangle, Color.White)
-        // talas
         drawArc(
             Color.White,
             startAngle = -60f,
@@ -531,11 +527,7 @@ private fun collectOptions(player: Player, type: Int): List<TrackOption> {
         if (group.type == type) {
             for (i in 0 until group.length) {
                 val fmt = group.getTrackFormat(i)
-                val label = if (type == C.TRACK_TYPE_AUDIO) {
-                    fmt.label ?: audioLanguageName(fmt.language)
-                } else {
-                    fmt.label ?: audioLanguageName(fmt.language)
-                }
+                val label = fmt.label ?: audioLanguageName(fmt.language)
                 list.add(
                     TrackOption(
                         label = label,
@@ -576,7 +568,7 @@ private fun disableSubtitles(player: Player) {
 /**
  * TANKA TRAKA — Apple TV+ stil.
  * Strelice LEVO/DESNO na traci = premotavanje ±10s.
- * Tap/drag = skok na poziciju.
+ * Tap ili drag = skok na poziciju.
  */
 @Composable
 private fun AppleSeekBar(
@@ -613,22 +605,18 @@ private fun AppleSeekBar(
                     }
                 } else false
             }
+            // TAP na traku = skok na poziciju
             .pointerInput(Unit) {
-                androidx.compose.foundation.gestures.awaitEachGesture {
-                    val down = awaitFirstDown()
+                detectTapGestures { offset ->
                     onInteract()
-                    onFractionSeek((down.position.x / widthPx).coerceIn(0f, 1f))
-                    var dragging = true
-                    while (dragging) {
-                        val change = awaitPointerEvent()
-                        change.changes.forEach { c ->
-                            if (c.pressed) {
-                                onFractionSeek((c.position.x / widthPx).coerceIn(0f, 1f))
-                            } else {
-                                dragging = false
-                            }
-                        }
-                    }
+                    onFractionSeek((offset.x / widthPx).coerceIn(0f, 1f))
+                }
+            }
+            // DRAG po traci = kontinuirano premotavanje
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { change, _ ->
+                    onInteract()
+                    onFractionSeek((change.position.x / widthPx).coerceIn(0f, 1f))
                 }
             },
         contentAlignment = Alignment.CenterStart
@@ -676,7 +664,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     var isBuffering by remember { mutableStateOf(true) }
 
     var sliderFraction by remember { mutableFloatStateOf(0f) }
-    var isDragging by remember { mutableStateOf(false) }
 
     // Polling stanja
     LaunchedEffect(Unit) {
@@ -687,7 +674,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 duration = p.duration.coerceAtLeast(0)
                 isPlaying = p.isPlaying
                 isBuffering = p.playbackState == Player.STATE_BUFFERING
-                if (!isDragging && duration > 0) {
+                if (duration > 0) {
                     sliderFraction = position.toFloat() / duration.toFloat()
                 }
             }
@@ -862,7 +849,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                         Spacer(modifier = Modifier.height(10.dp))
                     }
 
-                    // Traka + okrugla dugmad desno (kao na screenshot-u)
+                    // Traka + okrugla dugmad desno
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(20.dp)
@@ -965,7 +952,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                         )
 
                         if (menu == TrackMenuKind.SUBTITLES) {
-                            // Isključeno
                             val textDisabled = activity.player?.trackSelectionParameters
                                 ?.disabledTrackTypes
                                 ?.contains(C.TRACK_TYPE_TEXT) ?: false
