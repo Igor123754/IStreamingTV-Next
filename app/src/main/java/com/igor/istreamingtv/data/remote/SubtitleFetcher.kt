@@ -5,6 +5,7 @@ import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -13,7 +14,7 @@ import kotlin.math.abs
 
 /**
  * TITLOVI — OpenSubtitles Stremio addon.
- * PRIORITET: srpski (sr/scc/srp) > hrvatski (hr/hrv)
+ * PRIORITET: srpski (sr/scc/srp) > hrvatski (hr/hrv/hbs)
  * AUTO-SINHRONIZACIJA: duration matching (trajanje titla vs TMDB runtime)
  * odbacuje PAL/25fps titlove koji ne odgovaraju 23.976fps stream-u.
  */
@@ -98,17 +99,20 @@ object SubtitleFetcher {
         expectedSeconds: Int?
     ): List<SubtitleEntry> {
         if (entries.size < 2 || expectedSeconds == null || expectedSeconds <= 0) return entries
-        return withContext(Dispatchers.IO) {
-            val serbian = entries.filter { it.isSerbian }
-            val croatian = entries.filter { !it.isSerbian }
 
-            val rankedSerbian = rankGroup(serbian, expectedSeconds)
-            val rankedCroatian = rankGroup(croatian, expectedSeconds)
+        val serbian = entries.filter { it.isSerbian }
+        val croatian = entries.filter { !it.isSerbian }
 
-            rankedSerbian + rankedCroatian
-        }
+        val rankedSerbian = rankGroup(serbian, expectedSeconds)
+        val rankedCroatian = rankGroup(croatian, expectedSeconds)
+
+        return rankedSerbian + rankedCroatian
     }
 
+    /**
+     * Paralelno preuzmi trajanja prvih 4 i rangiraj po najmanjoj razlici.
+     * NAPOMENA: coroutineScope {} obezbeđuje CoroutineScope za async {}
+     */
     private suspend fun rankGroup(
         group: List<SubtitleEntry>,
         expectedSeconds: Int
@@ -117,19 +121,21 @@ object SubtitleFetcher {
         val toCheck = group.take(4)
         val rest = group.drop(4)
 
-        val scored = toCheck.map { entry ->
-            async {
-                val duration = fetchDurationSeconds(entry.url)
-                val diff = duration?.let { abs(it - expectedSeconds) } ?: Int.MAX_VALUE
-                entry to diff
-            }
-        }.awaitAll()
+        return coroutineScope {
+            val scored: List<Pair<SubtitleEntry, Int>> = toCheck.map { entry ->
+                async {
+                    val duration = fetchDurationSeconds(entry.url)
+                    val diff = duration?.let { abs(it - expectedSeconds) } ?: Int.MAX_VALUE
+                    entry to diff
+                }
+            }.awaitAll()
 
-        return scored.sortedBy { it.second }.map { it.first } + rest
+            scored.sortedBy { it.second }.map { it.first } + rest
+        }
     }
 
     /** Preuzme titl i vrati njegovo ukupno trajanje u sekundama */
-    private fun fetchDurationSeconds(url: String): Int? {
+    private suspend fun fetchDurationSeconds(url: String): Int? {
         return try {
             val request = Request.Builder().url(url).get().build()
             val response = client.newCall(request).execute()
