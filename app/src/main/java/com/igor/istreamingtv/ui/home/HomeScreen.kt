@@ -1,5 +1,7 @@
 package com.igor.istreamingtv.ui.home
 
+import android.content.Context
+import android.content.Intent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -26,15 +28,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.google.gson.Gson
+import com.igor.istreamingtv.data.ContinueEntry
 import com.igor.istreamingtv.data.remote.*
 import com.igor.istreamingtv.ui.components.TvFocusableButton
+import com.igor.istreamingtv.ui.player.PlayerActivity
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val AppBackground = Color(0xFF020204)
 private val SurfaceBackground = Color(0xFF0C0D12)
@@ -65,6 +72,39 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // ✅ Osveži "Nastavi gledanje" svaki put kad se vratiš na početnu
+    LaunchedEffect(Unit) {
+        viewModel.refreshContinueWatching()
+    }
+
+    // ✅ Nastavi gledanje: povuci stream-ove i nastavi sa sačuvane pozicije
+    val onResume: (ContinueEntry) -> Unit = { entry ->
+        scope.launch {
+            if (entry.imdbId.isNullOrBlank()) return@launch
+            val candidates = StreamPicker.getCandidates(
+                if (entry.isTv) "series" else "movie",
+                entry.imdbId,
+                entry.season,
+                entry.episode
+            )
+            if (candidates.isNotEmpty()) {
+                val intent = Intent(context, PlayerActivity::class.java).apply {
+                    putExtra("candidates", Gson().toJson(candidates.map { it.url }))
+                    putExtra("imdb_id", entry.imdbId)
+                    putExtra("season", entry.season)
+                    putExtra("episode", entry.episode)
+                    putExtra("runtime_sec", (entry.durationMs / 1000).toInt())
+                    putExtra("title", entry.title)
+                    putExtra("poster", entry.posterUrl)
+                    putExtra("backdrop", entry.backdropUrl)
+                }
+                context.startActivity(intent)
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -81,10 +121,14 @@ fun HomeScreen(
                 movies = state.movies,
                 series = state.series,
                 catalogs = state.catalogs,
+                continueWatching = state.continueWatching,
                 heroExtras = state.heroExtras,
                 initialScroll = viewModel.getHomeVerticalPosition(),
                 onSaveScroll = viewModel::saveHomeVerticalPosition,
+                getCatalogPosition = viewModel::getCatalogPosition,
+                onSaveCatalogPosition = viewModel::saveCatalogPosition,
                 onMovieClick = onMovieClick,
+                onResume = onResume,
                 onLoadHeroExtras = viewModel::loadHeroExtras
             )
         }
@@ -96,10 +140,14 @@ private fun AppleTvHomeContent(
     movies: List<TmdbMovie>,
     series: List<TmdbMovie>,
     catalogs: List<Catalog>,
+    continueWatching: List<ContinueEntry>,
     heroExtras: Map<Int, HeroExtras>,
     initialScroll: ScrollPosition,
     onSaveScroll: (Int, Int) -> Unit,
+    getCatalogPosition: (String) -> ScrollPosition,
+    onSaveCatalogPosition: (String, Int, Int) -> Unit,
     onMovieClick: (TmdbMovie) -> Unit,
+    onResume: (ContinueEntry) -> Unit,
     onLoadHeroExtras: (TmdbMovie, Boolean) -> Unit
 ) {
     val heroItems = remember(movies, series) {
@@ -134,10 +182,8 @@ private fun AppleTvHomeContent(
         onMovieClick(movie)
     }
 
-    // ✅ FIX: eksplicitna visina ekrana (rešava "pola učitan" hero pri skrolu nazad)
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
 
-    // Paralaksa hero-a
     val firstItem = listState.layoutInfo.visibleItemsInfo.firstOrNull()
     val heroSize = firstItem?.size?.coerceAtLeast(1) ?: 1
     val scrollProgress = (-(firstItem?.offset ?: 0).toFloat() / heroSize).coerceIn(0f, 1f)
@@ -165,9 +211,23 @@ private fun AppleTvHomeContent(
             }
         }
 
+        // ✅ NASTAVI GLEDANJE — pre svih kataloga, samo ako ima stavki
+        if (continueWatching.isNotEmpty()) {
+            item(key = "continue") {
+                ContinueRowSection(
+                    entries = continueWatching,
+                    onResume = onResume
+                )
+            }
+        }
+
         items(catalogs, key = { it.id }) { catalog ->
             CatalogRowSection(
                 catalog = catalog,
+                initialPosition = getCatalogPosition(catalog.id),
+                onSavePosition = { index, offset ->
+                    onSaveCatalogPosition(catalog.id, index, offset)
+                },
                 onMovieClick = openMovie
             )
         }
@@ -179,9 +239,123 @@ private fun AppleTvHomeContent(
 }
 
 /**
- * Hero banner: fanart 100% + clearlogo + žanr/uzrast + opis.
- * ✅ "Gledaj" vodi na STRANICU SA DETALJIMA (onMovieClick).
+ * ✅ "Nastavi gledanje" red — Apple TV+ "Up Next" stil:
+ * landscape kartice sa progress bar-om, naslov + "Nastavi · S1, E17"
  */
+@Composable
+private fun ContinueRowSection(
+    entries: List<ContinueEntry>,
+    onResume: (ContinueEntry) -> Unit
+) {
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val rowAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(600), label = "row-alpha")
+    val rowOffsetY by animateFloatAsState(if (entered) 0f else 80f, tween(600), label = "row-offset")
+
+    Column(
+        modifier = Modifier
+            .graphicsLayer {
+                alpha = rowAlpha
+                translationY = rowOffsetY
+            }
+            .padding(top = 40.dp)
+    ) {
+        Text(
+            text = "Nastavi gledanje",
+            color = Color.White,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
+        )
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
+        ) {
+            items(entries, key = { it.key }) { entry ->
+                ContinueCard(entry = entry, onClick = { onResume(entry) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinueCard(
+    entry: ContinueEntry,
+    onClick: () -> Unit
+) {
+    val fraction = if (entry.durationMs > 0) {
+        (entry.positionMs.toFloat() / entry.durationMs).coerceIn(0f, 1f)
+    } else 0f
+
+    Column(modifier = Modifier.width(240.dp)) {
+        TvFocusableButton(
+            onClick = onClick,
+            modifier = Modifier
+                .width(240.dp)
+                .height(135.dp)
+        ) { focused ->
+            val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(220), label = "")
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .scale(scale)
+                    .clip(CardShape)
+                    .background(SurfaceBackground)
+                    .then(
+                        if (focused) Modifier.border(3.dp, Color.White, CardShape)
+                        else Modifier
+                    )
+            ) {
+                AsyncImage(
+                    model = entry.backdropUrl.ifBlank { entry.posterUrl },
+                    contentDescription = entry.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+
+                // ✅ Progress bar dole (kao na Apple TV+ screenshot-u)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha = 0.3f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = entry.title,
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Text(
+            text = if (entry.isTv) "Nastavi · S${entry.season}, E${entry.episode}"
+            else "Nastavi gledanje",
+            color = TextSecondary,
+            fontSize = 12.sp,
+            maxLines = 1
+        )
+    }
+}
+
 @Composable
 private fun AppleTvHero(
     item: HeroItem,
@@ -197,7 +371,6 @@ private fun AppleTvHero(
 
         Box(modifier = Modifier.fillMaxSize()) {
 
-            // FANART 100% EKRANA + blagi zoom pri skrolu
             AsyncImage(
                 model = "https://image.tmdb.org/t/p/w1280" + movie.displayBackdropUrl(),
                 contentDescription = null,
@@ -239,7 +412,6 @@ private fun AppleTvHero(
                         translationY = scrollProgress * 240f
                     }
             ) {
-                // "Home" pilula gore levo
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -328,7 +500,6 @@ private fun AppleTvHero(
 
                     Spacer(modifier = Modifier.height(26.dp))
 
-                    // ✅ "Gledaj" → STRANICA SA DETALJIMA
                     TvFocusableButton(onClick = { onMovieClick(movie) }) { focused ->
                         val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
                         Row(
@@ -351,7 +522,6 @@ private fun AppleTvHero(
                     }
                 }
 
-                // Tačkice dole na sredini
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -380,18 +550,25 @@ private fun AppleTvHero(
 }
 
 /**
- * Red kataloga sa Apple TV+ "enter" animacijom i poster karticama.
- * ✅ Posteri w185 (manji = brže dekodiranje na slabim TV-ovima).
+ * Red kataloga — ✅ pamti horizontalnu poziciju po katalogu
  */
 @Composable
 private fun CatalogRowSection(
     catalog: Catalog,
+    initialPosition: ScrollPosition,
+    onSavePosition: (Int, Int) -> Unit,
     onMovieClick: (TmdbMovie) -> Unit
 ) {
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
     val rowAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(600), label = "row-alpha")
     val rowOffsetY by animateFloatAsState(if (entered) 0f else 80f, tween(600), label = "row-offset")
+
+    // ✅ LazyRow state sa sačuvanom pozicijom
+    val rowState = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialPosition.index,
+        initialFirstVisibleItemScrollOffset = initialPosition.offset
+    )
 
     Column(
         modifier = Modifier
@@ -410,11 +587,22 @@ private fun CatalogRowSection(
         )
 
         LazyRow(
+            state = rowState,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
         ) {
             items(catalog.items, key = { it.id }) { movie ->
-                PosterCard(movie = movie, onClick = { onMovieClick(movie) })
+                PosterCard(
+                    movie = movie,
+                    onClick = {
+                        // ✅ Sačuvaj poziciju reda pre odlaska na detalje
+                        onSavePosition(
+                            rowState.firstVisibleItemIndex,
+                            rowState.firstVisibleItemScrollOffset
+                        )
+                        onMovieClick(movie)
+                    }
+                )
             }
         }
     }
@@ -445,7 +633,6 @@ private fun PosterCard(
                     )
             ) {
                 AsyncImage(
-                    // ✅ w185 umesto w342 — ~4x manje memorije, brže na slabim uređajima
                     model = "https://image.tmdb.org/t/p/w185" + movie.posterPath,
                     contentDescription = movie.displayTitle,
                     modifier = Modifier.fillMaxSize(),
