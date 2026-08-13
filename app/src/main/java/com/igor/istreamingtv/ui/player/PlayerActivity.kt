@@ -33,8 +33,9 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 /**
- * MOĆNI PLEJER — Media3 ExoPlayer (720p → 4K REMUX), optimizovan za 2GB RAM.
- * TITLOVI: automatski SRPSKI (jedini jezik), sinhronizovani najbolji match.
+ * MOĆNI PLEJER — Media3 ExoPlayer, optimizovan za 2GB RAM.
+ * TITLOVI: automatski SRPSKI, LISTA sinhronizovanih traka
+ * (najbolji match = default, ostale kao rezerva u CC meniju).
  * AUTO-FALLBACK izvora + automatska SLEDEĆA EPIZODA.
  */
 class PlayerActivity : ComponentActivity() {
@@ -45,11 +46,12 @@ class PlayerActivity : ComponentActivity() {
     private val candidateUrls = mutableListOf<String>()
     private var candidateIndex = 0
     private var currentUrl: String? = null
-    private var currentSubtitleUrl: String? = null
+    private var currentSubtitleUrls = mutableListOf<String>()
 
     private var imdbId: String? = null
     private var seasonNumber: Int = -1
     private var episodeNumber: Int = -1
+    private var runtimeSec: Int = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,7 +68,7 @@ class PlayerActivity : ComponentActivity() {
             ?: intent.getStringExtra("series_imdb")
         seasonNumber = intent.getIntExtra("season", -1)
         episodeNumber = intent.getIntExtra("episode", -1)
-        currentSubtitleUrl = intent.getStringExtra("subtitle_url")
+        runtimeSec = intent.getIntExtra("runtime_sec", -1)
 
         val view = PlayerView(this).apply {
             controllerShowTimeoutMs = 4000
@@ -84,20 +86,28 @@ class PlayerActivity : ComponentActivity() {
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-        // Ako titl nije stigao sa detalja → brzi fallback fetch (max 2s), pa start
+        // Ako titlovi nisu stigli sa detalja → fallback fetch + rank (max 2.5s)
         lifecycleScope.launch {
-            if (currentSubtitleUrl == null && !imdbId.isNullOrBlank()) {
+            if (currentSubtitleUrls.isEmpty() && !imdbId.isNullOrBlank()) {
                 val type = if (seasonNumber >= 0) "series" else "movie"
-                currentSubtitleUrl = withTimeoutOrNull(2000) {
+                val fetched = withTimeoutOrNull(2500) {
                     withContext(Dispatchers.IO) {
                         try {
-                            SubtitleFetcher.getBestSerbianSubtitle(
+                            val entries = SubtitleFetcher.getSerbianSubtitles(
                                 type, imdbId!!, seasonNumber, episodeNumber
                             )
+                            val ranked = SubtitleFetcher.rankBySync(
+                                entries, if (runtimeSec > 0) runtimeSec else null
+                            )
+                            ranked.take(5).map { it.url }
                         } catch (_: Exception) {
-                            null
+                            emptyList()
                         }
                     }
+                }
+                if (!fetched.isNullOrEmpty()) {
+                    currentSubtitleUrls.clear()
+                    currentSubtitleUrls.addAll(fetched)
                 }
             }
             withContext(Dispatchers.Main) {
@@ -116,6 +126,22 @@ class PlayerActivity : ComponentActivity() {
             } catch (_: Exception) {
                 // Ignoriši
             }
+        }
+
+        // Lista titlova (novi format)
+        intent.getStringExtra("subtitle_urls")?.let { json ->
+            try {
+                val arr = JsonParser.parseString(json).asJsonArray
+                arr.forEach { el ->
+                    el.takeIf { !it.isJsonNull }?.asString?.let { currentSubtitleUrls.add(it) }
+                }
+            } catch (_: Exception) {
+                // Ignoriši
+            }
+        }
+        // Backward kompatibilnost sa starim singular formatom
+        if (currentSubtitleUrls.isEmpty()) {
+            intent.getStringExtra("subtitle_url")?.let { currentSubtitleUrls.add(it) }
         }
 
         if (candidateUrls.isEmpty()) {
@@ -139,16 +165,16 @@ class PlayerActivity : ComponentActivity() {
     private fun playCandidate(index: Int) {
         candidateIndex = index
         currentUrl = candidateUrls[index]
-        buildPlayer(currentUrl!!, currentSubtitleUrl)
+        buildPlayer(currentUrl!!, currentSubtitleUrls.toList())
     }
 
-    private fun buildPlayer(url: String, subtitleUrl: String?) {
+    private fun buildPlayer(url: String, subtitleUrls: List<String>) {
         val context = this
 
         val renderersFactory = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
 
-        // AUTOMATSKI SRPSKI TITL — jedini jezik koji se bira
+        // AUTOMATSKI SRPSKI TITL — jedini jezik
         val trackSelector = DefaultTrackSelector(context)
         trackSelector.parameters = DefaultTrackSelector.Parameters.Builder(context)
             .setPreferredTextLanguage("sr")
@@ -190,25 +216,24 @@ class PlayerActivity : ComponentActivity() {
         val prefs = getSharedPreferences("player_positions", MODE_PRIVATE)
         val savedPosition = prefs.getLong(url, -1L)
 
-        // MediaItem + srpski titl (ako postoji)
+        // MediaItem + SVI srpski titlovi kao trake (najbolji = default)
         val mediaItemBuilder = MediaItem.Builder().setUri(url)
-        if (!subtitleUrl.isNullOrBlank()) {
-            val mime = when {
-                subtitleUrl.endsWith(".vtt", ignoreCase = true) -> MimeTypes.TEXT_VTT
-                subtitleUrl.endsWith(".ass", ignoreCase = true) ||
-                    subtitleUrl.endsWith(".ssa", ignoreCase = true) -> MimeTypes.TEXT_SSA
-                else -> MimeTypes.APPLICATION_SUBRIP
+        if (subtitleUrls.isNotEmpty()) {
+            val configs = subtitleUrls.mapIndexed { i, subUrl ->
+                val mime = when {
+                    subUrl.endsWith(".vtt", ignoreCase = true) -> MimeTypes.TEXT_VTT
+                    subUrl.endsWith(".ass", ignoreCase = true) ||
+                        subUrl.endsWith(".ssa", ignoreCase = true) -> MimeTypes.TEXT_SSA
+                    else -> MimeTypes.APPLICATION_SUBRIP
+                }
+                MediaItem.SubtitleConfiguration.Builder(Uri.parse(subUrl))
+                    .setMimeType(mime)
+                    .setLanguage("sr")
+                    .setLabel(if (i == 0) "Srpski" else "Srpski ${i + 1}")
+                    .setSelectionFlags(if (i == 0) C.SELECTION_FLAG_DEFAULT else 0)
+                    .build()
             }
-            mediaItemBuilder.setSubtitleConfigurations(
-                listOf(
-                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
-                        .setMimeType(mime)
-                        .setLanguage("sr")
-                        .setLabel("Srpski")
-                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                        .build()
-                )
-            )
+            mediaItemBuilder.setSubtitleConfigurations(configs)
         }
 
         val mediaItem = mediaItemBuilder.build()
@@ -246,7 +271,7 @@ class PlayerActivity : ComponentActivity() {
         playerView?.player = exoPlayer
     }
 
-    /** Kraj epizode → sledeća (E+1) + njen srpski titl */
+    /** Kraj epizode → sledeća (E+1) + njeni srpski titlovi */
     private fun tryNextEpisode() {
         val imdb = imdbId ?: return
         if (seasonNumber < 0 || episodeNumber < 0) return
@@ -257,10 +282,12 @@ class PlayerActivity : ComponentActivity() {
             val urls = candidates.map { it.url }
             if (urls.isEmpty()) return@launch
 
-            val nextSub = try {
-                SubtitleFetcher.getBestSerbianSubtitle("series", imdb, seasonNumber, nextEpisode)
+            val nextSubs = try {
+                SubtitleFetcher.getSerbianSubtitles("series", imdb, seasonNumber, nextEpisode)
+                    .take(5)
+                    .map { it.url }
             } catch (_: Exception) {
-                null
+                emptyList()
             }
 
             withContext(Dispatchers.Main) {
@@ -270,7 +297,8 @@ class PlayerActivity : ComponentActivity() {
                     Toast.LENGTH_SHORT
                 ).show()
                 episodeNumber = nextEpisode
-                currentSubtitleUrl = nextSub
+                currentSubtitleUrls.clear()
+                currentSubtitleUrls.addAll(nextSubs)
                 candidateUrls.clear()
                 candidateUrls.addAll(urls)
                 playCandidate(0)
