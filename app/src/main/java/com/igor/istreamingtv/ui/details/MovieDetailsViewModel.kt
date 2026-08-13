@@ -2,52 +2,46 @@ package com.igor.istreamingtv.ui.details
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.gson.Gson
-import com.google.gson.JsonParser
 import com.igor.istreamingtv.BuildConfig
+import com.igor.istreamingtv.data.remote.StreamPicker
 import com.igor.istreamingtv.data.remote.TmdbEpisode
 import com.igor.istreamingtv.data.remote.TmdbHeroDetails
 import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.data.remote.TmdbSeason
-import com.igor.istreamingtv.data.remote.stremio.StremioStream
+import com.igor.istreamingtv.data.remote.pickImdbId
 import com.igor.istreamingtv.data.repository.ContentRepository
-import com.igor.istreamingtv.data.repository.StreamRepository
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 
 data class DetailsUiState(
     val isLoading: Boolean = true,
     val details: TmdbHeroDetails? = null,
-    val streams: List<StremioStream> = emptyList(),
     val collectionName: String? = null,
     val collectionParts: List<TmdbMovie> = emptyList(),
     val seasons: List<TmdbSeason> = emptyList(),
     val selectedSeasonNumber: Int = 0,
     val episodes: List<TmdbEpisode> = emptyList(),
     val similar: List<TmdbMovie> = emptyList(),
+    // Pametni stream-ovi (pripremljeni u pozadini)
+    val preparingStreams: Boolean = false,
+    val movieCandidates: List<StreamPicker.Candidate> = emptyList(),
+    val episodeCandidates: Map<String, List<StreamPicker.Candidate>> = emptyMap(),
     val error: String? = null
 )
 
 class MovieDetailsViewModel : ViewModel() {
 
     private val tmdbRepository = ContentRepository(BuildConfig.TMDB_API_KEY)
-    private val streamRepository = StreamRepository(BuildConfig.TMDB_API_KEY)
-    private val okHttpClient = OkHttpClient()
-    private val gson = Gson()
 
     private val _uiState = MutableStateFlow(DetailsUiState())
     val uiState: StateFlow<DetailsUiState> = _uiState.asStateFlow()
 
     fun load(movie: TmdbMovie, isTv: Boolean) {
         viewModelScope.launch {
-            _uiState.value = DetailsUiState(isLoading = true)
+            _uiState.value = DetailsUiState(isLoading = true, preparingStreams = true)
             try {
                 val details = if (isTv) {
                     tmdbRepository.getTvHeroDetails(movie.id)
@@ -62,16 +56,6 @@ class MovieDetailsViewModel : ViewModel() {
                     } catch (_: Exception) {
                         emptyList()
                     }
-                }
-
-                val streams = if (!isTv && !details.imdb_id.isNullOrBlank()) {
-                    try {
-                        streamRepository.getStreamsForMovie(details.imdb_id)
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-                } else {
-                    emptyList()
                 }
 
                 var collectionName: String? = null
@@ -102,20 +86,39 @@ class MovieDetailsViewModel : ViewModel() {
                     episodes = fetchEpisodes(movie.id, selectedSeason)
                 }
 
-                _uiState.value = DetailsUiState(
+                _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     details = details,
-                    streams = streams,
                     collectionName = collectionName,
                     collectionParts = collectionParts,
                     seasons = seasons,
                     selectedSeasonNumber = selectedSeason,
-                    episodes = episodes,
-                    similar = similarDeferred.await()
+                    episodes = episodes
                 )
+
+                // similar u pozadini
+                viewModelScope.launch {
+                    val similar = similarDeferred.await()
+                    _uiState.value = _uiState.value.copy(similar = similar)
+                }
+
+                // STREAM-OVI U POZADINI (Apple TV+ iskustvo — bez biranja)
+                val imdb = details.pickImdbId()
+                if (!imdb.isNullOrBlank()) {
+                    if (!isTv) {
+                        prepareMovieStreams(imdb)
+                    } else {
+                        episodes.firstOrNull()?.let { first ->
+                            prepareEpisodeStreams(imdb, first, silent = true)
+                        }
+                    }
+                } else {
+                    _uiState.value = _uiState.value.copy(preparingStreams = false)
+                }
             } catch (e: Exception) {
                 _uiState.value = DetailsUiState(
                     isLoading = false,
+                    preparingStreams = false,
                     error = e.message ?: "Greška pri učitavanju"
                 )
             }
@@ -130,36 +133,51 @@ class MovieDetailsViewModel : ViewModel() {
                 selectedSeasonNumber = seasonNumber,
                 episodes = episodes
             )
+            // Prefetch prve epizode nove sezone
+            val imdb = _uiState.value.details?.pickImdbId() ?: return@launch
+            episodes.firstOrNull()?.let { prepareEpisodeStreams(imdb, it, silent = true) }
         }
     }
 
-    /**
-     * Stream-ovi za EPIZODU serije — Cinemeta addon format:
-     * stream/series/{imdb_id}:{sezona}:{epizoda}.json
-     */
-    suspend fun getEpisodeStreams(imdbId: String, season: Int, episode: Int): List<StremioStream> {
-        return withContext(Dispatchers.IO) {
-            try {
-                val url = "https://v3-cinemeta.strem.io/stream/series/$imdbId:$season:$episode.json"
-                val request = Request.Builder().url(url).get().build()
-                val response = okHttpClient.newCall(request).execute()
-                val body = response.body?.string()
-                response.close()
-                if (body.isNullOrBlank()) return@withContext emptyList()
+    /** Kandidati za epizodu: keš → ili brzi fetch */
+    suspend fun candidatesForEpisode(season: Int, episode: Int): List<StreamPicker.Candidate> {
+        val key = "$season:$episode"
+        _uiState.value.episodeCandidates[key]?.let { return it }
 
-                val obj = JsonParser.parseString(body).asJsonObject
-                val arr = obj.getAsJsonArray("streams") ?: return@withContext emptyList()
+        val imdb = _uiState.value.details?.pickImdbId() ?: return emptyList()
+        val candidates = StreamPicker.getCandidates("series", imdb, season, episode)
+        val prepared = StreamPicker.prepare(candidates)
+        _uiState.value = _uiState.value.copy(
+            episodeCandidates = _uiState.value.episodeCandidates + (key to prepared)
+        )
+        return prepared
+    }
 
-                arr.mapNotNull { element ->
-                    try {
-                        gson.fromJson(element, StremioStream::class.java)
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
-            } catch (_: Exception) {
-                emptyList()
-            }
+    private fun prepareMovieStreams(imdb: String) {
+        viewModelScope.launch {
+            val candidates = StreamPicker.getCandidates("movie", imdb)
+            val prepared = StreamPicker.prepare(candidates)
+            _uiState.value = _uiState.value.copy(
+                preparingStreams = false,
+                movieCandidates = prepared
+            )
+        }
+    }
+
+    private fun prepareEpisodeStreams(imdb: String, episode: TmdbEpisode, silent: Boolean) {
+        viewModelScope.launch {
+            val key = "${episode.season_number}:${episode.episode_number}"
+            if (_uiState.value.episodeCandidates.containsKey(key)) return@launch
+            if (!silent) _uiState.value = _uiState.value.copy(preparingStreams = true)
+
+            val candidates = StreamPicker.getCandidates(
+                "series", imdb, episode.season_number, episode.episode_number
+            )
+            val prepared = StreamPicker.prepare(candidates)
+            _uiState.value = _uiState.value.copy(
+                preparingStreams = false,
+                episodeCandidates = _uiState.value.episodeCandidates + (key to prepared)
+            )
         }
     }
 
