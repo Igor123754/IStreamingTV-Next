@@ -46,7 +46,7 @@ private val TextSecondary = Color(0xB3FFFFFF)
 private val CardShape = RoundedCornerShape(12.dp)
 
 /**
- * Pokreće plejer: kandidati + IMDb + trake titlova SA JEZIKOM (sr/hr).
+ * Pokreće plejer: kandidati + IMDb + trake titlova SA JEZIKOM (sr/hr) + NASLOV.
  */
 private fun startPlayer(
     context: Context,
@@ -55,7 +55,8 @@ private fun startPlayer(
     season: Int = -1,
     episode: Int = -1,
     subtitleTracks: List<SubtitleTrack> = emptyList(),
-    runtimeSeconds: Int = -1
+    runtimeSeconds: Int = -1,
+    title: String? = null
 ) {
     val intent = Intent(context, PlayerActivity::class.java).apply {
         putExtra("candidates", Gson().toJson(candidates.map { it.url }))
@@ -66,6 +67,7 @@ private fun startPlayer(
             putExtra("subtitle_tracks", Gson().toJson(subtitleTracks))
         }
         if (runtimeSeconds > 0) putExtra("runtime_sec", runtimeSeconds)
+        if (!title.isNullOrBlank()) putExtra("title", title)
     }
     context.startActivity(intent)
 }
@@ -99,7 +101,8 @@ fun MovieDetailsScreen(
                     season = episode.season_number,
                     episode = episode.episode_number,
                     subtitleTracks = subs,
-                    runtimeSeconds = (episode.runtime ?: 0) * 60
+                    runtimeSeconds = (episode.runtime ?: 0) * 60,
+                    title = movie.displayTitle
                 )
             } else {
                 Toast.makeText(context, "Nema dostupnih izvora za ovu epizodu", Toast.LENGTH_SHORT).show()
@@ -360,7 +363,8 @@ private fun DetailsHero(
                                     context, movieCandidates,
                                     imdbId = details?.pickImdbId(),
                                     subtitleTracks = movieSubtitleTracks,
-                                    runtimeSeconds = (runtimeMin ?: 0) * 60
+                                    runtimeSeconds = (runtimeMin ?: 0) * 60,
+                                    title = movie.displayTitle
                                 )
 
                             !isTv && preparingStreams ->
@@ -713,7 +717,7 @@ private fun EpisodeCard(
                         .align(Alignment.TopStart)
                         .padding(8.dp)
                         .clip(RoundedCornerShape(6.dp))
-                    .background(Color.Black.copy(alpha = 0.6f))
+                        .background(Color.Black.copy(alpha = 0.6f))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
