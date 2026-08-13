@@ -1,8 +1,11 @@
 package com.igor.istreamingtv.ui.home
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.igor.istreamingtv.BuildConfig
+import com.igor.istreamingtv.data.ContinueEntry
+import com.igor.istreamingtv.data.ContinueWatchingStore
 import com.igor.istreamingtv.data.remote.TmdbHeroDetails
 import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.data.remote.pickCertification
@@ -20,6 +23,7 @@ data class HomeUiState(
     val movies: List<TmdbMovie> = emptyList(),
     val series: List<TmdbMovie> = emptyList(),
     val catalogs: List<Catalog> = emptyList(),
+    val continueWatching: List<ContinueEntry> = emptyList(),
     val heroExtras: Map<Int, HeroExtras> = emptyMap(),
     val error: String? = null
 )
@@ -42,7 +46,7 @@ data class ScrollPosition(
     val offset: Int = 0
 )
 
-class HomeViewModel : ViewModel() {
+class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ContentRepository(BuildConfig.TMDB_API_KEY)
 
@@ -53,7 +57,6 @@ class HomeViewModel : ViewModel() {
     private val catalogPositions = mutableMapOf<String, ScrollPosition>()
 
     companion object {
-        // ✅ Limit naslova po katalogu — manje slika = brže na slabim uređajima
         private const val CATALOG_LIMIT = 10
     }
 
@@ -74,20 +77,20 @@ class HomeViewModel : ViewModel() {
         catalogPositions[catalogId] = ScrollPosition(index = index, offset = offset)
     }
 
-    /**
-     * ✅ OPTIMIZOVANO ZA SLABE UREĐAJE (bez keširanja):
-     * 1) Hero (trending) se učitava PRVO i odmah prikazuje
-     * 2) Katalozi se učitavaju SEKVENCIJALNO (jedan po jedan) i
-     *    dodaju u listu kako stižu — nema dugog čekanja i nema
-     *    CPU spika od 6 paralelnih zahteva → stranica ostaje glatka
-     */
+    /** ✅ Osveži "Nastavi gledanje" listu (poziva se svaki put kad se vratiš na početnu) */
+    fun refreshContinueWatching() {
+        val entries = ContinueWatchingStore.load(getApplication())
+        if (entries != _uiState.value.continueWatching) {
+            _uiState.value = _uiState.value.copy(continueWatching = entries)
+        }
+    }
+
     fun loadContent() {
         if (_uiState.value.movies.isNotEmpty() || _uiState.value.series.isNotEmpty()) return
 
         viewModelScope.launch {
             _uiState.value = HomeUiState(isLoading = true)
             try {
-                // 1) HERO ODMAH — samo 2 paralelna poziva
                 val trendingMovies = async { repository.getTrendingMovies() }
                 val trendingSeries = async { repository.getTrendingSeries() }
 
@@ -97,10 +100,10 @@ class HomeViewModel : ViewModel() {
                 _uiState.value = HomeUiState(
                     isLoading = false,
                     movies = movies,
-                    series = series
+                    series = series,
+                    continueWatching = ContinueWatchingStore.load(getApplication())
                 )
 
-                // 2) KATALOZI SEKVENCIJALNO — dodaju se kako stižu
                 loadCatalog("popular-movies", "Popularni filmovi", false) {
                     repository.getPopularMovies()
                 }
@@ -128,10 +131,6 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    /**
-     * ✅ Pomoćna suspend funkcija — ispravno poziva suspend fetch
-     * i dodaje katalog u state čim stigne (bez keširanja)
-     */
     private suspend fun loadCatalog(
         id: String,
         title: String,
@@ -151,11 +150,10 @@ class HomeViewModel : ViewModel() {
                 )
             }
         } catch (_: Exception) {
-            // Preskoči neuspešan katalog — stranica nastavlja da radi
+            // Preskoči neuspešan katalog
         }
     }
 
-    /** Hero dodaci: clearlogo + srpski opis + uzrast (pozadinski) */
     fun loadHeroExtras(movie: TmdbMovie, isTv: Boolean) {
         if (_uiState.value.heroExtras.containsKey(movie.id)) return
 
@@ -177,7 +175,7 @@ class HomeViewModel : ViewModel() {
                     heroExtras = _uiState.value.heroExtras + (movie.id to extras)
                 )
             } catch (_: Exception) {
-                // Tiho ignoriši — ostaje fallback
+                // Tiho ignoriši
             }
         }
     }
