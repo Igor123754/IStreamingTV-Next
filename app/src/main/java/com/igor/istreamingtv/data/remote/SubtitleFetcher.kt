@@ -14,7 +14,6 @@ import kotlin.math.abs
 
 /**
  * Traka titla SA JEZIKOM — putuje od fetch-ja do player-a.
- * TOP-LEVEL klasa (importuje se direktno iz svih fajlova!)
  */
 data class SubtitleTrack(
     val url: String,
@@ -23,7 +22,13 @@ data class SubtitleTrack(
 
 /**
  * TITLOVI — OpenSubtitles Stremio addon.
- * PRIORITET: srpski > hrvatski, sa AUTO-SINHRONIZACIJOM (duration matching).
+ * PRIORITET: srpski > hrvatski.
+ *
+ * AUTO-SINHRONIZACIJA (pametni ranking, 3 signala):
+ *  1) razlika trajanja titla vs TMDB runtime (otkriva PAL/25fps verzije)
+ *  2) OpenSubtitles relevantnost (pozicija = downloads/rating —
+ *     najskidaniji titl je najčešće sinhronizovan sa najčešćim release-om)
+ *  3) prva replika pre 10 min (kasnija prva replika = pogrešan release/intro)
  */
 object SubtitleFetcher {
 
@@ -44,10 +49,16 @@ object SubtitleFetcher {
         val url: String,
         val language: String,      // "sr" ili "hr"
         val encoding: String?,
-        val order: Int
+        val order: Int             // pozicija u addon odgovoru (OS relevantnost)
     ) {
         val isSerbian: Boolean get() = language == "sr"
     }
+
+    /** Vremena titla: prva replika + ukupno trajanje */
+    private data class Timing(
+        val firstSec: Int,
+        val maxSec: Int
+    )
 
     /** Svi prihvaćeni titlovi: srpski PRVO, pa hrvatski (do 10) */
     suspend fun getAcceptedSubtitles(
@@ -92,38 +103,48 @@ object SubtitleFetcher {
     }
 
     /**
-     * AUTO-SINHRONIZACIJA: rank po trajanju unutar svake jezičke grupe,
+     * AUTO-SINHRONIZACIJA: rank unutar svake jezičke grupe,
      * srpski uvek ispred hrvatskog.
      */
     suspend fun rankBySync(
         entries: List<SubtitleEntry>,
         expectedSeconds: Int?
     ): List<SubtitleEntry> {
-        if (entries.size < 2 || expectedSeconds == null || expectedSeconds <= 0) return entries
+        if (expectedSeconds == null || expectedSeconds <= 0) return entries
 
         val rankedSerbian = rankGroup(entries.filter { it.isSerbian }, expectedSeconds)
         val rankedCroatian = rankGroup(entries.filter { !it.isSerbian }, expectedSeconds)
         return rankedSerbian + rankedCroatian
     }
 
-    /** Konverzija u trake (url + lang) za player */
-    fun toTracks(entries: List<SubtitleEntry>, limit: Int = 6): List<SubtitleTrack> =
-        entries.take(limit).map { SubtitleTrack(it.url, it.language) }
-
+    /**
+     * Pametni score (manje = bolje):
+     *  |trajanje - runtime|  +  pozicija*20 (OS relevantnost)  +  kasna prva replika +300
+     */
     private suspend fun rankGroup(
         group: List<SubtitleEntry>,
         expectedSeconds: Int
     ): List<SubtitleEntry> {
         if (group.size < 2) return group
-        val toCheck = group.take(4)
-        val rest = group.drop(4)
+        val toCheck = group.take(6)
+        val rest = group.drop(6)
 
         return coroutineScope {
-            val scored: List<Pair<SubtitleEntry, Int>> = toCheck.map { entry ->
+            val scored: List<Pair<SubtitleEntry, Int>> = toCheck.mapIndexed { index, entry ->
                 async {
-                    val duration = fetchDurationSeconds(entry.url)
-                    val diff = duration?.let { abs(it - expectedSeconds) } ?: Int.MAX_VALUE
-                    entry to diff
+                    val timing = fetchTiming(entry.url)
+                    val score = if (timing == null) {
+                        // ne može da se pročita → neka ide iza proverenih
+                        Int.MAX_VALUE / 2 + index
+                    } else {
+                        var s = abs(timing.maxSec - expectedSeconds)
+                        // OS relevantnost: svaka pozicija niže = +20s penala
+                        s += index * 20
+                        // prva replika posle 10 min = verovatno pogrešan release
+                        if (timing.firstSec > 600) s += 300
+                        s
+                    }
+                    entry to score
                 }
             }.awaitAll()
 
@@ -131,13 +152,14 @@ object SubtitleFetcher {
         }
     }
 
-    private suspend fun fetchDurationSeconds(url: String): Int? {
+    /** Preuzme titl i vrati (prva replika, max trajanje) u sekundama */
+    private suspend fun fetchTiming(url: String): Timing? {
         return try {
             val request = Request.Builder().url(url).get().build()
             val response = client.newCall(request).execute()
             val text = response.body?.string()
             response.close()
-            if (text.isNullOrBlank()) null else parseMaxSeconds(text)
+            if (text.isNullOrBlank()) null else parseTimings(text)
         } catch (_: Exception) {
             null
         }
@@ -145,7 +167,8 @@ object SubtitleFetcher {
 
     private val TIME_REGEX = Regex("""(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})""")
 
-    private fun parseMaxSeconds(text: String): Int? {
+    private fun parseTimings(text: String): Timing? {
+        var first = -1.0
         var max = -1.0
         var count = 0
         for (m in TIME_REGEX.findAll(text)) {
@@ -154,12 +177,17 @@ object SubtitleFetcher {
             val s = m.groupValues[3].toInt()
             val ms = m.groupValues[4].padEnd(3, '0').toInt()
             val t = h * 3600.0 + mi * 60.0 + s + ms / 1000.0
+            if (first < 0) first = t
             if (t > max) max = t
             count++
             if (count > 5000) break
         }
-        return if (max > 0) max.toInt() else null
+        return if (max > 0 && first >= 0) Timing(first.toInt(), max.toInt()) else null
     }
+
+    /** Konverzija u trake (url + lang) za player */
+    fun toTracks(entries: List<SubtitleEntry>, limit: Int = 6): List<SubtitleTrack> =
+        entries.take(limit).map { SubtitleTrack(it.url, it.language) }
 
     private fun JsonObject.str(key: String): String? =
         get(key)?.takeIf { !it.isJsonNull }?.asString
