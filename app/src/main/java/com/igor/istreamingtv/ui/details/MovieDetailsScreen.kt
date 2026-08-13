@@ -45,20 +45,23 @@ private val TextPrimary = Color.White
 private val TextSecondary = Color(0xB3FFFFFF)
 private val CardShape = RoundedCornerShape(12.dp)
 
+/**
+ * Pokreće plejer: kandidati + IMDb ID + srpski titl (već pripremljen).
+ */
 private fun startPlayer(
     context: Context,
     candidates: List<StreamPicker.Candidate>,
-    seriesImdb: String? = null,
+    imdbId: String? = null,
     season: Int = -1,
-    episode: Int = -1
+    episode: Int = -1,
+    subtitleUrl: String? = null
 ) {
     val intent = Intent(context, PlayerActivity::class.java).apply {
         putExtra("candidates", Gson().toJson(candidates.map { it.url }))
-        if (seriesImdb != null) {
-            putExtra("series_imdb", seriesImdb)
-            putExtra("season", season)
-            putExtra("episode", episode)
-        }
+        if (imdbId != null) putExtra("imdb_id", imdbId)
+        putExtra("season", season)
+        putExtra("episode", episode)
+        if (subtitleUrl != null) putExtra("subtitle_url", subtitleUrl)
     }
     context.startActivity(intent)
 }
@@ -78,16 +81,20 @@ fun MovieDetailsScreen(
 
     val playEpisode: (TmdbEpisode) -> Unit = { episode ->
         scope.launch {
-            val cached = state.episodeCandidates["${episode.season_number}:${episode.episode_number}"]
+            val key = "${episode.season_number}:${episode.episode_number}"
+            val cached = state.episodeCandidates[key]
             val candidates = cached ?: viewModel.candidatesForEpisode(
                 episode.season_number, episode.episode_number
             )
             if (candidates.isNotEmpty()) {
+                val subtitle = state.episodeSubtitleUrls[key]
+                    ?: viewModel.subtitleForEpisode(episode.season_number, episode.episode_number)
                 startPlayer(
                     context, candidates,
-                    seriesImdb = state.details?.pickImdbId(),
+                    imdbId = state.details?.pickImdbId(),
                     season = episode.season_number,
-                    episode = episode.episode_number
+                    episode = episode.episode_number,
+                    subtitleUrl = subtitle
                 )
             } else {
                 Toast.makeText(context, "Nema dostupnih izvora za ovu epizodu", Toast.LENGTH_SHORT).show()
@@ -142,9 +149,9 @@ private fun DetailsScrollContent(
                     details = state.details,
                     isTv = isTv,
                     preparingStreams = state.preparingStreams,
-                    hasMovieCandidates = state.movieCandidates.isNotEmpty(),
-                    firstEpisode = state.episodes.firstOrNull(),
                     movieCandidates = state.movieCandidates,
+                    movieSubtitleUrl = state.movieSubtitleUrl,
+                    firstEpisode = state.episodes.firstOrNull(),
                     onBack = onBack,
                     onPlayEpisode = onPlayEpisode
                 )
@@ -232,9 +239,9 @@ private fun DetailsHero(
     details: TmdbHeroDetails?,
     isTv: Boolean,
     preparingStreams: Boolean,
-    hasMovieCandidates: Boolean,
-    firstEpisode: TmdbEpisode?,
     movieCandidates: List<StreamPicker.Candidate>,
+    movieSubtitleUrl: String?,
+    firstEpisode: TmdbEpisode?,
     onBack: () -> Unit,
     onPlayEpisode: (TmdbEpisode) -> Unit
 ) {
@@ -344,7 +351,11 @@ private fun DetailsHero(
                     TvFocusableButton(onClick = {
                         when {
                             !isTv && movieCandidates.isNotEmpty() ->
-                                startPlayer(context, movieCandidates)
+                                startPlayer(
+                                    context, movieCandidates,
+                                    imdbId = details?.pickImdbId(),
+                                    subtitleUrl = movieSubtitleUrl
+                                )
 
                             !isTv && preparingStreams ->
                                 notice = "Pripremamo najbolji izvor..."
@@ -415,7 +426,7 @@ private fun DetailsHero(
                         fontSize = 15.sp,
                         lineHeight = 22.sp,
                         maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
+                            overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
                 }
