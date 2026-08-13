@@ -19,13 +19,16 @@ import java.util.concurrent.TimeUnit
  */
 object StreamPicker {
 
-    // 🔧🔧🔧 ADDON ZA STRIMOVANJE (HTTPS, bez torenata) 🔧🔧🔧
-    // Zameni ovu adresu svojim addonom — sve ostalo radi automatski.
-    const val ADDON_BASE_URL = "https://v3-cinemeta.strem.io"
+    // 🔧 ADDON ZA STRIMOVANJE — HTTPS direktan (hdhub, konfigurisan:
+    //    qualities=2160p,1080p,720p, sort=desc, bez torenata)
+    //    Ako ikada zameniš addon, menjaš SAMO ovu liniju (bez /manifest.json).
+    const val ADDON_BASE_URL =
+        "https://hdhub.thevolecitor.qzz.io/eyJ0b3Jib3giOiJ1bnNldCIsInF1YWxpdGllcyI6IjIxNjBwLDEwODBwLDcyMHAiLCJzb3J0IjoiZGVzYyIsImNhdGFsb2dzIjoiIn0"
 
+    // Malo duži timeout-i jer addon radi search po izvorima
     private val client = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
