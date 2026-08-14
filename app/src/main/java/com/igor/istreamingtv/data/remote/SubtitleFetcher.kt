@@ -1,36 +1,37 @@
 package com.igor.istreamingtv.data.remote
 
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import com.igor.istreamingtv.data.remote.TmdbClient.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
-/**
- * Traka titla SA JEZIKOM i IZMERENIM TRAJANJEM —
- * player pomoću trajanja bira sinhronizovan titl.
- */
 data class SubtitleTrack(
     val url: String,
-    val lang: String,          // "sr" | "hr"
+    val lang: String,
     val durationSec: Int? = null
 )
 
-/**
- * TITLOVI — OpenSubtitles Stremio addon.
- * PRIORITET: srpski > hrvatski.
- *
- * AUTO-SINHRONIZACIJA (2 nivoa):
- *  1) Pre gledanja: |trajanje titla − TMDB runtime| (grubi ranking)
- *  2) Tokom gledanja: player zna TAČNO trajanje videa i tiho
- *     prebacuje na titl čije izmereno trajanje najbliže
- */
+@Serializable
+private data class SubtitlesResponse(
+    val subtitles: List<SubtitleItem> = emptyList()
+)
+
+@Serializable
+private data class SubtitleItem(
+    val url: String,
+    val lang: String,
+    @SerialName("SubEncoding")
+    val subEncoding: String? = null
+)
+
 object SubtitleFetcher {
 
     const val ADDON_BASE_URL = "https://opensubtitles-v3.strem.io"
@@ -51,7 +52,7 @@ object SubtitleFetcher {
         val language: String,
         val encoding: String?,
         val order: Int,
-        val durationSec: Int? = null   // izmereno trajanje titla
+        val durationSec: Int? = null
     ) {
         val isSerbian: Boolean get() = language == "sr"
     }
@@ -61,7 +62,6 @@ object SubtitleFetcher {
         val maxSec: Int
     )
 
-    /** Svi prihvaćeni titlovi: srpski PRVO, pa hrvatski (do 10) */
     suspend fun getAcceptedSubtitles(
         type: String,
         imdbId: String,
@@ -79,22 +79,20 @@ object SubtitleFetcher {
             response.close()
             if (body.isNullOrBlank()) return@withContext emptyList<SubtitleEntry>()
 
-            val obj = JsonParser.parseString(body).asJsonObject
-            val arr = obj.getAsJsonArray("subtitles") ?: return@withContext emptyList<SubtitleEntry>()
+            // ✅ Type-safe parsing sa kotlinx.serialization
+            val parsed = json.decodeFromString<SubtitlesResponse>(body)
 
             val serbian = mutableListOf<SubtitleEntry>()
             val croatian = mutableListOf<SubtitleEntry>()
             var idx = 0
 
-            arr.forEach { el ->
-                val o = el.asJsonObject
-                val url = o.str("url") ?: return@forEach
-                val langRaw = (o.str("lang") ?: "").lowercase()
+            parsed.subtitles.forEach { item ->
+                val langRaw = item.lang.lowercase()
                 if (langRaw !in acceptedCodes) return@forEach
-                if (url.endsWith(".sub", ignoreCase = true)) return@forEach
+                if (item.url.endsWith(".sub", ignoreCase = true)) return@forEach
 
                 val code = if (langRaw in serbianCodes) "sr" else "hr"
-                val entry = SubtitleEntry(url, code, o.str("SubEncoding"), idx++)
+                val entry = SubtitleEntry(item.url, code, item.subEncoding, idx++)
                 if (code == "sr") serbian.add(entry) else croatian.add(entry)
             }
             (serbian + croatian).take(10)
@@ -103,7 +101,6 @@ object SubtitleFetcher {
         }
     }
 
-    /** Grubi ranking pre gledanja (TMDB runtime u minutima) */
     suspend fun rankBySync(
         entries: List<SubtitleEntry>,
         expectedSeconds: Int?
@@ -131,9 +128,9 @@ object SubtitleFetcher {
                     val score = if (timing == null) {
                         Int.MAX_VALUE / 2 + index
                     } else {
-                        var s = abs(timing.maxSec - expectedSeconds)   // GLAVNI signal
-                        s += index * 5                                 // tie-breaker
-                        if (timing.firstSec > 600) s += 300            // pogrešan release
+                        var s = abs(timing.maxSec - expectedSeconds)
+                        s += index * 5
+                        if (timing.firstSec > 600) s += 300
                         s
                     }
                     withDuration to score
@@ -144,7 +141,6 @@ object SubtitleFetcher {
         }
     }
 
-    /** Preuzme titl i vrati (prva replika, max trajanje) u sekundama */
     private suspend fun fetchTiming(url: String): Timing? {
         return try {
             val request = Request.Builder().url(url).get().build()
@@ -177,10 +173,6 @@ object SubtitleFetcher {
         return if (max > 0 && first >= 0) Timing(first.toInt(), max.toInt()) else null
     }
 
-    /** Konverzija u trake (url + lang + trajanje) za player */
     fun toTracks(entries: List<SubtitleEntry>, limit: Int = 6): List<SubtitleTrack> =
         entries.take(limit).map { SubtitleTrack(it.url, it.language, it.durationSec) }
-
-    private fun JsonObject.str(key: String): String? =
-        get(key)?.takeIf { !it.isJsonNull }?.asString
 }
