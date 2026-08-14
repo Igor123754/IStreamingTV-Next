@@ -1,202 +1,272 @@
 package com.igor.istreamingtv.data.remote
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class MovieResponse(
     val results: List<TmdbMovie>,
-    val page: Int,
-    val total_pages: Int
+    val page: Int = 0,
+    @SerialName("total_pages")
+    val totalPages: Int = 0
 )
 
+@Serializable
 data class TmdbMovie(
     val id: Int,
-    val title: String?,
-    val name: String?,
-    val original_title: String?,
-    val original_name: String?,
-    val overview: String?,
-    val poster_path: String?,
-    val backdrop_path: String?,
-    val release_date: String?,
-    val vote_average: Double,
-    val genre_ids: List<Int>?
+    val title: String? = null,
+    val name: String? = null,
+    @SerialName("original_title")
+    val originalTitle: String? = null,
+    @SerialName("original_name")
+    val originalName: String? = null,
+    val overview: String? = null,
+    @SerialName("poster_path")
+    val posterPath: String? = null,
+    @SerialName("backdrop_path")
+    val backdropPath: String? = null,
+    @SerialName("release_date")
+    val releaseDate: String? = null,
+    @SerialName("vote_average")
+    val voteAverage: Double = 0.0,
+    @SerialName("genre_ids")
+    val genreIds: List<Int>? = null
 )
 
 val TmdbMovie.displayTitle: String
     get() = title?.takeIf { it.isNotBlank() }
         ?: name?.takeIf { it.isNotBlank() }
-        ?: original_title
-        ?: original_name
+        ?: originalTitle
+        ?: originalName
         ?: ""
 
 val TmdbMovie.displayOverview: String get() = overview ?: ""
-val TmdbMovie.displayDate: String get() = release_date ?: ""
-val TmdbMovie.posterPath: String? get() = poster_path
-val TmdbMovie.backdropPath: String? get() = backdrop_path
+val TmdbMovie.displayDate: String get() = releaseDate ?: ""
 
+@Serializable
 data class TmdbMovieDetails(
     val id: Int,
     val title: String,
     val overview: String,
-    val poster_path: String?,
-    val backdrop_path: String?,
-    val release_date: String?,
-    val vote_average: Double,
-    val genres: List<Genre>,
-    val imdb_id: String?,
-    val runtime: Int?,
-    val tagline: String?
+    @SerialName("poster_path")
+    val posterPath: String? = null,
+    @SerialName("backdrop_path")
+    val backdropPath: String? = null,
+    @SerialName("release_date")
+    val releaseDate: String? = null,
+    @SerialName("vote_average")
+    val voteAverage: Double = 0.0,
+    val genres: List<Genre> = emptyList(),
+    @SerialName("imdb_id")
+    val imdbId: String? = null,
+    val runtime: Int? = null,
+    val tagline: String? = null
 )
 
+@Serializable
 data class Genre(
     val id: Int,
     val name: String
 )
 
 // ===== HERO / DETALJI =====
-
+@Serializable
 data class TmdbHeroDetails(
-    val id: Int = 0,
+    val valid: Int = 0,
     val title: String? = null,
     val name: String? = null,
     val overview: String? = null,
-    val backdrop_path: String? = null,
-    val poster_path: String? = null,
-    val release_date: String? = null,
-    val first_air_date: String? = null,
+    @SerialName("backdrop_path")
+    val backdropPath: String? = null,
+    @SerialName("poster_path")
+    val posterPath: String? = null,
+    @SerialName("release_date")
+    val releaseDate: String? = null,
+    @SerialName("first_air_date")
+    val firstAirDate: String? = null,
     val runtime: Int? = null,
-    val episode_run_time: List<Int>? = null,
+    @SerialName("episode_run_time")
+    val episodeRunTime: List<Int>? = null,
     val genres: List<Genre>? = null,
-    val imdb_id: String? = null,
-    val external_ids: TmdbExternalIds? = null,
-    val belongs_to_collection: TmdbCollection? = null,
+    @SerialName("imdb_id")
+    val imdbId: String? = null,
+    @SerialName("external_ids")
+    val externalIds: TmdbExternalIds? = null,
+    @SerialName("belongs_to_collection")
+    val belongsToCollection: TmdbCollection? = null,
     val seasons: List<TmdbSeason>? = null,
     val images: TmdbImages? = null,
     val translations: TmdbTranslations? = null,
-    val release_dates: TmdbReleaseDates? = null,
-    val content_ratings: TmdbContentRatings? = null,
+    @SerialName("release_dates")
+    val releaseDates: TmdbReleaseDates? = null,
+    @SerialName("content_ratings")
+    val contentRatings: TmdbContentRatings? = null,
     val credits: TmdbCredits? = null
 )
 
-// Serije nemaju imdb_id na vrhu — nalazi se u external_ids
+@Serializable
 data class TmdbExternalIds(
-    val imdb_id: String? = null
+    @SerialName("imdb_id")
+    val imdbId: String? = null
 )
 
-// ===== KOLEKCIJE (nastavci) =====
-
+@Serializable
 data class TmdbCollection(
-    val id: Int = 0,
+    val valid: Int = 0,
     val name: String? = null,
-    val poster_path: String? = null
+    @SerialName("poster_path")
+    val posterPath: String? = null
 )
 
+@Serializable
 data class TmdbCollectionDetails(
-    val id: Int = 0,
+    val valid: Int = 0,
     val name: String? = null,
     val parts: List<TmdbMovie> = emptyList()
 )
 
-// ===== SEZONE I EPIZODE =====
-
+@Serializable
 data class TmdbSeason(
-    val id: Int = 0,
-    val season_number: Int = 0,
+    val valid: Int = 0,
+    @SerialName("season_number")
+    val seasonNumber: Int = 0,
     val name: String? = null,
-    val poster_path: String? = null,
-    val episode_count: Int = 0,
-    val air_date: String? = null
+    @SerialName("poster_path")
+    val posterPath: String? = null,
+    @SerialName("episode_count")
+    val episodeCount: Int = 0,
+    @SerialName("air_date")
+    val airDate: String? = null
 )
 
+@Serializable
 data class TmdbEpisode(
-    val id: Int = 0,
+    val valid: Int = 0,
     val name: String? = null,
     val overview: String? = null,
-    val episode_number: Int = 0,
-    val season_number: Int = 0,
-    val still_path: String? = null,
-    val vote_average: Double = 0.0,
-    val air_date: String? = null,
+    @SerialName("episode_number")
+    val episodeNumber: Int = 0,
+    @SerialName("season_number")
+    val seasonNumber: Int = 0,
+    @SerialName("still_path")
+    val stillPath: String? = null,
+    @SerialName("vote_average")
+    val voteAverage: Double = 0.0,
+    @SerialName("air_date")
+    val airDate: String? = null,
     val runtime: Int? = null
 )
 
+@Serializable
 data class TmdbSeasonDetails(
-    val id: Int = 0,
+    val valid: Int = 0,
     val name: String? = null,
     val episodes: List<TmdbEpisode> = emptyList()
 )
 
-// ===== OSTALO =====
+@Serializable
+data class TmdbCredits(
+    val cast: List<TmdbCast> = emptyList()
+)
 
-data class TmdbCredits(val cast: List<TmdbCast> = emptyList())
-
+@Serializable
 data class TmdbCast(
     val name: String? = null,
     val character: String? = null
 )
 
-data class TmdbImages(val logos: List<TmdbLogo> = emptyList())
-
-data class TmdbLogo(
-    val file_path: String?,
-    val iso_639_1: String?,
-    val vote_count: Int = 0
+@Serializable
+data class TmdbImages(
+    val logos: List<TmdbLogo> = emptyList()
 )
 
-data class TmdbTranslations(val translations: List<TmdbTranslation> = emptyList())
+@Serializable
+data class TmdbLogo(
+    @SerialName("file_path")
+    val filePath: String? = null,
+    @SerialName("iso_639_1")
+    val iso6391: String? = null,
+    @SerialName("vote_count")
+    val voteCount: Int = 0
+)
 
+@Serializable
+data class TmdbTranslations(
+    val translations: List<TmdbTranslation> = emptyList()
+)
+
+@Serializable
 data class TmdbTranslation(
-    val iso_639_1: String? = null,
+    @SerialName("iso_639_1")
+    val iso6391: String? = null,
     val data: TmdbTranslationData? = null
 )
 
+@Serializable
 data class TmdbTranslationData(
     val title: String? = null,
     val name: String? = null,
     val overview: String? = null
 )
 
-data class TmdbReleaseDates(val results: List<TmdbReleaseCountry> = emptyList())
-
-data class TmdbReleaseCountry(
-    val iso_3166_1: String? = null,
-    val release_dates: List<TmdbReleaseDate> = emptyList()
+@Serializable
+data class TmdbReleaseDates(
+    val results: List<TmdbReleaseCountry> = emptyList()
 )
 
-data class TmdbReleaseDate(val certification: String? = null)
+@Serializable
+data class TmdbReleaseCountry(
+    @SerialName("iso_3166_1")
+    val iso31661: String? = null,
+    @SerialName("release_dates")
+    val releaseDates: List<TmdbReleaseDate> = emptyList()
+)
 
-data class TmdbContentRatings(val results: List<TmdbContentRatingCountry> = emptyList())
+@Serializable
+data class TmdbReleaseDate(
+    val certification: String? = null
+)
 
+@Serializable
+data class TmdbContentRatings(
+    val results: List<TmdbContentRatingCountry> = emptyList()
+)
+
+@Serializable
 data class TmdbContentRatingCountry(
-    val iso_3166_1: String? = null,
+    @SerialName("iso_3166_1")
+    val iso31661: String? = null,
     val rating: String? = null
 )
 
 fun TmdbHeroDetails.pickClearLogoUrl(): String? {
-    val all = images?.logos?.filter { !it.file_path.isNullOrBlank() } ?: return null
-    val pool = all.filter { it.file_path!!.endsWith(".png") }.ifEmpty { all }
-    val pick = pool.firstOrNull { it.iso_639_1 == "sr" }
-        ?: pool.firstOrNull { it.iso_639_1 == null }
-        ?: pool.firstOrNull { it.iso_639_1 == "en" }
-        ?: pool.maxByOrNull { it.vote_count }
-    return pick?.file_path?.let { "https://image.tmdb.org/t/p/w500$it" }
+    val all = images?.logos?.filter { !it.filePath.isNullOrBlank() } ?: return null
+    val pool = all.filter { it.filePath!!.endsWith(".png") }.ifEmpty { all }
+    val pick = pool.firstOrNull { it.iso6391 == "sr" }
+        ?: pool.firstOrNull { it.iso6391 == null }
+        ?: pool.firstOrNull { it.iso6391 == "en" }
+        ?: pool.maxByOrNull { it.voteCount }
+    return pick?.filePath?.let { "https://image.tmdb.org/t/p/w500$it" }
 }
 
 fun TmdbHeroDetails.pickSerbianOverview(): String? {
-    val sr = translations?.translations?.firstOrNull { it.iso_639_1 == "sr" }?.data
+    val sr = translations?.translations?.firstOrNull { it.iso6391 == "sr" }?.data
     return sr?.overview?.takeIf { it.isNotBlank() }
 }
 
 fun TmdbHeroDetails.pickCertification(): String? {
-    val movieCert = release_dates?.results
-        ?.firstOrNull { it.iso_3166_1 == "US" }
-        ?.release_dates
+    val movieCert = releaseDates?.results
+        ?.firstOrNull { it.iso31661 == "US" }
+        ?.releaseDates
         ?.firstNotNullOfOrNull { it.certification?.takeIf { c -> c.isNotBlank() } }
-    val tvCert = content_ratings?.results
-        ?.firstOrNull { it.iso_3166_1 == "US" }
+
+    val tvCert = contentRatings?.results
+        ?.firstOrNull { it.iso31661 == "US" }
         ?.rating
         ?.takeIf { it.isNotBlank() }
+
     return movieCert ?: tvCert
 }
 
-// IMDb ID: filmovi ga imaju na vrhu, serije u external_ids
 fun TmdbHeroDetails.pickImdbId(): String? =
-    imdb_id ?: external_ids?.imdb_id
+    imdbId ?: externalIds?.imdbId
