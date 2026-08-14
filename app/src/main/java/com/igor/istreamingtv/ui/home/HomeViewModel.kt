@@ -1,11 +1,11 @@
 package com.igor.istreamingtv.ui.home
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.igor.istreamingtv.BuildConfig
 import com.igor.istreamingtv.data.ContinueEntry
 import com.igor.istreamingtv.data.ContinueWatchingStore
-import com.igor.istreamingtv.data.remote.TmdbHeroDetails
 import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.data.remote.pickCertification
 import com.igor.istreamingtv.data.remote.pickClearLogoUrl
@@ -41,7 +41,7 @@ data class HomeUiState(
     val error: String? = null
 )
 
-class HomeViewModel : ViewModel() {
+class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ContentRepository(BuildConfig.TMDB_API_KEY)
 
@@ -58,6 +58,7 @@ class HomeViewModel : ViewModel() {
 
     fun getCatalogPosition(catalogId: String): ScrollPosition =
         catalogPositions[catalogId] ?: ScrollPosition(0, 0)
+
     fun saveCatalogPosition(catalogId: String, index: Int, offset: Int) {
         catalogPositions[catalogId] = ScrollPosition(index, offset)
     }
@@ -66,37 +67,41 @@ class HomeViewModel : ViewModel() {
         loadContent()
     }
 
+    fun refreshContinueWatching() {
+        val entries = ContinueWatchingStore.load(getApplication())
+        if (entries != _uiState.value.continueWatching) {
+            _uiState.value = _uiState.value.copy(continueWatching = entries)
+        }
+    }
+
+    // ✅ Cinemeta katalogi — paralelno, brzo
     fun loadContent() {
         viewModelScope.launch {
-            _uiState.value = HomeUiState(isLoading = true)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
-                // ✅ PARALELNO učitavanje (Cinemeta za kataloge)
-                val moviesDeferred = async { repository.getCinemetaCatalog("movie", "top") }
-                val seriesDeferred = async { repository.getCinemetaCatalog("series", "top") }
-                val trendingMoviesDeferred = async { repository.getCinemetaCatalog("movie", "popular") }
-                val trendingSeriesDeferred = async { repository.getCinemetaCatalog("series", "popular") }
+                val topMovies = async { repository.getCinemetaCatalog("movie", "top") }
+                val topSeries = async { repository.getCinemetaCatalog("series", "top") }
+                val popMovies = async { repository.getCinemetaCatalog("movie", "popular") }
+                val popSeries = async { repository.getCinemetaCatalog("series", "popular") }
 
-                val movies = moviesDeferred.await()
-                val series = seriesDeferred.await()
-                val trendingMovies = trendingMoviesDeferred.await()
-                val trendingSeries = trendingSeriesDeferred.await()
+                val movies = topMovies.await()
+                val series = topSeries.await()
 
-                // ✅ Katalozi sa Cinemeta (brži od TMDB-a)
                 val catalogs = listOf(
-                    Catalog("trending-movies", "U trendu — filmovi", trendingMovies.take(15)),
-                    Catalog("trending-series", "U trendu — serije", trendingSeries.take(15)),
-                    Catalog("popular-movies", "Popularni filmovi", movies.take(15)),
-                    Catalog("popular-series", "Popularne serije", series.take(15))
+                    Catalog("top-movies", "Popularni filmovi", movies.take(15)),
+                    Catalog("top-series", "Popularne serije", series.take(15)),
+                    Catalog("popular-movies", "Trending filmovi", popMovies.await().take(15)),
+                    Catalog("popular-series", "Trending serije", popSeries.await().take(15))
                 ).filter { it.items.isNotEmpty() }
 
-                _uiState.value = HomeUiState(
+                _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     movies = movies,
                     series = series,
                     catalogs = catalogs
                 )
             } catch (e: Exception) {
-                _uiState.value = HomeUiState(
+                _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = e.message ?: "Greška pri učitavanju"
                 )
@@ -104,30 +109,26 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    fun refreshContinueWatching() {
-        // Placeholder — implementiraće se kad bude bilo potrebno
-    }
-
     fun loadHeroExtras(movie: TmdbMovie, isTv: Boolean) {
+        if (_uiState.value.heroExtras.containsKey(movie.id) && movie.id != 0) return
         viewModelScope.launch {
             try {
-                val details = if (isTv) {
-                    repository.getTvHeroDetails(movie.id)
-                } else {
-                    repository.getMovieHeroDetails(movie.id)
+                var tmdbId = movie.id
+                if (tmdbId <= 0 && !movie.imdbId.isNullOrBlank()) {
+                    tmdbId = repository.resolveTmdbId(movie.imdbId, isTv) ?: return@launch
                 }
+                val details = if (isTv) repository.getTvHeroDetails(tmdbId)
+                else repository.getMovieHeroDetails(tmdbId)
 
                 val extras = HeroExtras(
                     clearLogoUrl = details.pickClearLogoUrl(),
                     overview = details.pickSerbianOverview() ?: details.overview,
                     certification = details.pickCertification()
                 )
-
                 _uiState.value = _uiState.value.copy(
                     heroExtras = _uiState.value.heroExtras + (movie.id to extras)
                 )
             } catch (_: Exception) {
-                // Ignoriši greške u hero extras
             }
         }
     }
