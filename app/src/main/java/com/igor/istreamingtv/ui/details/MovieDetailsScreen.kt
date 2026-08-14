@@ -34,11 +34,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.google.gson.Gson
 import com.igor.istreamingtv.data.remote.*
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.player.PlayerActivity
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString   // ✅ FIX — reified encodeToString za Json
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -195,8 +195,6 @@ private fun DetailsScrollContent(
                     movieSubtitleTracks = state.movieSubtitleTracks,
                     firstEpisode = state.episodes.firstOrNull(),
                     scrollProgressState = scrollProgressState,
-                    // ✅ FIX: kad fokus uđe u hero (TV strelice gore) →
-                    //    animiraj skrol na VRH da se vidi CEO hero banner
                     onHeroGainedFocus = {
                         if (listState.firstVisibleItemIndex != 0 ||
                             listState.firstVisibleItemScrollOffset != 0
@@ -320,7 +318,6 @@ private fun DetailsHero(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            // ✅ Kad bilo koje dugme u hero-u dobije fokus → okini scroll na vrh
             .onFocusChanged { if (it.hasFocus) onHeroGainedFocus() }
     ) {
 
