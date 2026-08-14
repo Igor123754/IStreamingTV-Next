@@ -1,7 +1,9 @@
 package com.igor.istreamingtv.data.remote.stremio
 
+import com.igor.istreamingtv.data.remote.TmdbClient
+import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import okhttp3.MediaType.Companion.toMediaType
 import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 
 data class StremioAddon(
     val name: String,
@@ -25,14 +27,14 @@ class AddonManager {
 
     suspend fun getAllStreams(type: String, imdbId: String): List<StremioStream> {
         val allStreams = mutableListOf<StremioStream>()
+        val contentType = "application/json".toMediaType()
 
         for (addon in addons) {
             try {
                 val retrofit = Retrofit.Builder()
                     .baseUrl(addon.baseUrl)
-                    .addConverterFactory(GsonConverterFactory.create())
+                    .addConverterFactory(TmdbClient.json.asConverterFactory(contentType))
                     .build()
-
                 val api = retrofit.create(StremioApi::class.java)
                 val response = api.getStreams(type, imdbId)
                 allStreams.addAll(response.streams)
@@ -40,7 +42,6 @@ class AddonManager {
                 e.printStackTrace()
             }
         }
-
         return allStreams
     }
 
