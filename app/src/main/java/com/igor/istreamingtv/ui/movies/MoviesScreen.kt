@@ -24,7 +24,6 @@ import coil.compose.AsyncImage
 import com.igor.istreamingtv.BuildConfig
 import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.data.remote.displayTitle
-import com.igor.istreamingtv.data.remote.posterPath
 import com.igor.istreamingtv.data.repository.ContentRepository
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import kotlinx.coroutines.launch
@@ -156,6 +155,7 @@ private fun MoviePosterCard(
                     )
             ) {
                 AsyncImage(
+                    // ✅ posterPath je sada MEMBER property — bez importa
                     model = "https://image.tmdb.org/t/p/w185" + movie.posterPath,
                     contentDescription = movie.displayTitle,
                     modifier = Modifier.fillMaxSize(),
