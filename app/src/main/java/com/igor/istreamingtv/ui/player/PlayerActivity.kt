@@ -108,7 +108,11 @@ class PlayerActivity : ComponentActivity() {
     internal var introStartMs: Long = -1
     internal var introEndMs: Long = -1
 
+    // ✅ Stanje panela — Activity ga kontroliše (radi 100% na TV-u)
     internal var menuKind by mutableStateOf(TrackMenuKind.NONE)
+    internal var panelOptions by mutableStateOf<List<String>>(emptyList())
+    internal var panelSelected by mutableStateOf(0)
+    internal var panelOnSelect: ((Int) -> Unit)? = null
 
     private val candidateUrls = mutableListOf<String>()
     private var candidateIndex = 0
@@ -186,16 +190,30 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    /** ✅ PANEL: tastere hvatam OVDE (pre svih view-ova) → radi na svim TV-ovima */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if ((event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_ESCAPE) &&
-            event.action == KeyEvent.ACTION_DOWN
-        ) {
-            if (menuKind != TrackMenuKind.NONE) {
-                menuKind = TrackMenuKind.NONE
-                return true
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                    if (menuKind != TrackMenuKind.NONE) { menuKind = TrackMenuKind.NONE; return true }
+                    finish(); return true
+                }
             }
-            finish()
-            return true
+            if (menuKind != TrackMenuKind.NONE) {
+                if (panelOptions.isEmpty()) return true
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_UP -> {
+                        panelSelected = (panelSelected - 1).coerceAtLeast(0); return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        panelSelected = (panelSelected + 1).coerceAtMost(panelOptions.size - 1); return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                        panelOnSelect?.invoke(panelSelected); return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> return true
+                }
+            }
         }
         return super.dispatchKeyEvent(event)
     }
@@ -205,6 +223,7 @@ class PlayerActivity : ComponentActivity() {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE -> { togglePlayInternal(); return true }
+            // Stiže samo kad nijedan fokusiran čvor nije pojeo (panel zatvoren)
             KeyEvent.KEYCODE_DPAD_CENTER -> {
                 if (menuKind == TrackMenuKind.NONE) { togglePlayInternal(); return true }
             }
@@ -215,6 +234,17 @@ class PlayerActivity : ComponentActivity() {
     internal fun togglePlayInternal() {
         val p = player ?: return
         if (p.isPlaying) p.pause() else p.play()
+    }
+
+    /** ✅ Otvori panel i napuni opcije + trenutni izbor */
+    internal fun openPanel(kind: TrackMenuKind) {
+        val p = player ?: return
+        val type = if (kind == TrackMenuKind.SUBTITLES) C.TRACK_TYPE_TEXT else C.TRACK_TYPE_AUDIO
+        val (labels, sel) = buildPanelData(p, type)
+        if (labels.isEmpty()) return
+        panelOptions = labels
+        panelSelected = sel
+        menuKind = kind
     }
 
     @Serializable private data class IntroResponse(val start: Double = 0.0, val end: Double = 0.0)
@@ -434,8 +464,8 @@ private fun collectOptions(player: Player, type: Int): List<TrackOption> {
     return list
 }
 
-private fun selectOption(player: Player, groups: List<Tracks.Group>, o: TrackOption) {
-    val g = groups.getOrNull(o.groupIndex) ?: return
+private fun selectOption(player: Player, o: TrackOption) {
+    val g = player.currentTracks.groups.getOrNull(o.groupIndex) ?: return
     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
         .setTrackTypeDisabled(o.type, false).clearOverridesOfType(o.type)
         .addOverride(TrackSelectionOverride(g.mediaTrackGroup, listOf(o.trackIndex))).build()
@@ -446,14 +476,13 @@ private fun disableSubtitles(player: Player) {
         .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
 }
 
-private fun buildPanelData(player: Player?, type: Int): Pair<List<String>, Int> {
-    val p = player ?: return emptyList<String>() to 0
+private fun buildPanelData(player: Player, type: Int): Pair<List<String>, Int> {
     val labels = mutableListOf<String>()
     var sel = 0
-    val disabled = p.trackSelectionParameters.disabledTrackTypes.contains(type)
+    val disabled = player.trackSelectionParameters.disabledTrackTypes.contains(type)
     if (type == C.TRACK_TYPE_TEXT) { labels.add("Isključeno"); if (disabled) sel = 0 }
     var idx = if (type == C.TRACK_TYPE_TEXT) 1 else 0
-    p.currentTracks.groups.forEach { g ->
+    player.currentTracks.groups.forEach { g ->
         if (g.type == type) for (i in 0 until g.length) {
             val f = g.getTrackFormat(i)
             labels.add(f.label ?: audioLanguageName(f.language))
@@ -500,34 +529,21 @@ private fun AudioIcon(modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * ✅ DRUGA RAVAN — panel je SAMO vizuelan + click za touch.
+ * Tastere (↑/↓/OK/BACK) hvata Activity.dispatchKeyEvent → 100% radi na TV-u.
+ */
 @Composable
-private fun SettingsPanel(
-    title: String,
-    options: List<String>,
-    initialSelected: Int,
-    onSelect: (Int) -> Unit,
-    onClose: () -> Unit
-) {
-    var selected by remember { mutableIntStateOf(initialSelected.coerceIn(0, (options.size - 1).coerceAtLeast(0))) }
-    val panelFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { try { panelFocus.requestFocus() } catch (_: Exception) {} }
+private fun SettingsPanel(activity: PlayerActivity) {
+    val title = if (activity.menuKind == TrackMenuKind.SUBTITLES) "Titlovi" else "Audio"
+    val options = activity.panelOptions
+    val selected = activity.panelSelected
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.55f))
-            .focusRequester(panelFocus)
-            .focusable()
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (event.key) {
-                    Key.DirectionUp -> { selected = (selected - 1).coerceAtLeast(0); true }
-                    Key.DirectionDown -> { selected = (selected + 1).coerceAtMost(options.size - 1); true }
-                    Key.DirectionCenter -> { onSelect(selected); true }
-                    Key.Back -> { onClose(); true }
-                    else -> false
-                }
-            }
+            .clickable { activity.menuKind = TrackMenuKind.NONE }
     ) {
         Column(
             modifier = Modifier
@@ -536,6 +552,7 @@ private fun SettingsPanel(
                 .width(340.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(Color(0xFF1C1C1E).copy(alpha = 0.96f))
+                .clickable(onClick = {}) // upija tapove unutar panela
                 .padding(24.dp)
         ) {
             Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -547,6 +564,7 @@ private fun SettingsPanel(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (isSel) Color.White.copy(alpha = 0.22f) else Color.Transparent)
+                        .clickable { activity.panelOnSelect?.invoke(i) }
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -649,7 +667,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     val audioFocus = remember { FocusRequester() }
 
     val menuKind = activity.menuKind
-    val groups = activity.player?.currentTracks?.groups ?: emptyList()
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -729,7 +746,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             )
         })
 
-        // ✅ FIX: imenovani argumenti za CircularProgressIndicator
         if (isBuffering) {
             CircularProgressIndicator(
                 color = Color.White,
@@ -808,13 +824,32 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
 
                         CircleControlButton(
                             focusRequester = ccFocus,
-                            onActivate = { interact(); activity.menuKind = TrackMenuKind.SUBTITLES },
+                            onActivate = {
+                                interact()
+                                activity.panelOnSelect = { i ->
+                                    val p = activity.player
+                                    if (p != null) {
+                                        if (i == 0) disableSubtitles(p)
+                                        else collectOptions(p, C.TRACK_TYPE_TEXT).getOrNull(i - 1)?.let { selectOption(p, it) }
+                                    }
+                                    activity.menuKind = TrackMenuKind.NONE
+                                }
+                                activity.openPanel(TrackMenuKind.SUBTITLES)
+                            },
                             onNavigateUp = { try { seekFocus.requestFocus() } catch (_: Exception) {} }
                         ) { SubtitlesIcon(Modifier.size(22.dp)) }
 
                         CircleControlButton(
                             focusRequester = audioFocus,
-                            onActivate = { interact(); activity.menuKind = TrackMenuKind.AUDIO },
+                            onActivate = {
+                                interact()
+                                activity.panelOnSelect = { i ->
+                                    val p = activity.player
+                                    if (p != null) collectOptions(p, C.TRACK_TYPE_AUDIO).getOrNull(i)?.let { selectOption(p, it) }
+                                    activity.menuKind = TrackMenuKind.NONE
+                                }
+                                activity.openPanel(TrackMenuKind.AUDIO)
+                            },
                             onNavigateUp = { try { seekFocus.requestFocus() } catch (_: Exception) {} }
                         ) { AudioIcon(Modifier.size(22.dp)) }
                     }
@@ -828,32 +863,9 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             }
         }
 
-        if (menuKind == TrackMenuKind.SUBTITLES) {
-            val (labels, sel) = buildPanelData(activity.player, C.TRACK_TYPE_TEXT)
-            SettingsPanel(
-                title = "Titlovi", options = labels, initialSelected = sel,
-                onSelect = { i ->
-                    val p = activity.player
-                    if (p != null) {
-                        if (i == 0) disableSubtitles(p)
-                        else collectOptions(p, C.TRACK_TYPE_TEXT).getOrNull(i - 1)?.let { selectOption(p, groups, it) }
-                    }
-                    activity.menuKind = TrackMenuKind.NONE
-                },
-                onClose = { activity.menuKind = TrackMenuKind.NONE }
-            )
-        }
-        if (menuKind == TrackMenuKind.AUDIO) {
-            val (labels, sel) = buildPanelData(activity.player, C.TRACK_TYPE_AUDIO)
-            SettingsPanel(
-                title = "Audio", options = labels, initialSelected = sel,
-                onSelect = { i ->
-                    val p = activity.player
-                    if (p != null) collectOptions(p, C.TRACK_TYPE_AUDIO).getOrNull(i)?.let { selectOption(p, groups, it) }
-                    activity.menuKind = TrackMenuKind.NONE
-                },
-                onClose = { activity.menuKind = TrackMenuKind.NONE }
-            )
+        // ✅ DRUGA RAVAN — panel (vizuelan; tastere hvata Activity)
+        if (menuKind != TrackMenuKind.NONE) {
+            SettingsPanel(activity = activity)
         }
     }
 }
