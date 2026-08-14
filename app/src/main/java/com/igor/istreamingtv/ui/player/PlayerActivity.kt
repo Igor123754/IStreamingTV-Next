@@ -1,6 +1,5 @@
 package com.igor.istreamingtv.ui.player
 
-import kotlinx.serialization.decodeFromString
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -84,6 +83,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.text.SimpleDateFormat
@@ -91,6 +91,8 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+
+private enum class TrackMenuKind { NONE, SUBTITLES, AUDIO }
 
 class PlayerActivity : ComponentActivity() {
 
@@ -106,6 +108,9 @@ class PlayerActivity : ComponentActivity() {
     internal var isSeriesPlay: Boolean = false
     internal var introStartMs: Long = -1
     internal var introEndMs: Long = -1
+
+    // ✅ Meni stanje na nivou Activity-ja (za BACK handling)
+    internal var menuKind by mutableStateOf(TrackMenuKind.NONE)
 
     private val candidateUrls = mutableListOf<String>()
     private var candidateIndex = 0
@@ -195,22 +200,55 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    // ✅ BACK na nivou Activity-ja: prvi pritisak zatvara meni ILI gasi plejer
+    //    (bez beskonačnog spinner-a — dispatchKeyEvent hvata PRE nego što bilo koji view pojede događaj)
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if ((event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_ESCAPE) &&
+            event.action == KeyEvent.ACTION_DOWN
+        ) {
+            if (menuKind != TrackMenuKind.NONE) {
+                menuKind = TrackMenuKind.NONE
+                return true
+            }
+            finish()
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                val p = player ?: return true
-                if (p.isPlaying) p.pause() else p.play()
+                togglePlayInternal()
                 return true
             }
-            KeyEvent.KEYCODE_BACK -> {
-                finish()
+            // ✅ OK = play/pauza — stiže ovde SAMO kad nijedno fokusirano dugme nije pojelo događaj
+            KeyEvent.KEYCODE_DPAD_CENTER -> {
+                togglePlayInternal()
                 return true
             }
         }
         return super.onKeyDown(keyCode, event)
     }
+
+    internal fun togglePlayInternal() {
+        val p = player ?: return
+        if (p.isPlaying) p.pause() else p.play()
+    }
+
+    @Serializable
+    private data class IntroResponse(
+        val start: Double = 0.0,
+        val end: Double = 0.0
+    )
+
+    @Serializable
+    private data class StreamObject(
+        val url: String? = null,
+        val externalUrl: String? = null
+    )
 
     private suspend fun fetchIntroTimestamps(
         imdbId: String,
@@ -231,50 +269,38 @@ class PlayerActivity : ComponentActivity() {
             if (body.isNullOrBlank()) return@withContext null
 
             val json = TmdbClient.json.decodeFromString<IntroResponse>(body)
-            val start = json.start
-            val end = json.end
-
-            if (start >= 0 && end > start) Pair(start, end) else null
+            if (json.start >= 0 && json.end > json.start) Pair(json.start, json.end) else null
         } catch (_: Exception) {
             null
         }
     }
 
-    @Serializable
-    private data class IntroResponse(
-        val start: Double = 0.0,
-        val end: Double = 0.0
-    )
-
     internal fun skipIntro() {
         val p = player ?: return
-        if (introEndMs > 0) {
-            p.seekTo(introEndMs)
-        }
+        if (introEndMs > 0) p.seekTo(introEndMs)
     }
 
     private fun parseIntent() {
-        // ✅ Type-safe: Json array strings
         intent.getStringExtra("candidates")?.let { jsonString ->
             try {
-                val urls = TmdbClient.json.decodeFromString<List<String>>(jsonString)
-                candidateUrls.addAll(urls)
+                candidateUrls.addAll(TmdbClient.json.decodeFromString<List<String>>(jsonString))
             } catch (_: Exception) {
             }
         }
 
         intent.getStringExtra("subtitle_tracks")?.let { jsonString ->
             try {
-                val tracks = TmdbClient.json.decodeFromString<List<SubtitleTrack>>(jsonString)
-                currentSubtitleTracks.addAll(tracks)
+                currentSubtitleTracks.addAll(
+                    TmdbClient.json.decodeFromString<List<SubtitleTrack>>(jsonString)
+                )
             } catch (_: Exception) {
             }
         }
         if (currentSubtitleTracks.isEmpty()) {
             intent.getStringExtra("subtitle_urls")?.let { jsonString ->
                 try {
-                    val urls = TmdbClient.json.decodeFromString<List<String>>(jsonString)
-                    urls.forEach { currentSubtitleTracks.add(SubtitleTrack(it, "sr")) }
+                    TmdbClient.json.decodeFromString<List<String>>(jsonString)
+                        .forEach { currentSubtitleTracks.add(SubtitleTrack(it, "sr")) }
                 } catch (_: Exception) {
                 }
             }
@@ -302,12 +328,6 @@ class PlayerActivity : ComponentActivity() {
         intent.data?.toString()?.let { if (candidateUrls.isEmpty()) candidateUrls.add(it) }
     }
 
-    @Serializable
-    private data class StreamObject(
-        val url: String? = null,
-        val externalUrl: String? = null
-    )
-
     private fun playCandidate(index: Int) {
         candidateIndex = index
         currentUrl = candidateUrls[index]
@@ -332,10 +352,7 @@ class PlayerActivity : ComponentActivity() {
     private fun applySubtitleByIndex(exoPlayer: ExoPlayer, index: Int) {
         exoPlayer.currentTracks.groups.forEach { group ->
             if (group.type == C.TRACK_TYPE_TEXT && index < group.length) {
-                val override = TrackSelectionOverride(
-                    group.mediaTrackGroup,
-                    listOf(index)
-                )
+                val override = TrackSelectionOverride(group.mediaTrackGroup, listOf(index))
                 exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                     .buildUpon()
                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
@@ -435,25 +452,15 @@ class PlayerActivity : ComponentActivity() {
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 if (candidateIndex < candidateUrls.size - 1) {
-                    Toast.makeText(
-                        context,
-                        "Izvor ne radi — prelazim na sledeći...",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(context, "Izvor ne radi — prelazim na sledeći...", Toast.LENGTH_SHORT).show()
                     playCandidate(candidateIndex + 1)
                 } else {
-                    Toast.makeText(
-                        context,
-                        "Greška reprodukcije: ${error.errorCodeName}",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    Toast.makeText(context, "Greška reprodukcije: ${error.errorCodeName}", Toast.LENGTH_LONG).show()
                 }
             }
 
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED) {
-                    tryNextEpisode()
-                }
+                if (state == Player.STATE_ENDED) tryNextEpisode()
                 if (state == Player.STATE_READY && !autoSyncDone && tracks.size > 1) {
                     autoSyncDone = true
                     autoPickSyncedSubtitle(exoPlayer, tracks)
@@ -476,20 +483,15 @@ class PlayerActivity : ComponentActivity() {
             if (urls.isEmpty()) return@launch
 
             val nextTracks = try {
-                val entries = SubtitleFetcher.getAcceptedSubtitles(
-                    "series", imdb, seasonNumber, nextEpisode
+                SubtitleFetcher.toTracks(
+                    SubtitleFetcher.getAcceptedSubtitles("series", imdb, seasonNumber, nextEpisode), 6
                 )
-                SubtitleFetcher.toTracks(entries, 6)
             } catch (_: Exception) {
                 emptyList()
             }
 
             withContext(Dispatchers.Main) {
-                Toast.makeText(
-                    this@PlayerActivity,
-                    "Sledeća epizoda: S$seasonNumber · E$nextEpisode",
-                    Toast.LENGTH_SHORT
-                ).show()
+                Toast.makeText(this@PlayerActivity, "Sledeća epizoda: S$seasonNumber · E$nextEpisode", Toast.LENGTH_SHORT).show()
                 episodeNumber = nextEpisode
                 playerSeason = seasonNumber
                 playerEpisode = nextEpisode
@@ -498,18 +500,11 @@ class PlayerActivity : ComponentActivity() {
                 candidateUrls.clear()
                 candidateUrls.addAll(urls)
 
-                if (!imdb.isNullOrBlank() && seasonNumber >= 0 && nextEpisode >= 0) {
-                    isSeriesPlay = true
+                if (seasonNumber >= 0) {
                     val intro = fetchIntroTimestamps(imdb, seasonNumber, nextEpisode)
-                    if (intro != null) {
-                        introStartMs = (intro.first * 1000).toLong()
-                        introEndMs = (intro.second * 1000).toLong()
-                    } else {
-                        introStartMs = -1
-                        introEndMs = -1
-                    }
+                    introStartMs = intro?.first?.times(1000)?.toLong() ?: -1
+                    introEndMs = intro?.second?.times(1000)?.toLong() ?: -1
                 }
-
                 playCandidate(0)
             }
         }
@@ -530,11 +525,7 @@ class PlayerActivity : ComponentActivity() {
             }
 
             if (!imdbId.isNullOrBlank() || playerTitle.isNotBlank()) {
-                val key = if (seasonNumber >= 0) {
-                    "${imdbId}_s${seasonNumber}_e${episodeNumber}"
-                } else {
-                    imdbId ?: url
-                }
+                val key = if (seasonNumber >= 0) "${imdbId}_s${seasonNumber}_e${episodeNumber}" else imdbId ?: url
                 ContinueWatchingStore.upsert(
                     this,
                     ContinueEntry(
@@ -560,13 +551,17 @@ class PlayerActivity : ComponentActivity() {
         p.release()
         player = null
     }
+
+    override fun onDestroy() {
+        player?.release()
+        player = null
+        super.onDestroy()
+    }
 }
 
 // =====================================================================
 // APPLE TV+ STIL UI
 // =====================================================================
-
-private enum class TrackMenuKind { NONE, SUBTITLES, AUDIO }
 
 private data class TrackOption(
     val label: String,
@@ -578,11 +573,7 @@ private data class TrackOption(
 
 @Composable
 private fun PauseBars(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(4.dp, 14.dp).background(Color.White))
         Box(Modifier.size(4.dp, 14.dp).background(Color.White))
     }
@@ -601,18 +592,8 @@ private fun SubtitlesIcon(modifier: Modifier = Modifier) {
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(stroke),
             style = androidx.compose.ui.graphics.drawscope.Stroke(stroke)
         )
-        drawLine(
-            Color.White,
-            androidx.compose.ui.geometry.Offset(w * 0.25f, h * 0.42f),
-            androidx.compose.ui.geometry.Offset(w * 0.75f, h * 0.42f),
-            strokeWidth = stroke
-        )
-        drawLine(
-            Color.White,
-            androidx.compose.ui.geometry.Offset(w * 0.25f, h * 0.62f),
-            androidx.compose.ui.geometry.Offset(w * 0.6f, h * 0.62f),
-            strokeWidth = stroke
-        )
+        drawLine(Color.White, androidx.compose.ui.geometry.Offset(w * 0.25f, h * 0.42f), androidx.compose.ui.geometry.Offset(w * 0.75f, h * 0.42f), strokeWidth = stroke)
+        drawLine(Color.White, androidx.compose.ui.geometry.Offset(w * 0.25f, h * 0.62f), androidx.compose.ui.geometry.Offset(w * 0.6f, h * 0.62f), strokeWidth = stroke)
     }
 }
 
@@ -621,11 +602,7 @@ private fun AudioIcon(modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        drawRect(
-            Color.White,
-            topLeft = androidx.compose.ui.geometry.Offset(w * 0.15f, h * 0.35f),
-            size = androidx.compose.ui.geometry.Size(w * 0.2f, h * 0.3f)
-        )
+        drawRect(Color.White, topLeft = androidx.compose.ui.geometry.Offset(w * 0.15f, h * 0.35f), size = androidx.compose.ui.geometry.Size(w * 0.2f, h * 0.3f))
         val triangle = androidx.compose.ui.graphics.Path().apply {
             moveTo(w * 0.35f, h * 0.35f)
             lineTo(w * 0.6f, h * 0.15f)
@@ -635,10 +612,7 @@ private fun AudioIcon(modifier: Modifier = Modifier) {
         }
         drawPath(triangle, Color.White)
         drawArc(
-            Color.White,
-            startAngle = -60f,
-            sweepAngle = 120f,
-            useCenter = false,
+            Color.White, startAngle = -60f, sweepAngle = 120f, useCenter = false,
             topLeft = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.2f),
             size = androidx.compose.ui.geometry.Size(w * 0.5f, h * 0.6f),
             style = androidx.compose.ui.graphics.drawscope.Stroke(w * 0.09f)
@@ -664,16 +638,7 @@ private fun collectOptions(player: Player, type: Int): List<TrackOption> {
         if (group.type == type) {
             for (i in 0 until group.length) {
                 val fmt = group.getTrackFormat(i)
-                val label = fmt.label ?: audioLanguageName(fmt.language)
-                list.add(
-                    TrackOption(
-                        label = label,
-                        groupIndex = groupIndex,
-                        trackIndex = i,
-                        selected = group.isTrackSelected(i),
-                        type = type
-                    )
-                )
+                list.add(TrackOption(fmt.label ?: audioLanguageName(fmt.language), groupIndex, i, group.isTrackSelected(i), type))
             }
         }
     }
@@ -682,15 +647,11 @@ private fun collectOptions(player: Player, type: Int): List<TrackOption> {
 
 private fun selectOption(player: Player, groups: List<Tracks.Group>, option: TrackOption) {
     val group = groups.getOrNull(option.groupIndex) ?: return
-    val override = TrackSelectionOverride(
-        group.mediaTrackGroup,
-        listOf(option.trackIndex)
-    )
     player.trackSelectionParameters = player.trackSelectionParameters
         .buildUpon()
         .setTrackTypeDisabled(option.type, false)
         .clearOverridesOfType(option.type)
-        .addOverride(override)
+        .addOverride(TrackSelectionOverride(group.mediaTrackGroup, listOf(option.trackIndex)))
         .build()
 }
 
@@ -702,12 +663,17 @@ private fun disableSubtitles(player: Player) {
         .build()
 }
 
+/**
+ * ✅ TRAKA sa fokus navigacijom:
+ * LEVO/DESNO = premotavanje, DOLE = na CC/Audio dugmad
+ */
 @Composable
 private fun AppleSeekBar(
     fraction: Float,
     onFractionSeek: (Float) -> Unit,
     onStepSeek: (Long) -> Unit,
     onInteract: () -> Unit,
+    onNavigateDown: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -723,16 +689,9 @@ private fun AppleSeekBar(
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
                     when (event.key) {
-                        Key.DirectionLeft -> {
-                            onInteract()
-                            onStepSeek(-10_000)
-                            true
-                        }
-                        Key.DirectionRight -> {
-                            onInteract()
-                            onStepSeek(10_000)
-                            true
-                        }
+                        Key.DirectionLeft -> { onInteract(); onStepSeek(-10_000); true }
+                        Key.DirectionRight -> { onInteract(); onStepSeek(10_000); true }
+                        Key.DirectionDown -> { onNavigateDown(); true }
                         else -> false
                     }
                 } else false
@@ -751,29 +710,11 @@ private fun AppleSeekBar(
             },
         contentAlignment = Alignment.CenterStart
     ) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(Color.White.copy(alpha = 0.3f))
-        )
-        Box(
-            Modifier
-                .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(Color.White)
-        )
+        Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.3f)))
+        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White))
         if (focused) {
             val widthDp = with(density) { widthPx.toDp() }
-            Box(
-                Modifier
-                    .size(14.dp)
-                    .offset(x = (widthDp * fraction) - 7.dp)
-                    .clip(CircleShape)
-                    .background(Color.White)
-            )
+            Box(Modifier.size(14.dp).offset(x = (widthDp * fraction) - 7.dp).clip(CircleShape).background(Color.White))
         }
     }
 }
@@ -782,7 +723,6 @@ private fun AppleSeekBar(
 private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     var controlsVisible by remember { mutableStateOf(true) }
     var lastInteraction by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var menu by remember { mutableStateOf(TrackMenuKind.NONE) }
     var options by remember { mutableStateOf<List<TrackOption>>(emptyList()) }
     var showPausedInfo by remember { mutableStateOf(false) }
 
@@ -795,6 +735,16 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     var sliderFraction by remember { mutableFloatStateOf(0f) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
+    // ✅ Fokus requesteri za navigaciju daljinskim
+    val seekFocus = remember { FocusRequester() }
+    val playPauseFocus = remember { FocusRequester() }
+    val ccFocus = remember { FocusRequester() }
+    val audioFocus = remember { FocusRequester() }
+    val skipFocus = remember { FocusRequester() }
+    val menuFirstFocus = remember { FocusRequester() }
+
+    val menuKind = activity.menuKind
+
     LaunchedEffect(Unit) {
         while (true) {
             val p = activity.player
@@ -804,21 +754,14 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 isPlaying = p.isPlaying
                 isBuffering = p.playbackState == Player.STATE_BUFFERING
                 isReady = p.playbackState == Player.STATE_READY
-                if (duration > 0) {
-                    sliderFraction = position.toFloat() / duration.toFloat()
-                }
+                if (duration > 0) sliderFraction = position.toFloat() / duration.toFloat()
             }
             delay(500)
         }
     }
 
     LaunchedEffect(isPlaying, isReady) {
-        if (!isPlaying && isReady) {
-            delay(5000)
-            showPausedInfo = true
-        } else {
-            showPausedInfo = false
-        }
+        if (!isPlaying && isReady) { delay(5000); showPausedInfo = true } else showPausedInfo = false
     }
 
     LaunchedEffect(controlsVisible, showPausedInfo) {
@@ -828,57 +771,56 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         }
     }
 
-    LaunchedEffect(lastInteraction, menu, showPausedInfo) {
+    LaunchedEffect(lastInteraction, menuKind, showPausedInfo) {
         controlsVisible = true
-        if (menu == TrackMenuKind.NONE && !showPausedInfo) {
+        if (menuKind == TrackMenuKind.NONE && !showPausedInfo) {
             delay(4000)
             controlsVisible = false
         }
     }
 
-    fun interact() {
-        lastInteraction = System.currentTimeMillis()
+    // ✅ Kad se kontrole prikažu → fokus na traku (da daljinski odmah radi)
+    LaunchedEffect(controlsVisible) {
+        if (controlsVisible) {
+            try { seekFocus.requestFocus() } catch (_: Exception) {}
+        }
     }
 
-    fun togglePlay() {
-        val p = activity.player ?: return
-        if (p.isPlaying) p.pause() else p.play()
+    // ✅ Kad se meni otvori → fokus na prvu stavku menija
+    LaunchedEffect(menuKind) {
+        if (menuKind != TrackMenuKind.NONE) {
+            try { menuFirstFocus.requestFocus() } catch (_: Exception) {}
+        }
     }
+
+    fun interact() { lastInteraction = System.currentTimeMillis() }
 
     fun openMenu(kind: TrackMenuKind) {
         val p = activity.player ?: return
         interact()
-        options = collectOptions(
-            p,
-            if (kind == TrackMenuKind.SUBTITLES) C.TRACK_TYPE_TEXT else C.TRACK_TYPE_AUDIO
-        )
-        menu = kind
+        options = collectOptions(p, if (kind == TrackMenuKind.SUBTITLES) C.TRACK_TYPE_TEXT else C.TRACK_TYPE_AUDIO)
+        activity.menuKind = kind
     }
 
     val groups = activity.player?.currentTracks?.groups ?: emptyList()
 
     val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val clockText = timeFmt.format(Date(nowMillis))
-    val endText = timeFmt.format(
-        Date(nowMillis + (duration - position).coerceAtLeast(0))
-    )
+    val endText = timeFmt.format(Date(nowMillis + (duration - position).coerceAtLeast(0)))
 
-    val showSkipIntro = activity.isSeriesPlay &&
-        isPlaying &&
-        activity.introStartMs >= 0 &&
-        activity.introEndMs > 0 &&
+    val showSkipIntro = activity.isSeriesPlay && isPlaying &&
+        activity.introStartMs >= 0 && activity.introEndMs > 0 &&
         position in activity.introStartMs..activity.introEndMs
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            // ✅ Prvi pritisak bilo koje strelice kad su kontrole skrivene = probudi kontrole
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
-                    event.key == Key.DirectionCenter &&
-                    menu == TrackMenuKind.NONE
-                ) {
-                    togglePlay()
+                val isDpad = event.key == Key.DirectionLeft || event.key == Key.DirectionRight ||
+                    event.key == Key.DirectionUp || event.key == Key.DirectionDown
+                if (isDpad && !controlsVisible && event.type == KeyEventType.KeyDown) {
                     interact()
                     true
                 } else false
@@ -889,7 +831,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 PlayerView(ctx).apply {
                     useController = false
                     setBackgroundColor(android.graphics.Color.BLACK)
-
                     subtitleView?.apply {
                         setApplyEmbeddedStyles(false)
                         setStyle(
@@ -904,7 +845,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                         )
                         setFractionalTextSize(0.05f)
                     }
-
                     activity.playerView = this
                     player = activity.player
                 }
@@ -918,90 +858,55 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 .fillMaxSize()
                 .pointerInput(Unit) {
                     detectTapGestures(
-                        onTap = {
-                            interact()
-                            controlsVisible = !controlsVisible
-                        },
-                        onDoubleTap = {
-                            interact()
-                            togglePlay()
-                        }
+                        onTap = { interact(); controlsVisible = !controlsVisible },
+                        onDoubleTap = { interact(); activity.togglePlayInternal() }
                     )
                 }
         )
 
         if (isBuffering) {
-            CircularProgressIndicator(
-                color = Color.White,
-                modifier = Modifier
-                    .size(56.dp)
-                    .align(Alignment.Center)
-            )
+            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(56.dp).align(Alignment.Center))
         }
 
         if (showSkipIntro) {
             TvFocusableButton(
-                onClick = {
-                    interact()
-                    activity.skipIntro()
-                },
+                onClick = { interact(); activity.skipIntro() },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 40.dp, bottom = 120.dp)
+                    .focusRequester(skipFocus)
+                    .onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                            try { ccFocus.requestFocus() } catch (_: Exception) {}
+                            true
+                        } else false
+                    }
             ) { focused ->
-                val scale by animateFloatAsState(
-                    if (focused) 1.06f else 1f, tween(150), label = ""
-                )
+                val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(150), label = "")
                 Row(
                     modifier = Modifier
                         .scale(scale)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color.Black.copy(alpha = 0.75f))
-                        .border(
-                            1.dp,
-                            Color.White.copy(alpha = if (focused) 0.9f else 0.5f),
-                            RoundedCornerShape(8.dp)
-                        )
+                        .border(1.dp, Color.White.copy(alpha = if (focused) 0.9f else 0.5f), RoundedCornerShape(8.dp))
                         .padding(horizontal = 20.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "Preskoči uvod",
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "▶▶",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("Preskoči uvod", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("▶▶", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
         if (controlsVisible || showPausedInfo) {
             Column(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 28.dp, top = 28.dp),
+                modifier = Modifier.align(Alignment.TopEnd).padding(end = 28.dp, top = 28.dp),
                 horizontalAlignment = Alignment.End
             ) {
-                Text(
-                    text = clockText,
-                    color = Color.White,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(clockText, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Kraj: $endText",
-                    color = Color.White.copy(alpha = 0.75f),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text("Kraj: $endText", color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }
         }
 
@@ -1013,19 +918,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                         .fillMaxWidth()
                         .height(260.dp)
                         .align(Alignment.BottomCenter)
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))
-                            )
-                        )
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))))
                 )
 
                 if (!isPlaying && !isBuffering && isReady) {
-                    PauseBars(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 128.dp)
-                    )
+                    PauseBars(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 128.dp))
                 }
 
                 Column(
@@ -1036,9 +933,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 ) {
                     if (showPausedInfo) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 18.dp),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -1046,31 +941,19 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                                 AsyncImage(
                                     model = activity.playerPoster,
                                     contentDescription = null,
-                                    modifier = Modifier
-                                        .width(90.dp)
-                                        .height(135.dp)
-                                        .clip(RoundedCornerShape(10.dp)),
+                                    modifier = Modifier.width(90.dp).height(135.dp).clip(RoundedCornerShape(10.dp)),
                                     contentScale = ContentScale.Crop
                                 )
                             }
                             Column(modifier = Modifier.weight(1f)) {
                                 if (activity.playerTitle.isNotBlank()) {
-                                    Text(
-                                        text = activity.playerTitle,
-                                        color = Color.White,
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1
-                                    )
+                                    Text(activity.playerTitle, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                     Spacer(modifier = Modifier.height(6.dp))
                                 }
                                 if (activity.playerOverview.isNotBlank()) {
                                     Text(
-                                        text = activity.playerOverview,
-                                        color = Color.White.copy(alpha = 0.8f),
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp,
-                                        maxLines = 3,
+                                        activity.playerOverview, color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 13.sp, lineHeight = 18.sp, maxLines = 3,
                                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                     )
                                 }
@@ -1079,23 +962,12 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     }
 
                     if (activity.playerSeason >= 0) {
-                        Text(
-                            text = "S${activity.playerSeason}, E${activity.playerEpisode}",
-                            color = Color.White.copy(alpha = 0.8f),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Text("S${activity.playerSeason}, E${activity.playerEpisode}", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
                     if (activity.playerTitle.isNotBlank()) {
-                        Text(
-                            text = activity.playerTitle,
-                            color = Color.White,
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
+                        Text(activity.playerTitle, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                         Spacer(modifier = Modifier.height(10.dp))
                     }
 
@@ -1107,55 +979,33 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             fraction = sliderFraction,
                             onFractionSeek = { f ->
                                 interact()
-                                activity.player?.let { p ->
-                                    p.seekTo((f * duration).toLong())
-                                }
+                                activity.player?.let { p -> p.seekTo((f * duration).toLong()) }
                             },
                             onStepSeek = { delta ->
                                 activity.player?.let { p ->
-                                    p.seekTo(
-                                        (p.currentPosition + delta)
-                                            .coerceIn(0, p.duration.coerceAtLeast(0))
-                                    )
+                                    p.seekTo((p.currentPosition + delta).coerceIn(0, p.duration.coerceAtLeast(0)))
                                 }
                             },
                             onInteract = { interact() },
-                            modifier = Modifier.weight(1f)
+                            onNavigateDown = { try { ccFocus.requestFocus() } catch (_: Exception) {} },
+                            modifier = Modifier.weight(1f).focusRequester(seekFocus)
                         )
 
+                        // PLAY/PAUSE dugme
                         TvFocusableButton(
-                            onClick = { interact(); togglePlay() }
-                        ) { focused ->
-                            val scale by animateFloatAsState(
-                                if (focused) 1.1f else 1f, tween(150), label = ""
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .scale(scale)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = if (focused) 0.3f else 0.15f))
-                                    .size(44.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isPlaying) {
-                                    PauseBars()
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = "Play",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(22.dp)
-                                    )
+                            onClick = { interact(); activity.togglePlayInternal() },
+                            modifier = Modifier
+                                .focusRequester(playPauseFocus)
+                                .onKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown) {
+                                        when (event.key) {
+                                            Key.DirectionUp -> { try { seekFocus.requestFocus() } catch (_: Exception) {}; true }
+                                            else -> false
+                                        }
+                                    } else false
                                 }
-                            }
-                        }
-
-                        TvFocusableButton(
-                            onClick = { openMenu(TrackMenuKind.SUBTITLES) }
                         ) { focused ->
-                            val scale by animateFloatAsState(
-                                if (focused) 1.1f else 1f, tween(150), label = ""
-                            )
+                            val scale by animateFloatAsState(if (focused) 1.1f else 1f, tween(150), label = "")
                             Box(
                                 modifier = Modifier
                                     .scale(scale)
@@ -1164,16 +1014,27 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                                     .size(44.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                SubtitlesIcon(modifier = Modifier.size(22.dp))
+                                if (isPlaying) PauseBars()
+                                else Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(22.dp))
                             }
                         }
 
+                        // CC dugme
                         TvFocusableButton(
-                            onClick = { openMenu(TrackMenuKind.AUDIO) }
+                            onClick = { openMenu(TrackMenuKind.SUBTITLES) },
+                            modifier = Modifier
+                                .focusRequester(ccFocus)
+                                .onKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown) {
+                                        when (event.key) {
+                                            Key.DirectionUp -> { try { seekFocus.requestFocus() } catch (_: Exception) {}; true }
+                                            Key.DirectionDown -> { try { skipFocus.requestFocus() } catch (_: Exception) {}; true }
+                                            else -> false
+                                        }
+                                    } else false
+                                }
                         ) { focused ->
-                            val scale by animateFloatAsState(
-                                if (focused) 1.1f else 1f, tween(150), label = ""
-                            )
+                            val scale by animateFloatAsState(if (focused) 1.1f else 1f, tween(150), label = "")
                             Box(
                                 modifier = Modifier
                                     .scale(scale)
@@ -1181,9 +1042,33 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                                     .background(Color.White.copy(alpha = if (focused) 0.3f else 0.15f))
                                     .size(44.dp),
                                 contentAlignment = Alignment.Center
-                            ) {
-                                AudioIcon(modifier = Modifier.size(22.dp))
-                            }
+                            ) { SubtitlesIcon(modifier = Modifier.size(22.dp)) }
+                        }
+
+                        // Audio dugme
+                        TvFocusableButton(
+                            onClick = { openMenu(TrackMenuKind.AUDIO) },
+                            modifier = Modifier
+                                .focusRequester(audioFocus)
+                                .onKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown) {
+                                        when (event.key) {
+                                            Key.DirectionUp -> { try { seekFocus.requestFocus() } catch (_: Exception) {}; true }
+                                            Key.DirectionDown -> { try { skipFocus.requestFocus() } catch (_: Exception) {}; true }
+                                            else -> false
+                                        }
+                                    } else false
+                                }
+                        ) { focused ->
+                            val scale by animateFloatAsState(if (focused) 1.1f else 1f, tween(150), label = "")
+                            Box(
+                                modifier = Modifier
+                                    .scale(scale)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = if (focused) 0.3f else 0.15f))
+                                    .size(44.dp),
+                                contentAlignment = Alignment.Center
+                            ) { AudioIcon(modifier = Modifier.size(22.dp)) }
                         }
                     }
 
@@ -1194,22 +1079,13 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            text = formatTime(position),
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "-" + formatTime((duration - position).coerceAtLeast(0)),
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Text(formatTime(position), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text("-" + formatTime((duration - position).coerceAtLeast(0)), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                 }
 
-                if (menu != TrackMenuKind.NONE) {
+                // ✅ MENI titlova / audio (skrolabilan, fokus na prvu stavku)
+                if (menuKind != TrackMenuKind.NONE) {
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
@@ -1222,41 +1098,40 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             .padding(12.dp)
                     ) {
                         Text(
-                            text = if (menu == TrackMenuKind.SUBTITLES) "Titlovi" else "Audio",
-                            color = Color.White.copy(alpha = 0.7f),
-                            fontSize = 13.sp,
+                            if (menuKind == TrackMenuKind.SUBTITLES) "Titlovi" else "Audio",
+                            color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
                         )
 
-                        if (menu == TrackMenuKind.SUBTITLES) {
+                        var firstAssigned = false
+
+                        if (menuKind == TrackMenuKind.SUBTITLES) {
                             val textDisabled = activity.player?.trackSelectionParameters
-                                ?.disabledTrackTypes
-                                ?.contains(C.TRACK_TYPE_TEXT) ?: false
-                            TvFocusableButton(onClick = {
-                                interact()
-                                activity.player?.let { disableSubtitles(it) }
-                                menu = TrackMenuKind.NONE
-                            }) { focused ->
-                                MenuRow(
-                                    text = "Isključeno",
-                                    selected = textDisabled,
-                                    focused = focused
-                                )
+                                ?.disabledTrackTypes?.contains(C.TRACK_TYPE_TEXT) ?: false
+                            TvFocusableButton(
+                                onClick = {
+                                    interact()
+                                    activity.player?.let { disableSubtitles(it) }
+                                    activity.menuKind = TrackMenuKind.NONE
+                                },
+                                modifier = Modifier.focusRequester(menuFirstFocus)
+                            ) { focused ->
+                                firstAssigned = true
+                                MenuRow("Isključeno", selected = textDisabled, focused = focused)
                             }
                         }
 
-                        options.forEach { opt ->
-                            TvFocusableButton(onClick = {
-                                interact()
-                                activity.player?.let { p -> selectOption(p, groups, opt) }
-                                menu = TrackMenuKind.NONE
-                            }) { focused ->
-                                MenuRow(
-                                    text = opt.label,
-                                    selected = opt.selected,
-                                    focused = focused
-                                )
+                        options.forEachIndexed { index, opt ->
+                            TvFocusableButton(
+                                onClick = {
+                                    interact()
+                                    activity.player?.let { p -> selectOption(p, groups, opt) }
+                                    activity.menuKind = TrackMenuKind.NONE
+                                },
+                                modifier = if (!firstAssigned && index == 0) Modifier.focusRequester(menuFirstFocus) else Modifier
+                            ) { focused ->
+                                MenuRow(opt.label, selected = opt.selected, focused = focused)
                             }
                         }
                     }
@@ -1272,28 +1147,13 @@ private fun MenuRow(text: String, selected: Boolean, focused: Boolean) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(
-                Color.White.copy(
-                    alpha = when {
-                        focused -> 0.2f
-                        selected -> 0.12f
-                        else -> 0f
-                    }
-                )
-            )
+            .background(Color.White.copy(alpha = when { focused -> 0.2f; selected -> 0.12f; else -> 0f }))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
-            text = text,
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
-        )
-        if (selected) {
-            Text(text = "✓", color = Color.White, fontSize = 14.sp)
-        }
+        Text(text, color = Color.White, fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+        if (selected) Text("✓", color = Color.White, fontSize = 14.sp)
     }
 }
 
@@ -1302,6 +1162,5 @@ private fun formatTime(ms: Long): String {
     val h = totalSec / 3600
     val m = (totalSec % 3600) / 60
     val s = totalSec % 60
-    return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
-    else String.format("%d:%02d", m, s)
+    return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%d:%02d", m, s)
 }
