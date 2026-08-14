@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -160,7 +161,23 @@ private fun DetailsScrollContent(
 ) {
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    val listState = rememberLazyListState()
+
+    // ✅ FIX PERFORMANSE: paralaksa bez rekompozicije (isto kao na početnoj)
+    val scrollProgressState = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.firstOrNull() }
+            .collect { item ->
+                val size = item?.size?.coerceAtLeast(1) ?: 1
+                scrollProgressState.value =
+                    (-(item?.offset ?: 0).toFloat() / size).coerceIn(0f, 1f)
+            }
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize()
+    ) {
 
         item(key = "hero") {
             Box(
@@ -175,7 +192,8 @@ private fun DetailsScrollContent(
                     preparingStreams = state.preparingStreams,
                     movieCandidates = state.movieCandidates,
                     movieSubtitleTracks = state.movieSubtitleTracks,
-                    firstEpisode = state.episodes.firstOrNull()
+                    firstEpisode = state.episodes.firstOrNull(),
+                    scrollProgressState = scrollProgressState
                 )
             }
         }
@@ -263,7 +281,8 @@ private fun DetailsHero(
     preparingStreams: Boolean,
     movieCandidates: List<StreamPicker.Candidate>,
     movieSubtitleTracks: List<SubtitleTrack>,
-    firstEpisode: TmdbEpisode?
+    firstEpisode: TmdbEpisode?,
+    scrollProgressState: State<Float>
 ) {
     val context = LocalContext.current
 
@@ -292,7 +311,13 @@ private fun DetailsHero(
         AsyncImage(
             model = backdropUrl,
             contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val p = scrollProgressState.value
+                    scaleX = 1f + p * 0.08f
+                    scaleY = 1f + p * 0.08f
+                },
             contentScale = ContentScale.Crop
         )
 
@@ -344,6 +369,11 @@ private fun DetailsHero(
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .padding(start = 48.dp, end = 48.dp, bottom = 40.dp)
+                .graphicsLayer {
+                    val p = scrollProgressState.value
+                    alpha = (1f - p * 1.2f).coerceIn(0f, 1f)
+                    translationY = p * 240f
+                }
         ) {
             Row(
                 verticalAlignment = Alignment.Bottom,
