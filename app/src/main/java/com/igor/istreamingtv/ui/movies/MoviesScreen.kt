@@ -1,204 +1,94 @@
 package com.igor.istreamingtv.ui.movies
 
-import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import com.igor.istreamingtv.BuildConfig
 import com.igor.istreamingtv.data.remote.TmdbMovie
-import com.igor.istreamingtv.data.remote.displayDate
 import com.igor.istreamingtv.data.remote.displayTitle
 import com.igor.istreamingtv.data.remote.posterPath
-import com.igor.istreamingtv.ui.components.MovieCard
+import com.igor.istreamingtv.data.repository.ContentRepository
 import com.igor.istreamingtv.ui.components.TvFocusableButton
-import com.igor.istreamingtv.ui.home.HomeViewModel
-import com.igor.istreamingtv.ui.theme.Background
-import com.igor.istreamingtv.ui.theme.TextPrimary
-import com.igor.istreamingtv.ui.theme.TextSecondary
+import kotlinx.coroutines.launch
+
+private val MoviesBackground = Color(0xFF020204)
+private val SurfaceBackground = Color(0xFF0C0D12)
+private val CardShape = RoundedCornerShape(12.dp)
 
 @Composable
 fun MoviesScreen(
     onMovieClick: (TmdbMovie) -> Unit,
-    onBack: () -> Unit,
-    viewModel: HomeViewModel = viewModel()
+    onBack: () -> Unit
 ) {
+    val repository = remember { ContentRepository(BuildConfig.TMDB_API_KEY) }
+    var movies by remember { mutableStateOf<List<TmdbMovie>>(emptyList()) }
+    var series by remember { mutableStateOf<List<TmdbMovie>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
 
-    BackHandler { onBack() }
+    LaunchedEffect(Unit) {
+        launch {
+            try {
+                movies = repository.getPopularMovies()
+                series = repository.getPopularSeries()
+            } catch (_: Exception) {
+            }
+            loading = false
+        }
+    }
 
-    val state by viewModel.uiState.collectAsState()
-
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Background)
+            .background(MoviesBackground)
     ) {
-        when {
-            state.isLoading -> {
-                LoadingMovies()
-            }
-            state.error != null -> {
-                ErrorMovies(
-                    message = state.error ?: "Nepoznata greška",
-                    onRetry = viewModel::loadContent,
-                    onBack = onBack
-                )
-            }
-            else -> {
-                MoviesContent(
-                    movies = state.movies,
-                    onMovieClick = onMovieClick,
-                    onBack = onBack
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun LoadingMovies() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator(color = TextPrimary)
-            Spacer(modifier = Modifier.height(18.dp))
-            Text(
-                text = "Učitavanje filmova...",
-                color = TextSecondary,
-                fontSize = 16.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun ErrorMovies(
-    message: String,
-    onRetry: () -> Unit,
-    onBack: () -> Unit
-) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "Nije moguće učitati filmove",
-                color = TextPrimary,
-                fontSize = 24.sp
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = message,
-                color = TextSecondary,
-                fontSize = 15.sp
-            )
-            Spacer(modifier = Modifier.height(26.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TvFocusableButton(
-                    modifier = Modifier
-                        .width(170.dp)
-                        .height(52.dp),
-                    onClick = onRetry
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(text = "Pokušaj ponovo", color = TextPrimary)
-                    }
-                }
-                TvFocusableButton(
-                    modifier = Modifier
-                        .width(130.dp)
-                        .height(52.dp),
-                    onClick = onBack
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(text = "Nazad", color = TextPrimary)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MoviesContent(
-    movies: List<TmdbMovie>,
-    onMovieClick: (TmdbMovie) -> Unit,
-    onBack: () -> Unit
-) {
-    val gridState = rememberLazyGridState()
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        MoviesHeader(
-            movieCount = movies.size,
-            onBack = onBack
+        Text(
+            text = "Filmovi i serije",
+            color = Color.White,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 48.dp, top = 32.dp, bottom = 8.dp)
         )
 
-        if (movies.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Nema dostupnih filmova.",
-                    color = TextSecondary,
-                    fontSize = 18.sp
-                )
-            }
+        if (loading) {
+            Box(modifier = Modifier.fillMaxSize().background(MoviesBackground))
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 160.dp),
-                state = gridState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = 48.dp,
-                    end = 48.dp,
-                    top = 10.dp,
-                    bottom = 80.dp
-                ),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
-                verticalArrangement = Arrangement.spacedBy(28.dp)
-            ) {
-                items(
-                    items = movies,
-                    key = { movie -> movie.id }
-                ) { movie ->
-                    MovieGridItem(
-                        movie = movie,
-                        onClick = { onMovieClick(movie) }
-                    )
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                if (movies.isNotEmpty()) {
+                    item(key = "movies-header") {
+                        RowHeader("Popularni filmovi")
+                    }
+                    item(key = "movies-row") {
+                        MoviesRow(movies = movies, onMovieClick = onMovieClick)
+                    }
+                }
+                if (series.isNotEmpty()) {
+                    item(key = "series-header") {
+                        RowHeader("Popularne serije")
+                    }
+                    item(key = "series-row") {
+                        MoviesRow(movies = series, onMovieClick = onMovieClick)
+                    }
+                }
+                item(key = "bottom-spacer") {
+                    Spacer(modifier = Modifier.height(60.dp))
                 }
             }
         }
@@ -206,88 +96,84 @@ private fun MoviesContent(
 }
 
 @Composable
-private fun MoviesHeader(
-    movieCount: Int,
-    onBack: () -> Unit
+private fun RowHeader(title: String) {
+    Text(
+        text = title,
+        color = Color.White,
+        fontSize = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 48.dp, top = 24.dp, bottom = 16.dp)
+    )
+}
+
+@Composable
+private fun MoviesRow(
+    movies: List<TmdbMovie>,
+    onMovieClick: (TmdbMovie) -> Unit
 ) {
-    Row(
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val rowAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(600), label = "row-alpha")
+    val rowOffsetY by animateFloatAsState(if (entered) 0f else 80f, tween(600), label = "row-offset")
+
+    LazyRow(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 48.dp, vertical = 28.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .graphicsLayer {
+                alpha = rowAlpha
+                translationY = rowOffsetY
+            },
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
     ) {
-        TvFocusableButton(
-            modifier = Modifier
-                .width(110.dp)
-                .height(48.dp),
-            onClick = onBack
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "‹ Nazad",
-                    color = TextPrimary,
-                    fontSize = 15.sp
-                )
-            }
-        }
-        Spacer(modifier = Modifier.width(26.dp))
-        Column {
-            Text(
-                text = "Filmovi",
-                color = TextPrimary,
-                fontSize = 30.sp
-            )
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-                text = "$movieCount dostupnih filmova",
-                color = TextSecondary,
-                fontSize = 14.sp
-            )
+        items(movies, key = { it.id }) { movie ->
+            MoviePosterCard(movie = movie, onClick = { onMovieClick(movie) })
         }
     }
 }
 
 @Composable
-private fun MovieGridItem(
+private fun MoviePosterCard(
     movie: TmdbMovie,
     onClick: () -> Unit
 ) {
-    Column(modifier = Modifier.width(160.dp)) {
-        Box(
+    Column(modifier = Modifier.width(150.dp)) {
+        TvFocusableButton(
+            onClick = onClick,
             modifier = Modifier
-                .width(160.dp)
-                .height(240.dp)
-                .background(
-                    Color(0xFF15171D),
-                    RoundedCornerShape(16.dp)
+                .width(150.dp)
+                .height(225.dp)
+        ) { focused ->
+            val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(220), label = "")
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .scale(scale)
+                    .clip(CardShape)
+                    .background(SurfaceBackground)
+                    .then(
+                        if (focused) Modifier.border(3.dp, Color.White, CardShape)
+                        else Modifier
+                    )
+            ) {
+                AsyncImage(
+                    model = "https://image.tmdb.org/t/p/w185" + movie.posterPath,
+                    contentDescription = movie.displayTitle,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
-                .border(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.08f),
-                    shape = RoundedCornerShape(16.dp)
-                )
-        ) {
-            MovieCard(
-                posterPath = movie.posterPath,
-                modifier = Modifier.fillMaxSize(),
-                onClick = onClick
-            )
+            }
         }
-        Spacer(modifier = Modifier.height(10.dp))
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         Text(
             text = movie.displayTitle,
-            color = TextPrimary,
-            fontSize = 15.sp,
-            maxLines = 2
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = movie.displayDate,
-            color = TextSecondary,
-            fontSize = 13.sp
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            lineHeight = 18.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
