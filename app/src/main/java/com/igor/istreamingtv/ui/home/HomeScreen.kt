@@ -197,6 +197,8 @@ private fun AppleTvHomeContent(
         initialFirstVisibleItemScrollOffset = initialScroll.offset
     )
 
+    val scope = rememberCoroutineScope()
+
     val openMovie: (TmdbMovie) -> Unit = { movie ->
         onSaveScroll(
             listState.firstVisibleItemIndex,
@@ -234,7 +236,16 @@ private fun AppleTvHomeContent(
                         currentIndex = heroIndex,
                         totalCount = heroItems.size,
                         onMovieClick = openMovie,
-                        scrollProgressState = scrollProgressState
+                        scrollProgressState = scrollProgressState,
+                        // ✅ FIX: kad fokus uđe u hero (TV strelice gore) →
+                        //    animiraj skrol na VRH da se vidi CEO hero banner
+                        onHeroGainedFocus = {
+                            if (listState.firstVisibleItemIndex != 0 ||
+                                listState.firstVisibleItemScrollOffset != 0
+                            ) {
+                                scope.launch { listState.animateScrollToItem(0) }
+                            }
+                        }
                     )
                 }
             }
@@ -427,13 +438,19 @@ private fun AppleTvHero(
     currentIndex: Int,
     totalCount: Int,
     onMovieClick: (TmdbMovie) -> Unit,
-    scrollProgressState: State<Float>
+    scrollProgressState: State<Float>,
+    onHeroGainedFocus: () -> Unit
 ) {
     Crossfade(targetState = item, animationSpec = tween(1000), label = "hero") { currentItem ->
         val movie = currentItem.movie
         val extras = heroExtras[movie.id]
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                // ✅ Kad bilo koje dugme u hero-u dobije fokus → okini scroll na vrh
+                .onFocusChanged { if (it.hasFocus) onHeroGainedFocus() }
+        ) {
 
             AsyncImage(
                 model = "https://image.tmdb.org/t/p/w1280" + movie.displayBackdropUrl(),
