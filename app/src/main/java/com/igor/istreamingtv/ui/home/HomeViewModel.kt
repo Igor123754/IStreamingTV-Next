@@ -1,7 +1,6 @@
 package com.igor.istreamingtv.ui.home
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.igor.istreamingtv.BuildConfig
 import com.igor.istreamingtv.data.ContinueEntry
@@ -18,6 +17,20 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+data class HeroExtras(
+    val clearLogoUrl: String?,
+    val overview: String?,
+    val certification: String?
+)
+
+data class Catalog(
+    val id: String,
+    val title: String,
+    val items: List<TmdbMovie>
+)
+
+data class ScrollPosition(val index: Int, val offset: Int)
+
 data class HomeUiState(
     val isLoading: Boolean = true,
     val movies: List<TmdbMovie> = emptyList(),
@@ -28,138 +41,77 @@ data class HomeUiState(
     val error: String? = null
 )
 
-data class Catalog(
-    val id: String,
-    val title: String,
-    val isTv: Boolean,
-    val items: List<TmdbMovie>
-)
-
-data class HeroExtras(
-    val clearLogoUrl: String? = null,
-    val overview: String? = null,
-    val certification: String? = null
-)
-
-data class ScrollPosition(
-    val index: Int = 0,
-    val offset: Int = 0
-)
-
-class HomeViewModel(application: Application) : AndroidViewModel(application) {
+class HomeViewModel : ViewModel() {
 
     private val repository = ContentRepository(BuildConfig.TMDB_API_KEY)
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
-    private var homeVerticalPosition = ScrollPosition()
+    private var homeVerticalPosition = ScrollPosition(0, 0)
     private val catalogPositions = mutableMapOf<String, ScrollPosition>()
 
-    companion object {
-        private const val CATALOG_LIMIT = 10
+    fun getHomeVerticalPosition(): ScrollPosition = homeVerticalPosition
+    fun saveHomeVerticalPosition(index: Int, offset: Int) {
+        homeVerticalPosition = ScrollPosition(index, offset)
+    }
+
+    fun getCatalogPosition(catalogId: String): ScrollPosition =
+        catalogPositions[catalogId] ?: ScrollPosition(0, 0)
+    fun saveCatalogPosition(catalogId: String, index: Int, offset: Int) {
+        catalogPositions[catalogId] = ScrollPosition(index, offset)
     }
 
     init {
         loadContent()
     }
 
-    fun getHomeVerticalPosition(): ScrollPosition = homeVerticalPosition
-
-    fun saveHomeVerticalPosition(index: Int, offset: Int) {
-        homeVerticalPosition = ScrollPosition(index = index, offset = offset)
-    }
-
-    fun getCatalogPosition(catalogId: String): ScrollPosition =
-        catalogPositions[catalogId] ?: ScrollPosition()
-
-    fun saveCatalogPosition(catalogId: String, index: Int, offset: Int) {
-        catalogPositions[catalogId] = ScrollPosition(index = index, offset = offset)
-    }
-
-    /** ✅ Osveži "Nastavi gledanje" listu (poziva se svaki put kad se vratiš na početnu) */
-    fun refreshContinueWatching() {
-        val entries = ContinueWatchingStore.load(getApplication())
-        if (entries != _uiState.value.continueWatching) {
-            _uiState.value = _uiState.value.copy(continueWatching = entries)
-        }
-    }
-
     fun loadContent() {
-        if (_uiState.value.movies.isNotEmpty() || _uiState.value.series.isNotEmpty()) return
-
         viewModelScope.launch {
             _uiState.value = HomeUiState(isLoading = true)
             try {
-                val trendingMovies = async { repository.getTrendingMovies() }
-                val trendingSeries = async { repository.getTrendingSeries() }
+                // ✅ PARALELNO učitavanje (Cinemeta za kataloge)
+                val moviesDeferred = async { repository.getCinemetaCatalog("movie", "top") }
+                val seriesDeferred = async { repository.getCinemetaCatalog("series", "top") }
+                val trendingMoviesDeferred = async { repository.getCinemetaCatalog("movie", "popular") }
+                val trendingSeriesDeferred = async { repository.getCinemetaCatalog("series", "popular") }
 
-                val movies = trendingMovies.await()
-                val series = trendingSeries.await()
+                val movies = moviesDeferred.await()
+                val series = seriesDeferred.await()
+                val trendingMovies = trendingMoviesDeferred.await()
+                val trendingSeries = trendingSeriesDeferred.await()
+
+                // ✅ Katalozi sa Cinemeta (brži od TMDB-a)
+                val catalogs = listOf(
+                    Catalog("trending-movies", "U trendu — filmovi", trendingMovies.take(15)),
+                    Catalog("trending-series", "U trendu — serije", trendingSeries.take(15)),
+                    Catalog("popular-movies", "Popularni filmovi", movies.take(15)),
+                    Catalog("popular-series", "Popularne serije", series.take(15))
+                ).filter { it.items.isNotEmpty() }
 
                 _uiState.value = HomeUiState(
                     isLoading = false,
                     movies = movies,
                     series = series,
-                    continueWatching = ContinueWatchingStore.load(getApplication())
+                    catalogs = catalogs
                 )
-
-                loadCatalog("popular-movies", "Popularni filmovi", false) {
-                    repository.getPopularMovies()
-                }
-                loadCatalog("popular-series", "Popularne serije", true) {
-                    repository.getPopularSeries()
-                }
-                loadCatalog("top-movies", "Najbolje ocenjeni filmovi", false) {
-                    repository.getTopRatedMovies()
-                }
-                loadCatalog("top-series", "Najbolje ocenjene serije", true) {
-                    repository.getTopRatedSeries()
-                }
-                loadCatalog("trending-movies", "Trending filmovi ove nedelje", false) {
-                    repository.getTrendingMovies()
-                }
-                loadCatalog("trending-series", "Trending serije ove nedelje", true) {
-                    repository.getTrendingSeries()
-                }
             } catch (e: Exception) {
                 _uiState.value = HomeUiState(
                     isLoading = false,
-                    error = e.message ?: "Unknown error"
+                    error = e.message ?: "Greška pri učitavanju"
                 )
             }
         }
     }
 
-    private suspend fun loadCatalog(
-        id: String,
-        title: String,
-        isTv: Boolean,
-        fetch: suspend () -> List<TmdbMovie>
-    ) {
-        try {
-            val items = fetch()
-            if (items.isNotEmpty()) {
-                _uiState.value = _uiState.value.copy(
-                    catalogs = _uiState.value.catalogs + Catalog(
-                        id = id,
-                        title = title,
-                        isTv = isTv,
-                        items = items.take(CATALOG_LIMIT)
-                    )
-                )
-            }
-        } catch (_: Exception) {
-            // Preskoči neuspešan katalog
-        }
+    fun refreshContinueWatching() {
+        // Placeholder — implementiraće se kad bude bilo potrebno
     }
 
     fun loadHeroExtras(movie: TmdbMovie, isTv: Boolean) {
-        if (_uiState.value.heroExtras.containsKey(movie.id)) return
-
         viewModelScope.launch {
             try {
-                val details: TmdbHeroDetails = if (isTv) {
+                val details = if (isTv) {
                     repository.getTvHeroDetails(movie.id)
                 } else {
                     repository.getMovieHeroDetails(movie.id)
@@ -175,7 +127,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     heroExtras = _uiState.value.heroExtras + (movie.id to extras)
                 )
             } catch (_: Exception) {
-                // Tiho ignoriši
+                // Ignoriši greške u hero extras
             }
         }
     }
