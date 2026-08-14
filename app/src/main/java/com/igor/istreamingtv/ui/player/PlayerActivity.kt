@@ -190,7 +190,6 @@ class PlayerActivity : ComponentActivity() {
         if ((event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_ESCAPE) &&
             event.action == KeyEvent.ACTION_DOWN
         ) {
-            // Ako je panel otvoren → zatvori panel (ne gasi plejer)
             if (menuKind != TrackMenuKind.NONE) {
                 menuKind = TrackMenuKind.NONE
                 return true
@@ -207,7 +206,6 @@ class PlayerActivity : ComponentActivity() {
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE -> { togglePlayInternal(); return true }
             KeyEvent.KEYCODE_DPAD_CENTER -> {
-                // Stiže samo kad nijedan fokusiran čvor nije pojeo događaj
                 if (menuKind == TrackMenuKind.NONE) { togglePlayInternal(); return true }
             }
         }
@@ -448,7 +446,6 @@ private fun disableSubtitles(player: Player) {
         .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
 }
 
-/** Lista opcija + trenutno izabrana za panel */
 private fun buildPanelData(player: Player?, type: Int): Pair<List<String>, Int> {
     val p = player ?: return emptyList<String>() to 0
     val labels = mutableListOf<String>()
@@ -458,7 +455,8 @@ private fun buildPanelData(player: Player?, type: Int): Pair<List<String>, Int> 
     var idx = if (type == C.TRACK_TYPE_TEXT) 1 else 0
     p.currentTracks.groups.forEach { g ->
         if (g.type == type) for (i in 0 until g.length) {
-            labels.add(g.getTrackFormat(i).label ?: audioLanguageName(g.getTrackFormat(i).language))
+            val f = g.getTrackFormat(i)
+            labels.add(f.label ?: audioLanguageName(f.language))
             if (!disabled && g.isTrackSelected(i)) sel = idx
             idx++
         }
@@ -502,10 +500,6 @@ private fun AudioIcon(modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * ✅ DRUGA RAVAN — panel podešavanja (Apple TV+ stil).
- * Jedan fokusabilan čvor koji SAM hvata gore/dole/OK/nazad → 100% radi na TV-u.
- */
 @Composable
 private fun SettingsPanel(
     title: String,
@@ -606,7 +600,6 @@ private fun AppleSeekBar(
     }
 }
 
-/** Okruglo kontrolno dugme sa eksplicitnim fokusom (radi i touch i TV) */
 @Composable
 private fun CircleControlButton(
     focusRequester: FocusRequester,
@@ -736,7 +729,13 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             )
         })
 
-        if (isBuffering) CircularProgressIndicator(Color.White, Modifier.size(56.dp).align(Alignment.Center))
+        // ✅ FIX: imenovani argumenti za CircularProgressIndicator
+        if (isBuffering) {
+            CircularProgressIndicator(
+                color = Color.White,
+                modifier = Modifier.size(56.dp).align(Alignment.Center)
+            )
+        }
 
         if (showSkipIntro) {
             TvFocusableButton(
@@ -829,13 +828,10 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             }
         }
 
-        // ✅ DRUGA RAVAN — paneli za titlove / audio
         if (menuKind == TrackMenuKind.SUBTITLES) {
             val (labels, sel) = buildPanelData(activity.player, C.TRACK_TYPE_TEXT)
             SettingsPanel(
-                title = "Titlovi",
-                options = labels,
-                initialSelected = sel,
+                title = "Titlovi", options = labels, initialSelected = sel,
                 onSelect = { i ->
                     val p = activity.player
                     if (p != null) {
@@ -850,9 +846,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         if (menuKind == TrackMenuKind.AUDIO) {
             val (labels, sel) = buildPanelData(activity.player, C.TRACK_TYPE_AUDIO)
             SettingsPanel(
-                title = "Audio",
-                options = labels,
-                initialSelected = sel,
+                title = "Audio", options = labels, initialSelected = sel,
                 onSelect = { i ->
                     val p = activity.player
                     if (p != null) collectOptions(p, C.TRACK_TYPE_AUDIO).getOrNull(i)?.let { selectOption(p, groups, it) }
