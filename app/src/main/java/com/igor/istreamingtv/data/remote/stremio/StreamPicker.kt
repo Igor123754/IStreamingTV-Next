@@ -1,27 +1,31 @@
 package com.igor.istreamingtv.data.remote
 
-import com.google.gson.JsonParser
+import com.igor.istreamingtv.data.remote.TmdbClient.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
-/**
- * PAMETAN IZBOR STREAM-A — bez ručnog biranja.
- * 1) Povuče stream-ove sa addona (konfigurisan: samo 1080p, sort desc)
- * 2) Odbaci torrente/magnete (samo https://)
- * 3) Sortira po kvalitetu ZA 1080p TV: 1080p PRVO, 4K NA KRAJU (preteško)
- * 4) Validira u pozadini (HTTP probe) da "Gledaj" ima najbolji RADNI link
- */
+@Serializable
+private data class StreamResponse(
+    val streams: List<StreamItem> = emptyList()
+)
+
+@Serializable
+private data class StreamItem(
+    val name: String? = null,
+    val title: String? = null,
+    val url: String? = null
+)
+
 object StreamPicker {
 
-    // 🔧 ADDON ZA STRIMOVANJE — HTTPS direktan (hdhub)
-    //    Konfiguracija addona: qualities=1080p, sort=desc (bez 4K linkova)
-    //    Ako ikada zameniš addon, menjaš SAMO ovu liniju (bez /manifest.json).
     const val ADDON_BASE_URL =
         "https://hdhub.thevolecitor.qzz.io/eyJ0b3Jib3giOiJ1bnNldCIsInF1YWxpdGllcyI6IjEwODBwIiwic29ydCI6ImRlc2MiLCJjYXRhbG9ncyI6IiJ9"
 
@@ -34,26 +38,21 @@ object StreamPicker {
 
     data class Candidate(
         val url: String,
-        val quality: Int,          // 4 = 4K, 3 = 1080p, 2 = 720p, 1 = 480p, 0 = nepoznato
+        val quality: Int,
         val qualityLabel: String,
         val validated: Boolean = false
     )
 
-    /**
-     * Rang ZA OVAJ UREĐAJ (1080p TV, slabiji hardver):
-     * 1080p = najbolji → 720p → 480p → AUTO → 4K NA KRAJU (preteško, nema smisla)
-     */
     private fun deviceRank(quality: Int): Int = when (quality) {
-        3 -> 4   // 1080p — savršeno za TV
-        2 -> 3   // 720p — solidna rezerva
-        1 -> 2   // 480p — poslednja rezerva
-        0 -> 1   // AUTO
-        else -> 0 // 4K — začelje (uređaj bi se gušio)
+        3 -> 4
+        2 -> 3
+        1 -> 2
+        0 -> 1
+        else -> 0
     }
 
-    /** Povuci + filtriraj (bez torenata) + sortira po deviceRank */
     suspend fun getCandidates(
-        type: String,               // "movie" | "series"
+        type: String,
         imdbId: String,
         season: Int = -1,
         episode: Int = -1
@@ -69,20 +68,17 @@ object StreamPicker {
             response.close()
             if (body.isNullOrBlank()) return@withContext emptyList<Candidate>()
 
-            val obj = JsonParser.parseString(body).asJsonObject
-            val arr = obj.getAsJsonArray("streams") ?: return@withContext emptyList<Candidate>()
+            // ✅ Type-safe parsing
+            val parsed = json.decodeFromString<StreamResponse>(body)
 
-            arr.mapNotNull { el ->
-                val o = el.asJsonObject
-                val url = o.get("url")?.takeIf { !it.isJsonNull }?.asString
-                    ?: return@mapNotNull null
-                // ❌ TORRENTI NAPOLJE — samo direktan HTTPS
+            parsed.streams.mapNotNull { item ->
+                val url = item.url ?: return@mapNotNull null
                 if (!url.startsWith("http")) return@mapNotNull null
 
                 val text = buildString {
-                    append(o.get("name")?.takeIf { !it.isJsonNull }?.asString ?: "")
+                    append(item.name ?: "")
                     append(' ')
-                    append(o.get("title")?.takeIf { !it.isJsonNull }?.asString ?: "")
+                    append(item.title ?: "")
                 }
                 val (q, label) = parseQuality(text)
                 Candidate(url, q, label)
@@ -94,10 +90,6 @@ object StreamPicker {
         }
     }
 
-    /**
-     * Priprema u pozadini: validira prvih N kandidata paralelno.
-     * Redosled na kraju: prvo VALIDIRANI (po deviceRank), pa ostali kao rezerva.
-     */
     suspend fun prepare(candidates: List<Candidate>, maxChecks: Int = 5): List<Candidate> {
         if (candidates.isEmpty()) return candidates
         return withContext(Dispatchers.IO) {
@@ -112,7 +104,6 @@ object StreamPicker {
         }
     }
 
-    /** HTTP probe: da li link odgovara (2xx / 3xx / 206) */
     private fun probe(url: String): Boolean {
         return try {
             val request = Request.Builder()
@@ -141,7 +132,6 @@ object StreamPicker {
         }
     }
 
-    /** Sinhrona verzija za plejer (sledeća epizoda) */
     fun getCandidatesBlocking(type: String, imdbId: String, season: Int, episode: Int): List<Candidate> =
         runBlocking { getCandidates(type, imdbId, season, episode) }
 }
