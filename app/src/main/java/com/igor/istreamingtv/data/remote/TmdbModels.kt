@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class MovieResponse(
-    val results: List<TmdbMovie>,
+    val results: List<TmdbMovie> = emptyList(),
     val page: Int = 0,
     @SerialName("total_pages")
     val totalPages: Int = 0
@@ -46,8 +46,8 @@ val TmdbMovie.displayDate: String get() = releaseDate ?: ""
 @Serializable
 data class TmdbMovieDetails(
     val id: Int,
-    val title: String,
-    val overview: String,
+    val title: String = "",
+    val overview: String = "",
     @SerialName("poster_path")
     val posterPath: String? = null,
     @SerialName("backdrop_path")
@@ -72,7 +72,7 @@ data class Genre(
 // ===== HERO / DETALJI =====
 @Serializable
 data class TmdbHeroDetails(
-    val valid: Int = 0,
+    val id: Int = 0,
     val title: String? = null,
     val name: String? = null,
     val overview: String? = null,
@@ -112,7 +112,7 @@ data class TmdbExternalIds(
 
 @Serializable
 data class TmdbCollection(
-    val valid: Int = 0,
+    val id: Int = 0,
     val name: String? = null,
     @SerialName("poster_path")
     val posterPath: String? = null
@@ -120,14 +120,15 @@ data class TmdbCollection(
 
 @Serializable
 data class TmdbCollectionDetails(
-    val valid: Int = 0,
+    val id: Int = 0,
     val name: String? = null,
     val parts: List<TmdbMovie> = emptyList()
 )
 
+// ===== SEZONE I EPIZODE =====
 @Serializable
 data class TmdbSeason(
-    val valid: Int = 0,
+    val id: Int = 0,
     @SerialName("season_number")
     val seasonNumber: Int = 0,
     val name: String? = null,
@@ -141,7 +142,7 @@ data class TmdbSeason(
 
 @Serializable
 data class TmdbEpisode(
-    val valid: Int = 0,
+    val id: Int = 0,
     val name: String? = null,
     val overview: String? = null,
     @SerialName("episode_number")
@@ -159,11 +160,12 @@ data class TmdbEpisode(
 
 @Serializable
 data class TmdbSeasonDetails(
-    val valid: Int = 0,
+    val id: Int = 0,
     val name: String? = null,
     val episodes: List<TmdbEpisode> = emptyList()
 )
 
+// ===== OSTALO =====
 @Serializable
 data class TmdbCredits(
     val cast: List<TmdbCast> = emptyList()
