@@ -70,18 +70,19 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.google.gson.JsonParser
 import com.igor.istreamingtv.data.ContinueEntry
 import com.igor.istreamingtv.data.ContinueWatchingStore
 import com.igor.istreamingtv.data.remote.StreamPicker
 import com.igor.istreamingtv.data.remote.SubtitleFetcher
 import com.igor.istreamingtv.data.remote.SubtitleTrack
+import com.igor.istreamingtv.data.remote.TmdbClient
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.Serializable
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.text.SimpleDateFormat
@@ -228,15 +229,21 @@ class PlayerActivity : ComponentActivity() {
 
             if (body.isNullOrBlank()) return@withContext null
 
-            val json = JsonParser.parseString(body).asJsonObject
-            val start = json.get("start")?.asDouble ?: return@withContext null
-            val end = json.get("end")?.asDouble ?: return@withContext null
+            val json = TmdbClient.json.decodeFromString<IntroResponse>(body)
+            val start = json.start
+            val end = json.end
 
             if (start >= 0 && end > start) Pair(start, end) else null
         } catch (_: Exception) {
             null
         }
     }
+
+    @Serializable
+    private data class IntroResponse(
+        val start: Double = 0.0,
+        val end: Double = 0.0
+    )
 
     internal fun skipIntro() {
         val p = player ?: return
@@ -246,42 +253,27 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun parseIntent() {
-        intent.getStringExtra("candidates")?.let { json ->
+        // ✅ Type-safe: Json array strings
+        intent.getStringExtra("candidates")?.let { jsonString ->
             try {
-                val arr = JsonParser.parseString(json).asJsonArray
-                arr.forEach { el ->
-                    el.takeIf { !it.isJsonNull }?.asString?.let { candidateUrls.add(it) }
-                }
+                val urls = TmdbClient.json.decodeFromString<List<String>>(jsonString)
+                candidateUrls.addAll(urls)
             } catch (_: Exception) {
             }
         }
 
-        intent.getStringExtra("subtitle_tracks")?.let { json ->
+        intent.getStringExtra("subtitle_tracks")?.let { jsonString ->
             try {
-                val arr = JsonParser.parseString(json).asJsonArray
-                arr.forEach { el ->
-                    val o = el.asJsonObject
-                    val url = o.get("url")?.takeIf { !it.isJsonNull }?.asString ?: return@forEach
-                    val lang = o.get("lang")?.takeIf { !it.isJsonNull }?.asString ?: "sr"
-                    val dur = try {
-                        o.get("durationSec")?.takeIf { !it.isJsonNull }?.asInt
-                    } catch (_: Exception) {
-                        null
-                    }
-                    currentSubtitleTracks.add(SubtitleTrack(url, lang, dur))
-                }
+                val tracks = TmdbClient.json.decodeFromString<List<SubtitleTrack>>(jsonString)
+                currentSubtitleTracks.addAll(tracks)
             } catch (_: Exception) {
             }
         }
         if (currentSubtitleTracks.isEmpty()) {
-            intent.getStringExtra("subtitle_urls")?.let { json ->
+            intent.getStringExtra("subtitle_urls")?.let { jsonString ->
                 try {
-                    val arr = JsonParser.parseString(json).asJsonArray
-                    arr.forEach { el ->
-                        el.takeIf { !it.isJsonNull }?.asString?.let {
-                            currentSubtitleTracks.add(SubtitleTrack(it, "sr"))
-                        }
-                    }
+                    val urls = TmdbClient.json.decodeFromString<List<String>>(jsonString)
+                    urls.forEach { currentSubtitleTracks.add(SubtitleTrack(it, "sr")) }
                 } catch (_: Exception) {
                 }
             }
@@ -296,19 +288,24 @@ class PlayerActivity : ComponentActivity() {
             intent.getStringExtra("url")?.takeIf { it.isNotBlank() }?.let { candidateUrls.add(it) }
         }
         if (candidateUrls.isEmpty()) {
-            intent.getStringExtra("stream")?.let { json ->
+            intent.getStringExtra("stream")?.let { jsonString ->
                 try {
-                    val obj = JsonParser.parseString(json).asJsonObject
-                    val url = obj.get("url")?.takeIf { !it.isJsonNull }?.asString
-                        ?: obj.get("externalUrl")?.takeIf { !it.isJsonNull }?.asString
+                    val streamObj = TmdbClient.json.decodeFromString<StreamObject>(jsonString)
+                    val url = streamObj.url ?: streamObj.externalUrl
                     if (!url.isNullOrBlank()) candidateUrls.add(url)
                 } catch (_: Exception) {
-                    if (json.startsWith("http")) candidateUrls.add(json)
+                    if (jsonString.startsWith("http")) candidateUrls.add(jsonString)
                 }
             }
         }
         intent.data?.toString()?.let { if (candidateUrls.isEmpty()) candidateUrls.add(it) }
     }
+
+    @Serializable
+    private data class StreamObject(
+        val url: String? = null,
+        val externalUrl: String? = null
+    )
 
     private fun playCandidate(index: Int) {
         candidateIndex = index
@@ -531,7 +528,6 @@ class PlayerActivity : ComponentActivity() {
                 position > 5_000 -> prefs.edit().putLong(url, position).apply()
             }
 
-            // ✅ NASTAVI GLEDANJE — upisuj stavku sa metapodacima
             if (!imdbId.isNullOrBlank() || playerTitle.isNotBlank()) {
                 val key = if (seasonNumber >= 0) {
                     "${imdbId}_s${seasonNumber}_e${episodeNumber}"
