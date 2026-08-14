@@ -37,7 +37,8 @@ data class HomeUiState(
     val series: List<TmdbMovie> = emptyList(),
     val catalogs: List<Catalog> = emptyList(),
     val continueWatching: List<ContinueEntry> = emptyList(),
-    val heroExtras: Map<Int, HeroExtras> = emptyMap(),
+    // ✅ KLJUČ JE SADA STRING (IMDb ID) — Cinemeta stavke imaju id == 0!
+    val heroExtras: Map<String, HeroExtras> = emptyMap(),
     val error: String? = null
 )
 
@@ -109,8 +110,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ✅ Hero extras po IMDb ID-u (svaki naslov ima svoj unos)
     fun loadHeroExtras(movie: TmdbMovie, isTv: Boolean) {
-        if (_uiState.value.heroExtras.containsKey(movie.id) && movie.id != 0) return
+        val key = movie.imdbId ?: movie.id.toString()
+        if (_uiState.value.heroExtras.containsKey(key)) return
         viewModelScope.launch {
             try {
                 var tmdbId = movie.id
@@ -126,7 +129,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     certification = details.pickCertification()
                 )
                 _uiState.value = _uiState.value.copy(
-                    heroExtras = _uiState.value.heroExtras + (movie.id to extras)
+                    heroExtras = _uiState.value.heroExtras + (key to extras)
                 )
             } catch (_: Exception) {
             }
