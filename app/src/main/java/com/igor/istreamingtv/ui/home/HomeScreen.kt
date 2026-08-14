@@ -2,10 +2,13 @@ package com.igor.istreamingtv.ui.home
 
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -23,9 +26,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +46,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.google.gson.Gson
 import com.igor.istreamingtv.data.ContinueEntry
+import com.igor.istreamingtv.data.ContinueWatchingStore
 import com.igor.istreamingtv.data.remote.*
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.player.PlayerActivity
@@ -106,6 +116,13 @@ fun HomeScreen(
         }
     }
 
+    // ✅ Dugi prst / dugi OK = ukloni iz "Nastavi gledanje"
+    val onRemoveContinue: (ContinueEntry) -> Unit = { entry ->
+        ContinueWatchingStore.remove(context, entry.key)
+        Toast.makeText(context, "Uklonjeno: ${entry.title}", Toast.LENGTH_SHORT).show()
+        viewModel.refreshContinueWatching()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -129,6 +146,7 @@ fun HomeScreen(
                 onSaveCatalogPosition = viewModel::saveCatalogPosition,
                 onMovieClick = onMovieClick,
                 onResume = onResume,
+                onRemoveContinue = onRemoveContinue,
                 onLoadHeroExtras = viewModel::loadHeroExtras
             )
         }
@@ -148,6 +166,7 @@ private fun AppleTvHomeContent(
     onSaveCatalogPosition: (String, Int, Int) -> Unit,
     onMovieClick: (TmdbMovie) -> Unit,
     onResume: (ContinueEntry) -> Unit,
+    onRemoveContinue: (ContinueEntry) -> Unit,
     onLoadHeroExtras: (TmdbMovie, Boolean) -> Unit
 ) {
     val heroItems = remember(movies, series) {
@@ -216,7 +235,8 @@ private fun AppleTvHomeContent(
             item(key = "continue") {
                 ContinueRowSection(
                     entries = continueWatching,
-                    onResume = onResume
+                    onResume = onResume,
+                    onRemove = onRemoveContinue
                 )
             }
         }
@@ -239,13 +259,14 @@ private fun AppleTvHomeContent(
 }
 
 /**
- * ✅ "Nastavi gledanje" red — Apple TV+ "Up Next" stil:
- * landscape kartice sa progress bar-om, naslov + "Nastavi · S1, E17"
+ * ✅ "Nastavi gledanje" red — Apple TV+ "Up Next" stil.
+ * Kratak klik/OK = nastavi; DUGI prst / dugi OK = ukloni iz liste.
  */
 @Composable
 private fun ContinueRowSection(
     entries: List<ContinueEntry>,
-    onResume: (ContinueEntry) -> Unit
+    onResume: (ContinueEntry) -> Unit,
+    onRemove: (ContinueEntry) -> Unit
 ) {
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
@@ -273,7 +294,11 @@ private fun ContinueRowSection(
             contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
         ) {
             items(entries, key = { it.key }) { entry ->
-                ContinueCard(entry = entry, onClick = { onResume(entry) })
+                ContinueCard(
+                    entry = entry,
+                    onClick = { onResume(entry) },
+                    onRemove = { onRemove(entry) }
+                )
             }
         }
     }
@@ -282,20 +307,60 @@ private fun ContinueRowSection(
 @Composable
 private fun ContinueCard(
     entry: ContinueEntry,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onRemove: () -> Unit
 ) {
     val fraction = if (entry.durationMs > 0) {
         (entry.positionMs.toFloat() / entry.durationMs).coerceIn(0f, 1f)
     } else 0f
 
+    var focused by remember { mutableStateOf(false) }
+    var pendingClick by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(220), label = "")
+
     Column(modifier = Modifier.width(240.dp)) {
-        TvFocusableButton(
-            onClick = onClick,
+        Box(
             modifier = Modifier
                 .width(240.dp)
                 .height(135.dp)
-        ) { focused ->
-            val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(220), label = "")
+                // Touch: kratki tap = play, dugi prst = ukloni
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onRemove
+                )
+                // TV fokus + daljinski: OK = play, DUGI OK (repeat) = ukloni
+                .focusable()
+                .onFocusChanged { focused = it.isFocused }
+                .onPreviewKeyEvent { event ->
+                    when {
+                        event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionCenter -> {
+                            when {
+                                // Dugi OK (~1s) = ukloni iz liste
+                                event.nativeKeyEvent.repeatCount >= 6 -> {
+                                    pendingClick = false
+                                    onRemove()
+                                    true
+                                }
+                                // Držanje — čekamo (ili će postati long-press ili KeyUp)
+                                event.nativeKeyEvent.repeatCount > 0 -> true
+                                // Prvi pritisak — klik tek na KeyUp
+                                else -> {
+                                    pendingClick = true
+                                    true
+                                }
+                            }
+                        }
+                        event.type == KeyEventType.KeyUp &&
+                            event.key == Key.DirectionCenter -> {
+                            if (pendingClick) onClick()
+                            pendingClick = false
+                            true
+                        }
+                        else -> false
+                    }
+                }
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -314,7 +379,7 @@ private fun ContinueCard(
                     contentScale = ContentScale.Crop
                 )
 
-                // ✅ Progress bar dole (kao na Apple TV+ screenshot-u)
+                // Progress bar dole (kao na Apple TV+ screenshot-u)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -550,7 +615,7 @@ private fun AppleTvHero(
 }
 
 /**
- * Red kataloga — ✅ pamti horizontalnu poziciju po katalogu
+ * Red kataloga — pamti horizontalnu poziciju po katalogu
  */
 @Composable
 private fun CatalogRowSection(
@@ -564,7 +629,6 @@ private fun CatalogRowSection(
     val rowAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(600), label = "row-alpha")
     val rowOffsetY by animateFloatAsState(if (entered) 0f else 80f, tween(600), label = "row-offset")
 
-    // ✅ LazyRow state sa sačuvanom pozicijom
     val rowState = rememberLazyListState(
         initialFirstVisibleItemIndex = initialPosition.index,
         initialFirstVisibleItemScrollOffset = initialPosition.offset
@@ -595,7 +659,6 @@ private fun CatalogRowSection(
                 PosterCard(
                     movie = movie,
                     onClick = {
-                        // ✅ Sačuvaj poziciju reda pre odlaska na detalje
                         onSavePosition(
                             rowState.firstVisibleItemIndex,
                             rowState.firstVisibleItemScrollOffset
