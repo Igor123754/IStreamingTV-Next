@@ -73,4 +73,14 @@ object ContinueWatchingStore {
             .putString(KEY_ENTRIES, gson.toJson(list))
             .apply()
     }
+
+    /** ✅ Ručno uklanjanje (dugi prst / dugi OK) */
+    fun remove(context: Context, key: String) {
+        val list = load(context).toMutableList()
+        list.removeAll { it.key == key }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_ENTRIES, gson.toJson(list))
+            .apply()
+    }
 }
