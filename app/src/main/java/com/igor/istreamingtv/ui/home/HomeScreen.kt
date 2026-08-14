@@ -92,7 +92,6 @@ fun HomeScreen(
         viewModel.refreshContinueWatching()
     }
 
-    // ✅ Nastavi gledanje — Type-safe JSON serialization
     val onResume: (ContinueEntry) -> Unit = { entry ->
         scope.launch {
             if (entry.imdbId.isNullOrBlank()) return@launch
@@ -209,16 +208,6 @@ private fun AppleTvHomeContent(
 
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
 
-    val scrollProgressState = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.layoutInfo.visibleItemsInfo.firstOrNull() }
-            .collect { item ->
-                val size = item?.size?.coerceAtLeast(1) ?: 1
-                scrollProgressState.value =
-                    (-(item?.offset ?: 0).toFloat() / size).coerceIn(0f, 1f)
-            }
-    }
-
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize()
@@ -236,9 +225,6 @@ private fun AppleTvHomeContent(
                         currentIndex = heroIndex,
                         totalCount = heroItems.size,
                         onMovieClick = openMovie,
-                        scrollProgressState = scrollProgressState,
-                        // ✅ FIX: kad fokus uđe u hero (TV strelice gore) →
-                        //    animiraj skrol na VRH da se vidi CEO hero banner
                         onHeroGainedFocus = {
                             if (listState.firstVisibleItemIndex != 0 ||
                                 listState.firstVisibleItemScrollOffset != 0
@@ -431,6 +417,10 @@ private fun ContinueCard(
     }
 }
 
+/**
+ * ✅ HERO BEZ PARALAKSE — skrol je sada glatak (nema per-frame skaliranja
+ * fullscreen slike). Hero se samo normalno skroluje kao na Apple TV+.
+ */
 @Composable
 private fun AppleTvHero(
     item: HeroItem,
@@ -438,7 +428,6 @@ private fun AppleTvHero(
     currentIndex: Int,
     totalCount: Int,
     onMovieClick: (TmdbMovie) -> Unit,
-    scrollProgressState: State<Float>,
     onHeroGainedFocus: () -> Unit
 ) {
     Crossfade(targetState = item, animationSpec = tween(1000), label = "hero") { currentItem ->
@@ -448,20 +437,13 @@ private fun AppleTvHero(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                // ✅ Kad bilo koje dugme u hero-u dobije fokus → okini scroll na vrh
                 .onFocusChanged { if (it.hasFocus) onHeroGainedFocus() }
         ) {
 
             AsyncImage(
                 model = "https://image.tmdb.org/t/p/w1280" + movie.displayBackdropUrl(),
                 contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        val p = scrollProgressState.value
-                        scaleX = 1f + p * 0.08f
-                        scaleY = 1f + p * 0.08f
-                    },
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
 
@@ -486,15 +468,7 @@ private fun AppleTvHero(
                     )
             )
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        val p = scrollProgressState.value
-                        alpha = (1f - p * 1.2f).coerceIn(0f, 1f)
-                        translationY = p * 240f
-                    }
-            ) {
+            Box(modifier = Modifier.fillMaxSize()) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -711,7 +685,8 @@ private fun PosterCard(
                     )
             ) {
                 AsyncImage(
-                    model = "https://image.tmdb.org/t/p/w185" + movie.posterPath,
+                    // ✅ w342 umesto w185 — oštri, čitljivi posteri i na tabletu i na TV-u
+                    model = "https://image.tmdb.org/t/p/w342" + movie.posterPath,
                     contentDescription = movie.displayTitle,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
