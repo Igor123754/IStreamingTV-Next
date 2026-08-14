@@ -29,12 +29,9 @@ interface TmdbApi {
         @Path("movie_id") movieId: Int
     ): TmdbMovieDetails
 
-    // ✅ SRPSKI sa engleskim fallback-om — TMDB vraća srpski overview/title
-    //    direktno kad postoji, engleski samo ako srpskog nema
     @GET("movie/{movie_id}")
     suspend fun getMovieHeroDetails(
         @Path("movie_id") movieId: Int,
-        @Query("language") language: String = "sr-RS,en-US",
         @Query("append_to_response") appendToResponse: String =
             "images,translations,release_dates,credits"
     ): TmdbHeroDetails
@@ -42,7 +39,6 @@ interface TmdbApi {
     @GET("tv/{tv_id}")
     suspend fun getTvHeroDetails(
         @Path("tv_id") tvId: Int,
-        @Query("language") language: String = "sr-RS,en-US",
         @Query("append_to_response") appendToResponse: String =
             "images,translations,content_ratings,credits,external_ids"
     ): TmdbHeroDetails
@@ -52,12 +48,10 @@ interface TmdbApi {
         @Path("collection_id") collectionId: Int
     ): TmdbCollectionDetails
 
-    // ✅ Sezone/epizode takođe sa fallback-om (da epizode nikad ne ostanu bez opisa)
-    @GET("tv/{tv_id}/season/{season_number}")
+    @GET("tv/{tv_id}/season/{season_number}?language=sr-RS")
     suspend fun getSeasonDetails(
         @Path("tv_id") tvId: Int,
-        @Path("season_number") seasonNumber: Int,
-        @Query("language") language: String = "sr-RS,en-US"
+        @Path("season_number") seasonNumber: Int
     ): TmdbSeasonDetails
 
     @GET("movie/{movie_id}/similar?language=sr-RS")
@@ -69,4 +63,11 @@ interface TmdbApi {
     suspend fun getSimilarSeries(
         @Path("tv_id") tvId: Int
     ): MovieResponse
+
+    // ✅ NOVO — nalaženje TMDB id-a preko IMDb id-a (za Cinemeta stavke)
+    @GET("find/{external_id}")
+    suspend fun findByImdbId(
+        @Path("external_id") externalId: String,
+        @Query("external_source") externalSource: String = "imdb_id"
+    ): TmdbFindResponse
 }
