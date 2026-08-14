@@ -42,23 +42,32 @@ class MovieDetailsViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(DetailsUiState())
     val uiState: StateFlow<DetailsUiState> = _uiState.asStateFlow()
 
+    // ✅ Rezolovani TMDB id (za Cinemeta stavke sa id == 0)
+    private var resolvedId: Int = 0
+
     fun load(movie: TmdbMovie, isTv: Boolean) {
         viewModelScope.launch {
             _uiState.value = DetailsUiState(isLoading = true, preparingStreams = true)
             try {
-                val details = if (isTv) {
-                    tmdbRepository.getTvHeroDetails(movie.id)
-                } else {
-                    tmdbRepository.getMovieHeroDetails(movie.id)
+                // ✅ IMDb → TMDB id ako je potrebno
+                var tmdbId = movie.id
+                if (tmdbId <= 0 && !movie.imdbId.isNullOrBlank()) {
+                    tmdbId = tmdbRepository.resolveTmdbId(movie.imdbId, isTv) ?: 0
                 }
+                if (tmdbId <= 0) {
+                    _uiState.value = DetailsUiState(isLoading = false, error = "Naslov nije pronađen")
+                    return@launch
+                }
+                resolvedId = tmdbId
+
+                val details = if (isTv) tmdbRepository.getTvHeroDetails(tmdbId)
+                else tmdbRepository.getMovieHeroDetails(tmdbId)
 
                 val similarDeferred = async {
                     try {
-                        if (isTv) tmdbRepository.getSimilarSeries(movie.id)
-                        else tmdbRepository.getSimilarMovies(movie.id)
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
+                        if (isTv) tmdbRepository.getSimilarSeries(tmdbId)
+                        else tmdbRepository.getSimilarMovies(tmdbId)
+                    } catch (_: Exception) { emptyList() }
                 }
 
                 var collectionName: String? = null
@@ -70,11 +79,9 @@ class MovieDetailsViewModel : ViewModel() {
                             val collection = tmdbRepository.getCollectionDetails(collectionId)
                             collectionName = collection.name
                             collectionParts = collection.parts
-                                .filter { it.id != movie.id }
+                                .filter { it.id != tmdbId }
                                 .sortedBy { it.releaseDate ?: "" }
-                        } catch (_: Exception) {
-                            // Nema kolekcije
-                        }
+                        } catch (_: Exception) { }
                     }
                 }
 
@@ -84,9 +91,8 @@ class MovieDetailsViewModel : ViewModel() {
                 if (isTv) {
                     seasons = details.seasons ?: emptyList()
                     selectedSeason = seasons.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
-                        ?: seasons.firstOrNull()?.seasonNumber
-                        ?: 0
-                    episodes = fetchEpisodes(movie.id, selectedSeason)
+                        ?: seasons.firstOrNull()?.seasonNumber ?: 0
+                    episodes = fetchEpisodes(tmdbId, selectedSeason)
                 }
 
                 _uiState.value = _uiState.value.copy(
@@ -103,7 +109,7 @@ class MovieDetailsViewModel : ViewModel() {
                     _uiState.value = _uiState.value.copy(similar = similarDeferred.await())
                 }
 
-                val imdb = details.pickImdbId()
+                val imdb = details.pickImdbId() ?: movie.imdbId
                 if (!imdb.isNullOrBlank()) {
                     if (!isTv) {
                         prepareMovieStreams(imdb)
@@ -119,8 +125,7 @@ class MovieDetailsViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 _uiState.value = DetailsUiState(
-                    isLoading = false,
-                    preparingStreams = false,
+                    isLoading = false, preparingStreams = false,
                     error = e.message ?: "Greška pri učitavanju"
                 )
             }
@@ -130,7 +135,8 @@ class MovieDetailsViewModel : ViewModel() {
     fun selectSeason(tvId: Int, seasonNumber: Int) {
         if (_uiState.value.selectedSeasonNumber == seasonNumber) return
         viewModelScope.launch {
-            val episodes = fetchEpisodes(tvId, seasonNumber)
+            val id = if (resolvedId != 0) resolvedId else tvId
+            val episodes = fetchEpisodes(id, seasonNumber)
             _uiState.value = _uiState.value.copy(
                 selectedSeasonNumber = seasonNumber,
                 episodes = episodes
@@ -146,7 +152,6 @@ class MovieDetailsViewModel : ViewModel() {
     suspend fun candidatesForEpisode(season: Int, episode: Int): List<StreamPicker.Candidate> {
         val key = "$season:$episode"
         _uiState.value.episodeCandidates[key]?.let { return it }
-
         val imdb = _uiState.value.details?.pickImdbId() ?: return emptyList()
         val candidates = StreamPicker.getCandidates("series", imdb, season, episode)
         val prepared = StreamPicker.prepare(candidates)
@@ -159,7 +164,6 @@ class MovieDetailsViewModel : ViewModel() {
     suspend fun subtitlesForEpisode(season: Int, episode: Int): List<SubtitleTrack> {
         val key = "$season:$episode"
         _uiState.value.episodeSubtitleTracks[key]?.let { return it }
-
         val imdb = _uiState.value.details?.pickImdbId() ?: return emptyList()
         val ep = _uiState.value.episodes.firstOrNull {
             it.seasonNumber == season && it.episodeNumber == episode
@@ -179,10 +183,7 @@ class MovieDetailsViewModel : ViewModel() {
         viewModelScope.launch {
             val candidates = StreamPicker.getCandidates("movie", imdb)
             val prepared = StreamPicker.prepare(candidates)
-            _uiState.value = _uiState.value.copy(
-                preparingStreams = false,
-                movieCandidates = prepared
-            )
+            _uiState.value = _uiState.value.copy(preparingStreams = false, movieCandidates = prepared)
         }
     }
 
@@ -199,9 +200,7 @@ class MovieDetailsViewModel : ViewModel() {
         viewModelScope.launch {
             val key = "${episode.seasonNumber}:${episode.episodeNumber}"
             if (_uiState.value.episodeCandidates.containsKey(key)) return@launch
-            val candidates = StreamPicker.getCandidates(
-                "series", imdb, episode.seasonNumber, episode.episodeNumber
-            )
+            val candidates = StreamPicker.getCandidates("series", imdb, episode.seasonNumber, episode.episodeNumber)
             val prepared = StreamPicker.prepare(candidates)
             _uiState.value = _uiState.value.copy(
                 preparingStreams = false,
@@ -227,24 +226,14 @@ class MovieDetailsViewModel : ViewModel() {
     }
 
     private suspend fun fetchRankedTracks(
-        type: String,
-        imdb: String,
-        season: Int,
-        episode: Int,
-        expectedSeconds: Int?
+        type: String, imdb: String, season: Int, episode: Int, expectedSeconds: Int?
     ): List<SubtitleTrack> = try {
         val entries = SubtitleFetcher.getAcceptedSubtitles(type, imdb, season, episode)
         val ranked = SubtitleFetcher.rankBySync(entries, expectedSeconds)
         SubtitleFetcher.toTracks(ranked, 6)
-    } catch (_: Exception) {
-        emptyList()
-    }
+    } catch (_: Exception) { emptyList() }
 
-    private suspend fun fetchEpisodes(tvId: Int, seasonNumber: Int): List<TmdbEpisode> {
-        return try {
-            tmdbRepository.getSeasonDetails(tvId, seasonNumber).episodes
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
+    private suspend fun fetchEpisodes(tvId: Int, seasonNumber: Int): List<TmdbEpisode> = try {
+        tmdbRepository.getSeasonDetails(tvId, seasonNumber).episodes
+    } catch (_: Exception) { emptyList() }
 }
