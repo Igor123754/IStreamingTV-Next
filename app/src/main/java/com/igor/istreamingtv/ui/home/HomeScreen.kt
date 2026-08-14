@@ -47,7 +47,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.google.gson.Gson
 import com.igor.istreamingtv.data.ContinueEntry
 import com.igor.istreamingtv.data.ContinueWatchingStore
 import com.igor.istreamingtv.data.remote.*
@@ -55,6 +54,7 @@ import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.player.PlayerActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
 
 private val AppBackground = Color(0xFF020204)
 private val SurfaceBackground = Color(0xFF0C0D12)
@@ -74,7 +74,7 @@ private val genreNames = mapOf(
 private fun TmdbMovie.displayBackdropUrl(): String = backdropPath ?: posterPath ?: ""
 
 private fun TmdbMovie.displayGenre(): String =
-    genre_ids?.firstNotNullOfOrNull { genreNames[it] } ?: "Film"
+    genreIds?.firstNotNullOfOrNull { genreNames[it] } ?: "Film"
 
 private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
 
@@ -92,6 +92,7 @@ fun HomeScreen(
         viewModel.refreshContinueWatching()
     }
 
+    // ✅ Nastavi gledanje — Type-safe JSON serialization
     val onResume: (ContinueEntry) -> Unit = { entry ->
         scope.launch {
             if (entry.imdbId.isNullOrBlank()) return@launch
@@ -103,7 +104,10 @@ fun HomeScreen(
             )
             if (candidates.isNotEmpty()) {
                 val intent = Intent(context, PlayerActivity::class.java).apply {
-                    putExtra("candidates", Gson().toJson(candidates.map { it.url }))
+                    putExtra(
+                        "candidates",
+                        TmdbClient.json.encodeToString(candidates.map { it.url })
+                    )
                     putExtra("imdb_id", entry.imdbId)
                     putExtra("season", entry.season)
                     putExtra("episode", entry.episode)
@@ -203,9 +207,6 @@ private fun AppleTvHomeContent(
 
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
 
-    // ✅ FIX PERFORMANSE: paralaksa se više NE čita tokom kompozicije!
-    // State se ažurira kroz snapshotFlow, a čita SAMO unutar graphicsLayer
-    // (draw faza) → NULA rekompozicija tokom skrola → glatko i na 2GB RAM
     val scrollProgressState = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.firstOrNull() }
@@ -419,9 +420,6 @@ private fun ContinueCard(
     }
 }
 
-/**
- * Hero — ✅ paralaksa čita State SAMO u graphicsLayer (draw faza, bez rekompozicije)
- */
 @Composable
 private fun AppleTvHero(
     item: HeroItem,
