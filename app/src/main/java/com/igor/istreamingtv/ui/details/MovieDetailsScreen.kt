@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -33,11 +34,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.google.gson.Gson
 import com.igor.istreamingtv.data.remote.*
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.player.PlayerActivity
 import kotlinx.coroutines.launch
-import kotlinx.serialization.encodeToString
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -61,7 +62,6 @@ private fun startPlayer(
     overviewText: String? = null
 ) {
     val intent = Intent(context, PlayerActivity::class.java).apply {
-        // ✅ Type-safe JSON
         putExtra("candidates", TmdbClient.json.encodeToString(candidates.map { it.url }))
         if (imdbId != null) putExtra("imdb_id", imdbId)
         putExtra("season", season)
@@ -163,6 +163,7 @@ private fun DetailsScrollContent(
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
 
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     val scrollProgressState = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(listState) {
@@ -193,7 +194,16 @@ private fun DetailsScrollContent(
                     movieCandidates = state.movieCandidates,
                     movieSubtitleTracks = state.movieSubtitleTracks,
                     firstEpisode = state.episodes.firstOrNull(),
-                    scrollProgressState = scrollProgressState
+                    scrollProgressState = scrollProgressState,
+                    // ✅ FIX: kad fokus uđe u hero (TV strelice gore) →
+                    //    animiraj skrol na VRH da se vidi CEO hero banner
+                    onHeroGainedFocus = {
+                        if (listState.firstVisibleItemIndex != 0 ||
+                            listState.firstVisibleItemScrollOffset != 0
+                        ) {
+                            scope.launch { listState.animateScrollToItem(0) }
+                        }
+                    }
                 )
             }
         }
@@ -282,7 +292,8 @@ private fun DetailsHero(
     movieCandidates: List<StreamPicker.Candidate>,
     movieSubtitleTracks: List<SubtitleTrack>,
     firstEpisode: TmdbEpisode?,
-    scrollProgressState: State<Float>
+    scrollProgressState: State<Float>,
+    onHeroGainedFocus: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -306,7 +317,12 @@ private fun DetailsHero(
     val backdropUrl = "https://image.tmdb.org/t/p/w1280" +
         (details?.backdropPath ?: movie.backdropPath ?: details?.posterPath ?: movie.posterPath ?: "")
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // ✅ Kad bilo koje dugme u hero-u dobije fokus → okini scroll na vrh
+            .onFocusChanged { if (it.hasFocus) onHeroGainedFocus() }
+    ) {
 
         AsyncImage(
             model = backdropUrl,
