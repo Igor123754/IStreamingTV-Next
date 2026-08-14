@@ -30,7 +30,9 @@ data class TmdbMovie(
     @SerialName("vote_average")
     val voteAverage: Double = 0.0,
     @SerialName("genre_ids")
-    val genreIds: List<Int>? = null
+    val genreIds: List<Int>? = null,
+    @SerialName("imdb_id")
+    val imdbId: String? = null   // ✅ NOVO — za Cinemeta stavke (tt1234567)
 )
 
 val TmdbMovie.displayTitle: String
@@ -69,7 +71,15 @@ data class Genre(
     val name: String
 )
 
-// ===== HERO / DETALJI =====
+// ✅ NOVO — TMDB find po IMDb ID-u
+@Serializable
+data class TmdbFindResponse(
+    @SerialName("movie_results")
+    val movieResults: List<TmdbMovie> = emptyList(),
+    @SerialName("tv_results")
+    val tvResults: List<TmdbMovie> = emptyList()
+)
+
 @Serializable
 data class TmdbHeroDetails(
     val id: Int = 0,
@@ -125,7 +135,6 @@ data class TmdbCollectionDetails(
     val parts: List<TmdbMovie> = emptyList()
 )
 
-// ===== SEZONE I EPIZODE =====
 @Serializable
 data class TmdbSeason(
     val id: Int = 0,
@@ -165,7 +174,6 @@ data class TmdbSeasonDetails(
     val episodes: List<TmdbEpisode> = emptyList()
 )
 
-// ===== OSTALO =====
 @Serializable
 data class TmdbCredits(
     val cast: List<TmdbCast> = emptyList()
