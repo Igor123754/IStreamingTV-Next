@@ -13,7 +13,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -29,17 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -95,7 +85,6 @@ internal enum class TrackMenuKind { NONE, SUBTITLES, AUDIO }
 
 class PlayerActivity : ComponentActivity() {
 
-    // ✅ FIX: player je Compose STATE → AndroidView ga UVEK primi kad se promeni
     internal var player by mutableStateOf<ExoPlayer?>(null)
     internal var playerView: PlayerView? = null
     internal var playerTitle: String = ""
@@ -109,10 +98,15 @@ class PlayerActivity : ComponentActivity() {
     internal var introStartMs: Long = -1
     internal var introEndMs: Long = -1
 
+    // ✅ SVE kontrolno stanje na Activity nivou (radi na SVIM daljinskim)
     internal var menuKind by mutableStateOf(TrackMenuKind.NONE)
     internal var panelOptions by mutableStateOf<List<String>>(emptyList())
     internal var panelSelected by mutableStateOf(0)
     internal var panelOnSelect: ((Int) -> Unit)? = null
+
+    internal var controlsVisible by mutableStateOf(true)
+    internal var controlsFocusIndex by mutableStateOf(0) // 0 = traka, 1 = titlovi, 2 = audio
+    internal var lastInteraction by mutableStateOf(System.currentTimeMillis())
 
     private val candidateUrls = mutableListOf<String>()
     private var candidateIndex = 0
@@ -169,8 +163,6 @@ class PlayerActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-        // ✅ BRZI START: titlovi već stižu sa detalja/početne preko Intent-a.
-        //    Fallback samo 1.5s i BEZ skidanja fajlova (bez rankBySync) → ne blokira start.
         lifecycleScope.launch {
             if (currentSubtitleTracks.isEmpty() && !imdbId.isNullOrBlank()) {
                 val type = if (seasonNumber >= 0) "series" else "movie"
@@ -178,8 +170,7 @@ class PlayerActivity : ComponentActivity() {
                     withContext(Dispatchers.IO) {
                         try {
                             SubtitleFetcher.toTracks(
-                                SubtitleFetcher.getAcceptedSubtitles(type, imdbId!!, seasonNumber, episodeNumber),
-                                6
+                                SubtitleFetcher.getAcceptedSubtitles(type, imdbId!!, seasonNumber, episodeNumber), 6
                             )
                         } catch (_: Exception) { emptyList() }
                     }
@@ -193,49 +184,117 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    /** ✅ PANEL: tastere hvatam OVDE (pre svih view-ova) → radi na svim TV-ovima */
+    // =====================================================================
+    // ✅ KOMPLETNA KONTROLA NA ACTIVITY NIVOU — radi na SVIM TV daljinskim
+    // =====================================================================
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN) {
-            when (event.keyCode) {
-                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
-                    if (menuKind != TrackMenuKind.NONE) { menuKind = TrackMenuKind.NONE; return true }
-                    finish(); return true
-                }
+        if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
+
+        // BACK / ESCAPE
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                if (menuKind != TrackMenuKind.NONE) { menuKind = TrackMenuKind.NONE; return true }
+                finish(); return true
             }
-            if (menuKind != TrackMenuKind.NONE) {
-                if (panelOptions.isEmpty()) return true
+        }
+
+        // REŽIM PANELA (titlovi / audio lista)
+        if (menuKind != TrackMenuKind.NONE) {
+            if (panelOptions.isEmpty()) return true
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP -> { panelSelected = (panelSelected - 1).coerceAtLeast(0); return true }
+                KeyEvent.KEYCODE_DPAD_DOWN -> { panelSelected = (panelSelected + 1).coerceAtMost(panelOptions.size - 1); return true }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                    panelOnSelect?.invoke(panelSelected); return true
+                }
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> return true
+            }
+            return super.dispatchKeyEvent(event)
+        }
+
+        // GLAVNE KONTROLE
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                interact(); togglePlayInternal(); return true
+            }
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+
+                // Ako su kontrole skrivene → prvi pritisak ih SAMO budi
+                if (!controlsVisible) {
+                    controlsVisible = true
+                    controlsFocusIndex = 0
+                    interact()
+                    return true
+                }
+
+                interact()
                 when (event.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_UP -> {
-                        panelSelected = (panelSelected - 1).coerceAtLeast(0); return true
+                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        if (controlsFocusIndex == 0) seekBy(-10_000)
+                        else if (controlsFocusIndex == 2) controlsFocusIndex = 1
+                    }
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        if (controlsFocusIndex == 0) seekBy(10_000)
+                        else if (controlsFocusIndex == 1) controlsFocusIndex = 2
                     }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        panelSelected = (panelSelected + 1).coerceAtMost(panelOptions.size - 1); return true
+                        if (controlsFocusIndex == 0) controlsFocusIndex = 1
+                    }
+                    KeyEvent.KEYCODE_DPAD_UP -> {
+                        if (controlsFocusIndex != 0) controlsFocusIndex = 0
                     }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                        panelOnSelect?.invoke(panelSelected); return true
+                        when (controlsFocusIndex) {
+                            0 -> togglePlayInternal()
+                            1 -> openSubtitlesPanel()
+                            2 -> openAudioPanel()
+                        }
                     }
-                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> return true
                 }
+                return true
             }
         }
         return super.dispatchKeyEvent(event)
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        when (keyCode) {
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-            KeyEvent.KEYCODE_MEDIA_PLAY,
-            KeyEvent.KEYCODE_MEDIA_PAUSE -> { togglePlayInternal(); return true }
-            KeyEvent.KEYCODE_DPAD_CENTER -> {
-                if (menuKind == TrackMenuKind.NONE) { togglePlayInternal(); return true }
-            }
-        }
-        return super.onKeyDown(keyCode, event)
-    }
+    internal fun interact() { lastInteraction = System.currentTimeMillis() }
 
     internal fun togglePlayInternal() {
         val p = player ?: return
         if (p.isPlaying) p.pause() else p.play()
+    }
+
+    internal fun seekBy(delta: Long) {
+        val p = player ?: return
+        p.seekTo((p.currentPosition + delta).coerceIn(0, p.duration.coerceAtLeast(0)))
+    }
+
+    internal fun seekToFraction(f: Float) {
+        val p = player ?: return
+        p.seekTo((f * p.duration.coerceAtLeast(0)).toLong())
+    }
+
+    internal fun openSubtitlesPanel() {
+        panelOnSelect = { i ->
+            val p = player
+            if (p != null) {
+                if (i == 0) disableSubtitles(p)
+                else collectOptions(p, C.TRACK_TYPE_TEXT).getOrNull(i - 1)?.let { selectOption(p, it) }
+            }
+            menuKind = TrackMenuKind.NONE
+        }
+        openPanel(TrackMenuKind.SUBTITLES)
+    }
+
+    internal fun openAudioPanel() {
+        panelOnSelect = { i ->
+            val p = player
+            if (p != null) collectOptions(p, C.TRACK_TYPE_AUDIO).getOrNull(i)?.let { selectOption(p, it) }
+            menuKind = TrackMenuKind.NONE
+        }
+        openPanel(TrackMenuKind.AUDIO)
     }
 
     internal fun openPanel(kind: TrackMenuKind) {
@@ -327,14 +386,8 @@ class PlayerActivity : ComponentActivity() {
         if (tracks.isNotEmpty()) pb.setPreferredTextLanguage(tracks.first().lang)
         trackSelector.parameters = pb.build()
 
-        // ✅ EKSTREMNO BRZ START: playback kreće već posle 500ms buffer-a
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                /* minBufferMs = */ 5_000,
-                /* maxBufferMs = */ 20_000,
-                /* bufferForPlaybackMs = */ 500,
-                /* bufferForPlaybackAfterRebufferMs = */ 1_500
-            )
+            .setBufferDurationsMs(5_000, 20_000, 500, 1_500)
             .setTargetBufferBytes(16 * 1024 * 1024)
             .setBackBuffer(10_000, false)
             .build()
@@ -400,7 +453,6 @@ class PlayerActivity : ComponentActivity() {
             }
         })
 
-        // ✅ OBA načina vezivanja (direktno + preko State-a za AndroidView)
         player = exo
         playerView?.player = exo
     }
@@ -588,34 +640,34 @@ private fun SettingsPanel(activity: PlayerActivity) {
     }
 }
 
+/** ✅ Traka — highlight čita activity.controlsFocusIndex (ne Compose fokus) */
 @Composable
 private fun AppleSeekBar(
+    activity: PlayerActivity,
     fraction: Float,
-    onFractionSeek: (Float) -> Unit,
-    onStepSeek: (Long) -> Unit,
-    onInteract: () -> Unit,
-    onNavigateDown: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var focused by remember { mutableStateOf(false) }
     var widthPx by remember { mutableFloatStateOf(1f) }
     val density = LocalDensity.current
+    val focused = activity.controlsFocusIndex == 0 && activity.controlsVisible
+
     Box(
         modifier = modifier
             .height(28.dp)
             .onGloballyPositioned { widthPx = it.size.width.toFloat().coerceAtLeast(1f) }
-            .focusable()
-            .onFocusChanged { focused = it.isFocused }
-            .onKeyEvent { e ->
-                if (e.type == KeyEventType.KeyDown) when (e.key) {
-                    Key.DirectionLeft -> { onInteract(); onStepSeek(-10_000); true }
-                    Key.DirectionRight -> { onInteract(); onStepSeek(10_000); true }
-                    Key.DirectionDown -> { onNavigateDown(); true }
-                    else -> false
-                } else false
+            .clickable(onClick = {}) // touch: apsorbuje tap (premota se preko drag/tap ispod)
+            .pointerInput(Unit) {
+                detectTapGestures {
+                    activity.interact()
+                    activity.seekToFraction((it.x / widthPx).coerceIn(0f, 1f))
+                }
             }
-            .pointerInput(Unit) { detectTapGestures { onInteract(); onFractionSeek((it.x / widthPx).coerceIn(0f, 1f)) } }
-            .pointerInput(Unit) { detectHorizontalDragGestures { c, _ -> onInteract(); onFractionSeek((c.position.x / widthPx).coerceIn(0f, 1f)) } },
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { c, _ ->
+                    activity.interact()
+                    activity.seekToFraction((c.position.x / widthPx).coerceIn(0f, 1f))
+                }
+            },
         contentAlignment = Alignment.CenterStart
     ) {
         Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.3f)))
@@ -628,39 +680,7 @@ private fun AppleSeekBar(
 }
 
 @Composable
-private fun CircleControlButton(
-    focusRequester: FocusRequester,
-    onActivate: () -> Unit,
-    onNavigateUp: () -> Unit,
-    content: @Composable () -> Unit
-) {
-    var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.12f else 1f, tween(150), label = "")
-    Box(
-        modifier = Modifier
-            .focusRequester(focusRequester)
-            .focusable()
-            .onFocusChanged { focused = it.isFocused }
-            .onKeyEvent { e ->
-                if (e.type == KeyEventType.KeyDown) when (e.key) {
-                    Key.DirectionCenter -> { onActivate(); true }
-                    Key.DirectionUp -> { onNavigateUp(); true }
-                    else -> false
-                } else false
-            }
-            .clickable(onClick = onActivate)
-            .scale(scale)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = if (focused) 0.3f else 0.15f))
-            .size(44.dp),
-        contentAlignment = Alignment.Center
-    ) { content() }
-}
-
-@Composable
 private fun AppleTvPlayerScreen(activity: PlayerActivity) {
-    var controlsVisible by remember { mutableStateOf(true) }
-    var lastInteraction by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var showPausedInfo by remember { mutableStateOf(false) }
 
     var position by remember { mutableLongStateOf(0L) }
@@ -671,11 +691,9 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     var sliderFraction by remember { mutableFloatStateOf(0f) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    val seekFocus = remember { FocusRequester() }
-    val ccFocus = remember { FocusRequester() }
-    val audioFocus = remember { FocusRequester() }
-
     val menuKind = activity.menuKind
+    val controlsVisible = activity.controlsVisible
+    val focusIndex = activity.controlsFocusIndex
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -696,17 +714,15 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     LaunchedEffect(controlsVisible, showPausedInfo) {
         while (controlsVisible || showPausedInfo) { nowMillis = System.currentTimeMillis(); delay(1000) }
     }
-    LaunchedEffect(lastInteraction, menuKind, showPausedInfo) {
-        controlsVisible = true
-        if (menuKind == TrackMenuKind.NONE && !showPausedInfo) { delay(4000); controlsVisible = false }
-    }
-    LaunchedEffect(controlsVisible) {
-        if (controlsVisible && menuKind == TrackMenuKind.NONE) {
-            try { seekFocus.requestFocus() } catch (_: Exception) {}
+    // ✅ Auto-hide kontrole (Activity stanje)
+    LaunchedEffect(activity.lastInteraction, menuKind, showPausedInfo) {
+        activity.controlsVisible = true
+        if (menuKind == TrackMenuKind.NONE && !showPausedInfo) {
+            delay(4000)
+            activity.controlsVisible = false
+            activity.controlsFocusIndex = 0
         }
     }
-
-    fun interact() { lastInteraction = System.currentTimeMillis() }
 
     val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val clockText = timeFmt.format(Date(nowMillis))
@@ -720,15 +736,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onPreviewKeyEvent { e ->
-                val isDpad = e.key == Key.DirectionLeft || e.key == Key.DirectionRight ||
-                    e.key == Key.DirectionUp || e.key == Key.DirectionDown
-                if (isDpad && !controlsVisible && menuKind == TrackMenuKind.NONE && e.type == KeyEventType.KeyDown) {
-                    interact(); true
-                } else false
-            }
     ) {
-        // ✅ AndroidView čita activity.player (State) → update se OKIDA kad se player promeni
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -749,10 +757,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             modifier = Modifier.fillMaxSize()
         )
 
+        // Touch: tap = kontrole, double-tap = play/pauza
         Box(Modifier.fillMaxSize().pointerInput(Unit) {
             detectTapGestures(
-                onTap = { interact(); controlsVisible = !controlsVisible },
-                onDoubleTap = { interact(); activity.togglePlayInternal() }
+                onTap = { activity.interact(); activity.controlsVisible = !activity.controlsVisible },
+                onDoubleTap = { activity.interact(); activity.togglePlayInternal() }
             )
         })
 
@@ -765,7 +774,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
 
         if (showSkipIntro) {
             TvFocusableButton(
-                onClick = { interact(); activity.skipIntro() },
+                onClick = { activity.interact(); activity.skipIntro() },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 40.dp, bottom = 120.dp)
             ) { focused ->
                 val s by animateFloatAsState(if (focused) 1.06f else 1f, tween(150), label = "")
@@ -824,43 +833,33 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
 
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                         AppleSeekBar(
+                            activity = activity,
                             fraction = sliderFraction,
-                            onFractionSeek = { f -> interact(); activity.player?.let { it.seekTo((f * duration).toLong()) } },
-                            onStepSeek = { d -> activity.player?.let { it.seekTo((it.currentPosition + d).coerceIn(0, it.duration.coerceAtLeast(0))) } },
-                            onInteract = { interact() },
-                            onNavigateDown = { try { ccFocus.requestFocus() } catch (_: Exception) {} },
-                            modifier = Modifier.weight(1f).focusRequester(seekFocus)
+                            modifier = Modifier.weight(1f)
                         )
 
-                        CircleControlButton(
-                            focusRequester = ccFocus,
-                            onActivate = {
-                                interact()
-                                activity.panelOnSelect = { i ->
-                                    val p = activity.player
-                                    if (p != null) {
-                                        if (i == 0) disableSubtitles(p)
-                                        else collectOptions(p, C.TRACK_TYPE_TEXT).getOrNull(i - 1)?.let { selectOption(p, it) }
-                                    }
-                                    activity.menuKind = TrackMenuKind.NONE
-                                }
-                                activity.openPanel(TrackMenuKind.SUBTITLES)
-                            },
-                            onNavigateUp = { try { seekFocus.requestFocus() } catch (_: Exception) {} }
+                        // ✅ CC dugme — highlight kad je focusIndex == 1
+                        val ccFocused = focusIndex == 1
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = if (ccFocused) 0.3f else 0.15f))
+                                .then(if (ccFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
+                                .size(44.dp)
+                                .clickable { activity.interact(); activity.openSubtitlesPanel() },
+                            contentAlignment = Alignment.Center
                         ) { SubtitlesIcon(Modifier.size(22.dp)) }
 
-                        CircleControlButton(
-                            focusRequester = audioFocus,
-                            onActivate = {
-                                interact()
-                                activity.panelOnSelect = { i ->
-                                    val p = activity.player
-                                    if (p != null) collectOptions(p, C.TRACK_TYPE_AUDIO).getOrNull(i)?.let { selectOption(p, it) }
-                                    activity.menuKind = TrackMenuKind.NONE
-                                }
-                                activity.openPanel(TrackMenuKind.AUDIO)
-                            },
-                            onNavigateUp = { try { seekFocus.requestFocus() } catch (_: Exception) {} }
+                        // ✅ Audio dugme — highlight kad je focusIndex == 2
+                        val audioFocused = focusIndex == 2
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = if (audioFocused) 0.3f else 0.15f))
+                                .then(if (audioFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
+                                .size(44.dp)
+                                .clickable { activity.interact(); activity.openAudioPanel() },
+                            contentAlignment = Alignment.Center
                         ) { AudioIcon(Modifier.size(22.dp)) }
                     }
 
