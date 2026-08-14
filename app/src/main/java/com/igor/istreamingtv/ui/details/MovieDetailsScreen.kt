@@ -33,11 +33,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.google.gson.Gson
 import com.igor.istreamingtv.data.remote.*
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.player.PlayerActivity
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -61,12 +61,13 @@ private fun startPlayer(
     overviewText: String? = null
 ) {
     val intent = Intent(context, PlayerActivity::class.java).apply {
-        putExtra("candidates", Gson().toJson(candidates.map { it.url }))
+        // ✅ Type-safe JSON
+        putExtra("candidates", TmdbClient.json.encodeToString(candidates.map { it.url }))
         if (imdbId != null) putExtra("imdb_id", imdbId)
         putExtra("season", season)
         putExtra("episode", episode)
         if (subtitleTracks.isNotEmpty()) {
-            putExtra("subtitle_tracks", Gson().toJson(subtitleTracks))
+            putExtra("subtitle_tracks", TmdbClient.json.encodeToString(subtitleTracks))
         }
         if (runtimeSeconds > 0) putExtra("runtime_sec", runtimeSeconds)
         if (!title.isNullOrBlank()) putExtra("title", title)
@@ -92,24 +93,24 @@ fun MovieDetailsScreen(
 
     val playEpisode: (TmdbEpisode) -> Unit = { episode ->
         scope.launch {
-            val key = "${episode.season_number}:${episode.episode_number}"
+            val key = "${episode.seasonNumber}:${episode.episodeNumber}"
             val cached = state.episodeCandidates[key]
             val candidates = cached ?: viewModel.candidatesForEpisode(
-                episode.season_number, episode.episode_number
+                episode.seasonNumber, episode.episodeNumber
             )
             if (candidates.isNotEmpty()) {
                 val subs = state.episodeSubtitleTracks[key]
-                    ?: viewModel.subtitlesForEpisode(episode.season_number, episode.episode_number)
+                    ?: viewModel.subtitlesForEpisode(episode.seasonNumber, episode.episodeNumber)
                 val epOverview = episode.overview?.takeIf { it.isNotBlank() }
                     ?: state.details?.pickSerbianOverview()
                     ?: state.details?.overview
-                val seriesBackdrop = state.details?.backdrop_path
+                val seriesBackdrop = state.details?.backdropPath
                     ?.let { "https://image.tmdb.org/t/p/w780$it" }
                 startPlayer(
                     context, candidates,
                     imdbId = state.details?.pickImdbId(),
-                    season = episode.season_number,
-                    episode = episode.episode_number,
+                    season = episode.seasonNumber,
+                    episode = episode.episodeNumber,
                     subtitleTracks = subs,
                     runtimeSeconds = (episode.runtime ?: 0) * 60,
                     title = movie.displayTitle,
@@ -163,7 +164,6 @@ private fun DetailsScrollContent(
 
     val listState = rememberLazyListState()
 
-    // ✅ FIX PERFORMANSE: paralaksa bez rekompozicije (isto kao na početnoj)
     val scrollProgressState = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.firstOrNull() }
@@ -294,8 +294,8 @@ private fun DetailsHero(
         ?: details?.overview?.takeIf { it.isNotBlank() }
         ?: movie.displayOverview
     val genres = details?.genres?.joinToString(", ") { it.name } ?: ""
-    val date = details?.release_date ?: details?.first_air_date ?: movie.displayDate
-    val runtimeMin = details?.runtime ?: details?.episode_run_time?.firstOrNull()
+    val date = details?.releaseDate ?: details?.firstAirDate ?: movie.displayDate
+    val runtimeMin = details?.runtime ?: details?.episodeRunTime?.firstOrNull()
     val cert = details?.pickCertification()
     val cast = details?.credits?.cast
         ?.mapNotNull { it.name }
@@ -304,7 +304,7 @@ private fun DetailsHero(
         ?: ""
 
     val backdropUrl = "https://image.tmdb.org/t/p/w1280" +
-        (details?.backdrop_path ?: movie.backdropPath ?: details?.poster_path ?: movie.posterPath ?: "")
+        (details?.backdropPath ?: movie.backdropPath ?: details?.posterPath ?: movie.posterPath ?: "")
 
     Box(modifier = Modifier.fillMaxSize()) {
 
@@ -599,11 +599,11 @@ private fun SeasonRowSection(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
     ) {
-        items(seasons, key = { it.season_number }) { season ->
+        items(seasons, key = { it.seasonNumber }) { season ->
             SeasonCard(
                 season = season,
-                selected = season.season_number == selectedSeason,
-                onClick = { onSelectSeason(season.season_number) }
+                selected = season.seasonNumber == selectedSeason,
+                onClick = { onSelectSeason(season.seasonNumber) }
             )
         }
     }
@@ -634,9 +634,9 @@ private fun SeasonCard(
                         else Modifier
                     )
             ) {
-                if (!season.poster_path.isNullOrBlank()) {
+                if (!season.posterPath.isNullOrBlank()) {
                     AsyncImage(
-                        model = "https://image.tmdb.org/t/p/w342" + season.poster_path,
+                        model = "https://image.tmdb.org/t/p/w342" + season.posterPath,
                         contentDescription = season.name,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -647,7 +647,7 @@ private fun SeasonCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "S${season.season_number}",
+                            text = "S${season.seasonNumber}",
                             color = TextSecondary,
                             fontSize = 30.sp,
                             fontWeight = FontWeight.ExtraBold
@@ -660,7 +660,7 @@ private fun SeasonCard(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = season.name?.takeIf { it.isNotBlank() } ?: "${season.season_number}. sezona",
+            text = season.name?.takeIf { it.isNotBlank() } ?: "${season.seasonNumber}. sezona",
             color = TextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
@@ -668,9 +668,9 @@ private fun SeasonCard(
             overflow = TextOverflow.Ellipsis
         )
 
-        if (season.episode_count > 0) {
+        if (season.episodeCount > 0) {
             Text(
-                text = "${season.episode_count} ep.",
+                text = "${season.episodeCount} ep.",
                 color = TextSecondary,
                 fontSize = 12.sp
             )
@@ -726,9 +726,9 @@ private fun EpisodeCard(
                         else Modifier
                     )
             ) {
-                if (!episode.still_path.isNullOrBlank()) {
+                if (!episode.stillPath.isNullOrBlank()) {
                     AsyncImage(
-                        model = "https://image.tmdb.org/t/p/w300" + episode.still_path,
+                        model = "https://image.tmdb.org/t/p/w300" + episode.stillPath,
                         contentDescription = episode.name,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -739,7 +739,7 @@ private fun EpisodeCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "E${episode.episode_number}",
+                            text = "E${episode.episodeNumber}",
                             color = TextSecondary,
                             fontSize = 28.sp,
                             fontWeight = FontWeight.ExtraBold
@@ -756,7 +756,7 @@ private fun EpisodeCard(
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "S${episode.season_number} · E${episode.episode_number}",
+                        text = "S${episode.seasonNumber} · E${episode.episodeNumber}",
                         color = TextPrimary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
@@ -784,7 +784,7 @@ private fun EpisodeCard(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = episode.name?.takeIf { it.isNotBlank() } ?: "Epizoda ${episode.episode_number}",
+            text = episode.name?.takeIf { it.isNotBlank() } ?: "Epizoda ${episode.episodeNumber}",
             color = TextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
@@ -793,15 +793,15 @@ private fun EpisodeCard(
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (episode.vote_average > 0) {
+            if (episode.voteAverage > 0) {
                 Text(
-                    text = "★ %.1f".format(episode.vote_average),
+                    text = "★ %.1f".format(episode.voteAverage),
                     color = TextSecondary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
             }
-            val dateText = formatDate(episode.air_date)
+            val dateText = formatDate(episode.airDate)
             if (dateText.isNotBlank()) {
                 Text(dateText, color = TextSecondary, fontSize = 12.sp)
             }
