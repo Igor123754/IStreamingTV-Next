@@ -4,6 +4,7 @@ package com.igor.istreamingtv.ui.home
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.igor.istreamingtv.data.ContinueEntry
 import com.igor.istreamingtv.data.ContinueWatchingStore
 import com.igor.istreamingtv.data.remote.*
@@ -76,6 +78,32 @@ private fun TmdbMovie.displayGenre(): String =
     genreIds?.firstNotNullOfOrNull { genreNames[it] } ?: "Film"
 
 private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
+
+/**
+ * ✅ OPTIMIZOVANA SLIKA — RGB_565 (2x manje memorije + brže dekodiranje)
+ * za fotografije; ARGB_8888 samo za providne logoe.
+ */
+@Composable
+private fun FastImage(
+    url: String,
+    modifier: Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+    transparent: Boolean = false,
+    alignment: Alignment = Alignment.Center
+) {
+    val context = LocalContext.current
+    AsyncImage(
+        model = ImageRequest.Builder(context)
+            .data(url)
+            .crossfade(false)
+            .bitmapConfig(if (transparent) Bitmap.Config.ARGB_8888 else Bitmap.Config.RGB_565)
+            .build(),
+        contentDescription = null,
+        modifier = modifier,
+        contentScale = contentScale,
+        alignment = alignment
+    )
+}
 
 @Composable
 fun HomeScreen(
@@ -238,40 +266,28 @@ private fun AppleTvHomeContent(
 
         if (continueWatching.isNotEmpty()) {
             item(key = "continue") {
-                SimpleRow {
-                    ContinueRowSection(
-                        entries = continueWatching,
-                        onResume = onResume,
-                        onRemove = onRemoveContinue
-                    )
-                }
+                ContinueRowSection(
+                    entries = continueWatching,
+                    onResume = onResume,
+                    onRemove = onRemoveContinue
+                )
             }
         }
 
         items(catalogs, key = { it.id }) { catalog ->
-            SimpleRow {
-                CatalogRowSection(
-                    catalog = catalog,
-                    initialPosition = getCatalogPosition(catalog.id),
-                    onSavePosition = { index, offset ->
-                        onSaveCatalogPosition(catalog.id, index, offset)
-                    },
-                    onMovieClick = openMovie
-                )
-            }
+            CatalogRowSection(
+                catalog = catalog,
+                initialPosition = getCatalogPosition(catalog.id),
+                onSavePosition = { index, offset ->
+                    onSaveCatalogPosition(catalog.id, index, offset)
+                },
+                onMovieClick = openMovie
+            )
         }
 
         item(key = "bottom-spacer") {
             Spacer(modifier = Modifier.height(60.dp))
         }
-    }
-}
-
-/** ✅ Plain red BEZ entry animacije — fokus geometrija je uvek tačna (glatko vertikalno kretanje) */
-@Composable
-private fun SimpleRow(content: @Composable () -> Unit) {
-    Column(modifier = Modifier.padding(top = 40.dp)) {
-        content()
     }
 }
 
@@ -281,24 +297,26 @@ private fun ContinueRowSection(
     onResume: (ContinueEntry) -> Unit,
     onRemove: (ContinueEntry) -> Unit
 ) {
-    Text(
-        text = "Nastavi gledanje",
-        color = Color.White,
-        fontSize = 22.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
-    )
+    Column(modifier = Modifier.padding(top = 40.dp)) {
+        Text(
+            text = "Nastavi gledanje",
+            color = Color.White,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
+        )
 
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
-    ) {
-        items(entries, key = { it.key }) { entry ->
-            ContinueCard(
-                entry = entry,
-                onClick = { onResume(entry) },
-                onRemove = { onRemove(entry) }
-            )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
+        ) {
+            items(entries, key = { it.key }) { entry ->
+                ContinueCard(
+                    entry = entry,
+                    onClick = { onResume(entry) },
+                    onRemove = { onRemove(entry) }
+                )
+            }
         }
     }
 }
@@ -366,11 +384,9 @@ private fun ContinueCard(
                         else Modifier
                     )
             ) {
-                AsyncImage(
-                    model = entry.backdropUrl.ifBlank { entry.posterUrl },
-                    contentDescription = entry.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                FastImage(
+                    url = entry.backdropUrl.ifBlank { entry.posterUrl },
+                    modifier = Modifier.fillMaxSize()
                 )
 
                 Box(
@@ -415,9 +431,8 @@ private fun ContinueCard(
 }
 
 /**
- * ✅ HERO BEZ CROSSFADE-a oko celog sadržaja — dugmad i tekst ostaju STABILNI
- * (fokus se ne gubi na rotaciju → nema skoka skrola).
- * Crossfade je SAMO oko pozadinske slike (lep prelaz, bez uticaja na fokus).
+ * ✅ HERO — Crossfade SAMO oko pozadine (dugmad stabilna, fokus se ne gubi).
+ * Pozadina koristi RGB_565 → 2x brže dekodiranje fullscreen slike.
  */
 @Composable
 private fun AppleTvHero(
@@ -437,18 +452,15 @@ private fun AppleTvHero(
             .onFocusChanged { if (it.hasFocus) onHeroGainedFocus() }
     ) {
 
-        // ✅ Crossfade SAMO pozadina — čvorovi dugmadi se ne rekreiraju
         Crossfade(
             targetState = movie.displayBackdropUrl(),
             animationSpec = tween(800),
             label = "backdrop",
             modifier = Modifier.fillMaxSize()
         ) { url ->
-            AsyncImage(
-                model = "https://image.tmdb.org/t/p/w1280$url",
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+            FastImage(
+                url = "https://image.tmdb.org/t/p/w1280$url",
+                modifier = Modifier.fillMaxSize()
             )
         }
 
@@ -501,13 +513,13 @@ private fun AppleTvHero(
             ) {
                 val logoUrl = extras?.clearLogoUrl
                 if (logoUrl != null) {
-                    AsyncImage(
-                        model = logoUrl,
-                        contentDescription = movie.displayTitle,
+                    FastImage(
+                        url = logoUrl,
                         modifier = Modifier
                             .width(300.dp)
                             .height(100.dp),
                         contentScale = ContentScale.Fit,
+                        transparent = true,
                         alignment = Alignment.CenterStart
                     )
                 } else {
@@ -622,30 +634,32 @@ private fun CatalogRowSection(
         initialFirstVisibleItemScrollOffset = initialPosition.offset
     )
 
-    Text(
-        text = catalog.title,
-        color = Color.White,
-        fontSize = 22.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
-    )
+    Column(modifier = Modifier.padding(top = 40.dp)) {
+        Text(
+            text = catalog.title,
+            color = Color.White,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
+        )
 
-    LazyRow(
-        state = rowState,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
-    ) {
-        items(catalog.items, key = { it.id }) { movie ->
-            PosterCard(
-                movie = movie,
-                onClick = {
-                    onSavePosition(
-                        rowState.firstVisibleItemIndex,
-                        rowState.firstVisibleItemScrollOffset
-                    )
-                    onMovieClick(movie)
-                }
-            )
+        LazyRow(
+            state = rowState,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
+        ) {
+            items(catalog.items, key = { it.id }) { movie ->
+                PosterCard(
+                    movie = movie,
+                    onClick = {
+                        onSavePosition(
+                            rowState.firstVisibleItemIndex,
+                            rowState.firstVisibleItemScrollOffset
+                        )
+                        onMovieClick(movie)
+                    }
+                )
+            }
         }
     }
 }
@@ -674,11 +688,9 @@ private fun PosterCard(
                         else Modifier
                     )
             ) {
-                AsyncImage(
-                    model = "https://image.tmdb.org/t/p/w342" + movie.posterPath,
-                    contentDescription = movie.displayTitle,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                FastImage(
+                    url = "https://image.tmdb.org/t/p/w342" + movie.posterPath,
+                    modifier = Modifier.fillMaxSize()
                 )
             }
         }
@@ -691,7 +703,6 @@ private fun PosterCard(
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             lineHeight = 18.sp,
-            letterSpacing = 0.15.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
