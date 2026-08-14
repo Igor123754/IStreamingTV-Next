@@ -95,7 +95,8 @@ internal enum class TrackMenuKind { NONE, SUBTITLES, AUDIO }
 
 class PlayerActivity : ComponentActivity() {
 
-    internal var player: ExoPlayer? = null
+    // ✅ FIX: player je Compose STATE → AndroidView ga UVEK primi kad se promeni
+    internal var player by mutableStateOf<ExoPlayer?>(null)
     internal var playerView: PlayerView? = null
     internal var playerTitle: String = ""
     internal var playerSeason: Int = -1
@@ -108,7 +109,6 @@ class PlayerActivity : ComponentActivity() {
     internal var introStartMs: Long = -1
     internal var introEndMs: Long = -1
 
-    // ✅ Stanje panela — Activity ga kontroliše (radi 100% na TV-u)
     internal var menuKind by mutableStateOf(TrackMenuKind.NONE)
     internal var panelOptions by mutableStateOf<List<String>>(emptyList())
     internal var panelSelected by mutableStateOf(0)
@@ -169,15 +169,18 @@ class PlayerActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
+        // ✅ BRZI START: titlovi već stižu sa detalja/početne preko Intent-a.
+        //    Fallback samo 1.5s i BEZ skidanja fajlova (bez rankBySync) → ne blokira start.
         lifecycleScope.launch {
             if (currentSubtitleTracks.isEmpty() && !imdbId.isNullOrBlank()) {
                 val type = if (seasonNumber >= 0) "series" else "movie"
-                val fetched = withTimeoutOrNull(2500) {
+                val fetched = withTimeoutOrNull(1500) {
                     withContext(Dispatchers.IO) {
                         try {
-                            val entries = SubtitleFetcher.getAcceptedSubtitles(type, imdbId!!, seasonNumber, episodeNumber)
-                            val ranked = SubtitleFetcher.rankBySync(entries, if (runtimeSec > 0) runtimeSec else null)
-                            SubtitleFetcher.toTracks(ranked, 6)
+                            SubtitleFetcher.toTracks(
+                                SubtitleFetcher.getAcceptedSubtitles(type, imdbId!!, seasonNumber, episodeNumber),
+                                6
+                            )
                         } catch (_: Exception) { emptyList() }
                     }
                 }
@@ -223,7 +226,6 @@ class PlayerActivity : ComponentActivity() {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE -> { togglePlayInternal(); return true }
-            // Stiže samo kad nijedan fokusiran čvor nije pojeo (panel zatvoren)
             KeyEvent.KEYCODE_DPAD_CENTER -> {
                 if (menuKind == TrackMenuKind.NONE) { togglePlayInternal(); return true }
             }
@@ -236,7 +238,6 @@ class PlayerActivity : ComponentActivity() {
         if (p.isPlaying) p.pause() else p.play()
     }
 
-    /** ✅ Otvori panel i napuni opcije + trenutni izbor */
     internal fun openPanel(kind: TrackMenuKind) {
         val p = player ?: return
         val type = if (kind == TrackMenuKind.SUBTITLES) C.TRACK_TYPE_TEXT else C.TRACK_TYPE_AUDIO
@@ -326,14 +327,25 @@ class PlayerActivity : ComponentActivity() {
         if (tracks.isNotEmpty()) pb.setPreferredTextLanguage(tracks.first().lang)
         trackSelector.parameters = pb.build()
 
+        // ✅ EKSTREMNO BRZ START: playback kreće već posle 500ms buffer-a
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(8_000, 30_000, 2_000, 5_000)
-            .setTargetBufferBytes(24 * 1024 * 1024)
-            .setBackBuffer(15_000, false)
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 5_000,
+                /* maxBufferMs = */ 20_000,
+                /* bufferForPlaybackMs = */ 500,
+                /* bufferForPlaybackAfterRebufferMs = */ 1_500
+            )
+            .setTargetBufferBytes(16 * 1024 * 1024)
+            .setBackBuffer(10_000, false)
             .build()
 
-        val okHttp = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(45, TimeUnit.SECONDS)
-            .followRedirects(true).followSslRedirects(true).retryOnConnectionFailure(true).build()
+        val okHttp = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .build()
 
         val dsFactory = OkHttpDataSource.Factory(okHttp)
             .setDefaultRequestProperties(mapOf("User-Agent" to "IStreamingTV/1.0 (Android; Media3)"))
@@ -388,6 +400,7 @@ class PlayerActivity : ComponentActivity() {
             }
         })
 
+        // ✅ OBA načina vezivanja (direktno + preko State-a za AndroidView)
         player = exo
         playerView?.player = exo
     }
@@ -529,10 +542,6 @@ private fun AudioIcon(modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * ✅ DRUGA RAVAN — panel je SAMO vizuelan + click za touch.
- * Tastere (↑/↓/OK/BACK) hvata Activity.dispatchKeyEvent → 100% radi na TV-u.
- */
 @Composable
 private fun SettingsPanel(activity: PlayerActivity) {
     val title = if (activity.menuKind == TrackMenuKind.SUBTITLES) "Titlovi" else "Audio"
@@ -552,7 +561,7 @@ private fun SettingsPanel(activity: PlayerActivity) {
                 .width(340.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(Color(0xFF1C1C1E).copy(alpha = 0.96f))
-                .clickable(onClick = {}) // upija tapove unutar panela
+                .clickable(onClick = {})
                 .padding(24.dp)
         ) {
             Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -719,6 +728,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 } else false
             }
     ) {
+        // ✅ AndroidView čita activity.player (State) → update se OKIDA kad se player promeni
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -735,7 +745,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     player = activity.player
                 }
             },
-            update = { it.player = activity.player },
+            update = { pv -> pv.player = activity.player },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -863,7 +873,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             }
         }
 
-        // ✅ DRUGA RAVAN — panel (vizuelan; tastere hvata Activity)
         if (menuKind != TrackMenuKind.NONE) {
             SettingsPanel(activity = activity)
         }
