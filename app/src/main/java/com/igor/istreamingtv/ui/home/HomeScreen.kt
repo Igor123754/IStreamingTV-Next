@@ -88,12 +88,10 @@ fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // ✅ Osveži "Nastavi gledanje" svaki put kad se vratiš na početnu
     LaunchedEffect(Unit) {
         viewModel.refreshContinueWatching()
     }
 
-    // ✅ Nastavi gledanje: povuci stream-ove i nastavi sa sačuvane pozicije
     val onResume: (ContinueEntry) -> Unit = { entry ->
         scope.launch {
             if (entry.imdbId.isNullOrBlank()) return@launch
@@ -119,7 +117,6 @@ fun HomeScreen(
         }
     }
 
-    // ✅ Dugi prst / dugi OK = ukloni iz "Nastavi gledanje"
     val onRemoveContinue: (ContinueEntry) -> Unit = { entry ->
         ContinueWatchingStore.remove(context, entry.key)
         Toast.makeText(context, "Uklonjeno: ${entry.title}", Toast.LENGTH_SHORT).show()
@@ -206,9 +203,18 @@ private fun AppleTvHomeContent(
 
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
 
-    val firstItem = listState.layoutInfo.visibleItemsInfo.firstOrNull()
-    val heroSize = firstItem?.size?.coerceAtLeast(1) ?: 1
-    val scrollProgress = (-(firstItem?.offset ?: 0).toFloat() / heroSize).coerceIn(0f, 1f)
+    // ✅ FIX PERFORMANSE: paralaksa se više NE čita tokom kompozicije!
+    // State se ažurira kroz snapshotFlow, a čita SAMO unutar graphicsLayer
+    // (draw faza) → NULA rekompozicija tokom skrola → glatko i na 2GB RAM
+    val scrollProgressState = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.firstOrNull() }
+            .collect { item ->
+                val size = item?.size?.coerceAtLeast(1) ?: 1
+                scrollProgressState.value =
+                    (-(item?.offset ?: 0).toFloat() / size).coerceIn(0f, 1f)
+            }
+    }
 
     LazyColumn(
         state = listState,
@@ -227,13 +233,12 @@ private fun AppleTvHomeContent(
                         currentIndex = heroIndex,
                         totalCount = heroItems.size,
                         onMovieClick = openMovie,
-                        scrollProgress = scrollProgress
+                        scrollProgressState = scrollProgressState
                     )
                 }
             }
         }
 
-        // ✅ NASTAVI GLEDANJE — pre svih kataloga, samo ako ima stavki
         if (continueWatching.isNotEmpty()) {
             item(key = "continue") {
                 ContinueRowSection(
@@ -261,10 +266,6 @@ private fun AppleTvHomeContent(
     }
 }
 
-/**
- * ✅ "Nastavi gledanje" red — Apple TV+ "Up Next" stil.
- * Kratak klik/OK = nastavi; DUGI prst / dugi OK = ukloni iz liste.
- */
 @Composable
 private fun ContinueRowSection(
     entries: List<ContinueEntry>,
@@ -326,12 +327,10 @@ private fun ContinueCard(
             modifier = Modifier
                 .width(240.dp)
                 .height(135.dp)
-                // Touch: kratki tap = play, dugi prst = ukloni
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = onRemove
                 )
-                // TV fokus + daljinski: OK = play, DUGI OK (repeat) = ukloni
                 .focusable()
                 .onFocusChanged { focused = it.isFocused }
                 .onPreviewKeyEvent { event ->
@@ -339,15 +338,12 @@ private fun ContinueCard(
                         event.type == KeyEventType.KeyDown &&
                             event.key == Key.DirectionCenter -> {
                             when {
-                                // Dugi OK (~1s) = ukloni iz liste
                                 event.nativeKeyEvent.repeatCount >= 6 -> {
                                     pendingClick = false
                                     onRemove()
                                     true
                                 }
-                                // Držanje — čekamo (ili će postati long-press ili KeyUp)
                                 event.nativeKeyEvent.repeatCount > 0 -> true
-                                // Prvi pritisak — klik tek na KeyUp
                                 else -> {
                                     pendingClick = true
                                     true
@@ -382,7 +378,6 @@ private fun ContinueCard(
                     contentScale = ContentScale.Crop
                 )
 
-                // Progress bar dole (kao na Apple TV+ screenshot-u)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -424,6 +419,9 @@ private fun ContinueCard(
     }
 }
 
+/**
+ * Hero — ✅ paralaksa čita State SAMO u graphicsLayer (draw faza, bez rekompozicije)
+ */
 @Composable
 private fun AppleTvHero(
     item: HeroItem,
@@ -431,7 +429,7 @@ private fun AppleTvHero(
     currentIndex: Int,
     totalCount: Int,
     onMovieClick: (TmdbMovie) -> Unit,
-    scrollProgress: Float
+    scrollProgressState: State<Float>
 ) {
     Crossfade(targetState = item, animationSpec = tween(1000), label = "hero") { currentItem ->
         val movie = currentItem.movie
@@ -445,8 +443,9 @@ private fun AppleTvHero(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        scaleX = 1f + scrollProgress * 0.08f
-                        scaleY = 1f + scrollProgress * 0.08f
+                        val p = scrollProgressState.value
+                        scaleX = 1f + p * 0.08f
+                        scaleY = 1f + p * 0.08f
                     },
                 contentScale = ContentScale.Crop
             )
@@ -476,8 +475,9 @@ private fun AppleTvHero(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = (1f - scrollProgress * 1.2f).coerceIn(0f, 1f)
-                        translationY = scrollProgress * 240f
+                        val p = scrollProgressState.value
+                        alpha = (1f - p * 1.2f).coerceIn(0f, 1f)
+                        translationY = p * 240f
                     }
             ) {
                 Row(
@@ -617,9 +617,6 @@ private fun AppleTvHero(
     }
 }
 
-/**
- * Red kataloga — pamti horizontalnu poziciju po katalogu
- */
 @Composable
 private fun CatalogRowSection(
     catalog: Catalog,
