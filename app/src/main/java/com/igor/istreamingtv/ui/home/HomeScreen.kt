@@ -72,12 +72,15 @@ private val genreNames = mapOf(
     10767 to "Talk show", 10768 to "Rat i politika"
 )
 
-/** ✅ Radi i sa TMDB putanjama (/xxx.jpg) i sa Cinemeta apsolutnim URL-ovima */
+/** ✅ Radi i sa TMDB putanjama i sa Cinemeta apsolutnim URL-ovima */
 private fun imgUrl(path: String?, size: String): String = when {
     path.isNullOrBlank() -> ""
     path.startsWith("http") -> path
     else -> "https://image.tmdb.org/t/p/$size$path"
 }
+
+/** ✅ Jedinstveni ključ naslova (IMDb ID za Cinemeta) */
+private fun TmdbMovie.uniqueKey(): String = imdbId ?: id.toString()
 
 private fun TmdbMovie.displayBackdropUrl(): String = backdropPath ?: posterPath ?: ""
 
@@ -181,7 +184,7 @@ private fun AppleTvHomeContent(
     series: List<TmdbMovie>,
     catalogs: List<Catalog>,
     continueWatching: List<ContinueEntry>,
-    heroExtras: Map<Int, HeroExtras>,
+    heroExtras: Map<String, HeroExtras>,
     initialScroll: ScrollPosition,
     onSaveScroll: (Int, Int) -> Unit,
     getCatalogPosition: (String) -> ScrollPosition,
@@ -206,7 +209,8 @@ private fun AppleTvHomeContent(
         }
     }
 
-    LaunchedEffect(featured?.movie?.id) {
+    // ✅ KLJUČ PO IMDb ID-u — okida se za SVAKI novi naslov
+    LaunchedEffect(featured?.movie?.uniqueKey()) {
         featured?.let { onLoadHeroExtras(it.movie, it.isTv) }
     }
 
@@ -348,17 +352,21 @@ private fun ContinueCard(entry: ContinueEntry, onClick: () -> Unit, onRemove: ()
     }
 }
 
+/**
+ * ✅ HERO — sada čita extras po IMDb ID-u → svaki naslov ima SVOJE podatke
+ */
 @Composable
 private fun AppleTvHero(
     item: HeroItem,
-    heroExtras: Map<Int, HeroExtras>,
+    heroExtras: Map<String, HeroExtras>,
     currentIndex: Int,
     totalCount: Int,
     onMovieClick: (TmdbMovie) -> Unit,
     onHeroGainedFocus: () -> Unit
 ) {
     val movie = item.movie
-    val extras = heroExtras[movie.id]
+    // ✅ Ispravan ključ — više nije "0" za sve
+    val extras = heroExtras[movie.uniqueKey()]
 
     Box(
         modifier = Modifier
@@ -480,7 +488,7 @@ private fun CatalogRowSection(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
         ) {
-            items(catalog.items, key = { "${catalog.id}_${it.imdbId ?: it.id}" }) { movie ->
+            items(catalog.items, key = { it.uniqueKey() }) { movie ->
                 PosterCard(movie = movie, onClick = {
                     onSavePosition(rowState.firstVisibleItemIndex, rowState.firstVisibleItemScrollOffset)
                     onMovieClick(movie)
