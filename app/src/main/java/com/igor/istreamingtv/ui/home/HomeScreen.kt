@@ -32,7 +32,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -239,28 +238,40 @@ private fun AppleTvHomeContent(
 
         if (continueWatching.isNotEmpty()) {
             item(key = "continue") {
-                ContinueRowSection(
-                    entries = continueWatching,
-                    onResume = onResume,
-                    onRemove = onRemoveContinue
-                )
+                SimpleRow {
+                    ContinueRowSection(
+                        entries = continueWatching,
+                        onResume = onResume,
+                        onRemove = onRemoveContinue
+                    )
+                }
             }
         }
 
         items(catalogs, key = { it.id }) { catalog ->
-            CatalogRowSection(
-                catalog = catalog,
-                initialPosition = getCatalogPosition(catalog.id),
-                onSavePosition = { index, offset ->
-                    onSaveCatalogPosition(catalog.id, index, offset)
-                },
-                onMovieClick = openMovie
-            )
+            SimpleRow {
+                CatalogRowSection(
+                    catalog = catalog,
+                    initialPosition = getCatalogPosition(catalog.id),
+                    onSavePosition = { index, offset ->
+                        onSaveCatalogPosition(catalog.id, index, offset)
+                    },
+                    onMovieClick = openMovie
+                )
+            }
         }
 
         item(key = "bottom-spacer") {
             Spacer(modifier = Modifier.height(60.dp))
         }
+    }
+}
+
+/** ✅ Plain red BEZ entry animacije — fokus geometrija je uvek tačna (glatko vertikalno kretanje) */
+@Composable
+private fun SimpleRow(content: @Composable () -> Unit) {
+    Column(modifier = Modifier.padding(top = 40.dp)) {
+        content()
     }
 }
 
@@ -270,38 +281,24 @@ private fun ContinueRowSection(
     onResume: (ContinueEntry) -> Unit,
     onRemove: (ContinueEntry) -> Unit
 ) {
-    var entered by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { entered = true }
-    val rowAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(600), label = "row-alpha")
-    val rowOffsetY by animateFloatAsState(if (entered) 0f else 80f, tween(600), label = "row-offset")
+    Text(
+        text = "Nastavi gledanje",
+        color = Color.White,
+        fontSize = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
+    )
 
-    Column(
-        modifier = Modifier
-            .graphicsLayer {
-                alpha = rowAlpha
-                translationY = rowOffsetY
-            }
-            .padding(top = 40.dp)
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
     ) {
-        Text(
-            text = "Nastavi gledanje",
-            color = Color.White,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
-        )
-
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
-        ) {
-            items(entries, key = { it.key }) { entry ->
-                ContinueCard(
-                    entry = entry,
-                    onClick = { onResume(entry) },
-                    onRemove = { onRemove(entry) }
-                )
-            }
+        items(entries, key = { it.key }) { entry ->
+            ContinueCard(
+                entry = entry,
+                onClick = { onResume(entry) },
+                onRemove = { onRemove(entry) }
+            )
         }
     }
 }
@@ -418,8 +415,9 @@ private fun ContinueCard(
 }
 
 /**
- * ✅ HERO BEZ PARALAKSE — skrol je sada glatak (nema per-frame skaliranja
- * fullscreen slike). Hero se samo normalno skroluje kao na Apple TV+.
+ * ✅ HERO BEZ CROSSFADE-a oko celog sadržaja — dugmad i tekst ostaju STABILNI
+ * (fokus se ne gubi na rotaciju → nema skoka skrola).
+ * Crossfade je SAMO oko pozadinske slike (lep prelaz, bez uticaja na fokus).
  */
 @Composable
 private fun AppleTvHero(
@@ -430,176 +428,182 @@ private fun AppleTvHero(
     onMovieClick: (TmdbMovie) -> Unit,
     onHeroGainedFocus: () -> Unit
 ) {
-    Crossfade(targetState = item, animationSpec = tween(1000), label = "hero") { currentItem ->
-        val movie = currentItem.movie
-        val extras = heroExtras[movie.id]
+    val movie = item.movie
+    val extras = heroExtras[movie.id]
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .onFocusChanged { if (it.hasFocus) onHeroGainedFocus() }
-        ) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onFocusChanged { if (it.hasFocus) onHeroGainedFocus() }
+    ) {
 
+        // ✅ Crossfade SAMO pozadina — čvorovi dugmadi se ne rekreiraju
+        Crossfade(
+            targetState = movie.displayBackdropUrl(),
+            animationSpec = tween(800),
+            label = "backdrop",
+            modifier = Modifier.fillMaxSize()
+        ) { url ->
             AsyncImage(
-                model = "https://image.tmdb.org/t/p/w1280" + movie.displayBackdropUrl(),
+                model = "https://image.tmdb.org/t/p/w1280$url",
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
+        }
 
-            Box(
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
+                        endX = 1100f
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)),
+                        startY = 700f
+                    )
+                )
+        )
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 48.dp, top = 40.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.22f))
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Home,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text("Početna", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
-                            endX = 1100f
-                        )
+                    .padding(start = 48.dp, end = 48.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                val logoUrl = extras?.clearLogoUrl
+                if (logoUrl != null) {
+                    AsyncImage(
+                        model = logoUrl,
+                        contentDescription = movie.displayTitle,
+                        modifier = Modifier
+                            .width(300.dp)
+                            .height(100.dp),
+                        contentScale = ContentScale.Fit,
+                        alignment = Alignment.CenterStart
                     )
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)),
-                            startY = 700f
-                        )
-                    )
-            )
-
-            Box(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(start = 48.dp, top = 40.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.22f))
-                        .padding(horizontal = 18.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Home,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text("Početna", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(start = 48.dp, end = 48.dp),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    val logoUrl = extras?.clearLogoUrl
-                    if (logoUrl != null) {
-                        AsyncImage(
-                            model = logoUrl,
-                            contentDescription = movie.displayTitle,
-                            modifier = Modifier
-                                .width(300.dp)
-                                .height(100.dp),
-                            contentScale = ContentScale.Fit,
-                            alignment = Alignment.CenterStart
-                        )
-                    } else {
-                        Text(
-                            text = movie.displayTitle,
-                            color = Color.White,
-                            fontSize = 54.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.fillMaxWidth(0.6f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            text = movie.displayGenre(),
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        val cert = extras?.certification
-                        if (!cert.isNullOrBlank()) {
-                            Text(
-                                text = cert,
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier
-                                    .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
+                } else {
                     Text(
-                        text = extras?.overview ?: movie.displayOverview,
+                        text = movie.displayTitle,
                         color = Color.White,
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp,
+                        fontSize = 54.sp,
+                        fontWeight = FontWeight.ExtraBold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth(0.45f)
+                        modifier = Modifier.fillMaxWidth(0.6f)
                     )
+                }
 
-                    Spacer(modifier = Modifier.height(26.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                    TvFocusableButton(onClick = { onMovieClick(movie) }) { focused ->
-                        val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
-                        Row(
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = movie.displayGenre(),
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    val cert = extras?.certification
+                    if (!cert.isNullOrBlank()) {
+                        Text(
+                            text = cert,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
                             modifier = Modifier
-                                .scale(scale)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFFE9E9F2))
-                                .padding(horizontal = 36.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                tint = Color.Black,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text("Gledaj", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                        }
+                                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
                     }
                 }
 
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 30.dp),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    repeat(totalCount) { index ->
-                        Box(
-                            modifier = Modifier
-                                .then(
-                                    if (index == currentIndex) Modifier.size(width = 18.dp, height = 7.dp)
-                                    else Modifier.size(7.dp)
-                                )
-                                .clip(CircleShape)
-                                .background(
-                                    if (index == currentIndex) Color.White
-                                    else Color.White.copy(alpha = 0.35f)
-                                )
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = extras?.overview ?: movie.displayOverview,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    lineHeight = 22.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(0.45f)
+                )
+
+                Spacer(modifier = Modifier.height(26.dp))
+
+                TvFocusableButton(onClick = { onMovieClick(movie) }) { focused ->
+                    val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
+                    Row(
+                        modifier = Modifier
+                            .scale(scale)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFE9E9F2))
+                            .padding(horizontal = 36.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp)
                         )
+                        Text("Gledaj", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 30.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(totalCount) { index ->
+                    Box(
+                        modifier = Modifier
+                            .then(
+                                if (index == currentIndex) Modifier.size(width = 18.dp, height = 7.dp)
+                                else Modifier.size(7.dp)
+                            )
+                            .clip(CircleShape)
+                            .background(
+                                if (index == currentIndex) Color.White
+                                else Color.White.copy(alpha = 0.35f)
+                            )
+                    )
                 }
             }
         }
@@ -613,49 +617,35 @@ private fun CatalogRowSection(
     onSavePosition: (Int, Int) -> Unit,
     onMovieClick: (TmdbMovie) -> Unit
 ) {
-    var entered by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { entered = true }
-    val rowAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(600), label = "row-alpha")
-    val rowOffsetY by animateFloatAsState(if (entered) 0f else 80f, tween(600), label = "row-offset")
-
     val rowState = rememberLazyListState(
         initialFirstVisibleItemIndex = initialPosition.index,
         initialFirstVisibleItemScrollOffset = initialPosition.offset
     )
 
-    Column(
-        modifier = Modifier
-            .graphicsLayer {
-                alpha = rowAlpha
-                translationY = rowOffsetY
-            }
-            .padding(top = 40.dp)
-    ) {
-        Text(
-            text = catalog.title,
-            color = Color.White,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
-        )
+    Text(
+        text = catalog.title,
+        color = Color.White,
+        fontSize = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
+    )
 
-        LazyRow(
-            state = rowState,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
-        ) {
-            items(catalog.items, key = { it.id }) { movie ->
-                PosterCard(
-                    movie = movie,
-                    onClick = {
-                        onSavePosition(
-                            rowState.firstVisibleItemIndex,
-                            rowState.firstVisibleItemScrollOffset
-                        )
-                        onMovieClick(movie)
-                    }
-                )
-            }
+    LazyRow(
+        state = rowState,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
+    ) {
+        items(catalog.items, key = { it.id }) { movie ->
+            PosterCard(
+                movie = movie,
+                onClick = {
+                    onSavePosition(
+                        rowState.firstVisibleItemIndex,
+                        rowState.firstVisibleItemScrollOffset
+                    )
+                    onMovieClick(movie)
+                }
+            )
         }
     }
 }
@@ -685,7 +675,6 @@ private fun PosterCard(
                     )
             ) {
                 AsyncImage(
-                    // ✅ w342 umesto w185 — oštri, čitljivi posteri i na tabletu i na TV-u
                     model = "https://image.tmdb.org/t/p/w342" + movie.posterPath,
                     contentDescription = movie.displayTitle,
                     modifier = Modifier.fillMaxSize(),
