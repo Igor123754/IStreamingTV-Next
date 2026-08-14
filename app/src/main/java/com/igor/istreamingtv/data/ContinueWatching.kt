@@ -1,12 +1,10 @@
 package com.igor.istreamingtv.data
 
 import android.content.Context
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
+import com.igor.istreamingtv.data.remote.TmdbClient.json
+import kotlinx.serialization.Serializable
 
-/**
- * Stavka "Nastavi gledanje" — memoriše se u SharedPreferences (bez baze, bez keša mreže).
- */
+@Serializable
 data class ContinueEntry(
     val key: String,
     val imdbId: String?,
@@ -27,22 +25,15 @@ object ContinueWatchingStore {
     private const val KEY_ENTRIES = "entries"
     private const val LIMIT = 10
 
-    private val gson = Gson()
-    private val listType = object : TypeToken<MutableList<ContinueEntry>>() {}.type
-
     fun load(context: Context): List<ContinueEntry> = try {
-        val json = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val jsonString = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_ENTRIES, null)
-        if (json.isNullOrBlank()) emptyList()
-        else gson.fromJson(json, listType) ?: emptyList()
+        if (jsonString.isNullOrBlank()) emptyList()
+        else json.decodeFromString<List<ContinueEntry>>(jsonString)
     } catch (_: Exception) {
         emptyList()
     }
 
-    /**
-     * Odgledano do kraja → briše se; manje od 60s → ignoriše;
-     * inače → upisuje na VRH liste (max 10).
-     */
     fun upsert(
         context: Context,
         entry: ContinueEntry,
@@ -68,19 +59,27 @@ object ContinueWatchingStore {
         }
         while (list.size > LIMIT) list.removeAt(list.size - 1)
 
+        val jsonString = json.encodeToString<List<ContinueEntry>>(
+            kotlinx.serialization.builtins.ListSerializer(ContinueEntry.serializer()),
+            list
+        )
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_ENTRIES, gson.toJson(list))
+            .putString(KEY_ENTRIES, jsonString)
             .apply()
     }
 
-    /** ✅ Ručno uklanjanje (dugi prst / dugi OK) */
     fun remove(context: Context, key: String) {
         val list = load(context).toMutableList()
         list.removeAll { it.key == key }
+
+        val jsonString = json.encodeToString<List<ContinueEntry>>(
+            kotlinx.serialization.builtins.ListSerializer(ContinueEntry.serializer()),
+            list
+        )
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_ENTRIES, gson.toJson(list))
+            .putString(KEY_ENTRIES, jsonString)
             .apply()
     }
 }
