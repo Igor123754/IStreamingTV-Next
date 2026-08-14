@@ -92,7 +92,8 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
-private enum class TrackMenuKind { NONE, SUBTITLES, AUDIO }
+// ✅ FIX: internal (ne private) — Activity-jev internal property je koristi
+internal enum class TrackMenuKind { NONE, SUBTITLES, AUDIO }
 
 class PlayerActivity : ComponentActivity() {
 
@@ -201,7 +202,6 @@ class PlayerActivity : ComponentActivity() {
     }
 
     // ✅ BACK na nivou Activity-ja: prvi pritisak zatvara meni ILI gasi plejer
-    //    (bez beskonačnog spinner-a — dispatchKeyEvent hvata PRE nego što bilo koji view pojede događaj)
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if ((event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_ESCAPE) &&
             event.action == KeyEvent.ACTION_DOWN
@@ -663,10 +663,6 @@ private fun disableSubtitles(player: Player) {
         .build()
 }
 
-/**
- * ✅ TRAKA sa fokus navigacijom:
- * LEVO/DESNO = premotavanje, DOLE = na CC/Audio dugmad
- */
 @Composable
 private fun AppleSeekBar(
     fraction: Float,
@@ -735,7 +731,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     var sliderFraction by remember { mutableFloatStateOf(0f) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    // ✅ Fokus requesteri za navigaciju daljinskim
     val seekFocus = remember { FocusRequester() }
     val playPauseFocus = remember { FocusRequester() }
     val ccFocus = remember { FocusRequester() }
@@ -779,14 +774,12 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         }
     }
 
-    // ✅ Kad se kontrole prikažu → fokus na traku (da daljinski odmah radi)
     LaunchedEffect(controlsVisible) {
         if (controlsVisible) {
             try { seekFocus.requestFocus() } catch (_: Exception) {}
         }
     }
 
-    // ✅ Kad se meni otvori → fokus na prvu stavku menija
     LaunchedEffect(menuKind) {
         if (menuKind != TrackMenuKind.NONE) {
             try { menuFirstFocus.requestFocus() } catch (_: Exception) {}
@@ -816,7 +809,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            // ✅ Prvi pritisak bilo koje strelice kad su kontrole skrivene = probudi kontrole
             .onPreviewKeyEvent { event ->
                 val isDpad = event.key == Key.DirectionLeft || event.key == Key.DirectionRight ||
                     event.key == Key.DirectionUp || event.key == Key.DirectionDown
@@ -991,7 +983,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             modifier = Modifier.weight(1f).focusRequester(seekFocus)
                         )
 
-                        // PLAY/PAUSE dugme
                         TvFocusableButton(
                             onClick = { interact(); activity.togglePlayInternal() },
                             modifier = Modifier
@@ -1019,7 +1010,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             }
                         }
 
-                        // CC dugme
                         TvFocusableButton(
                             onClick = { openMenu(TrackMenuKind.SUBTITLES) },
                             modifier = Modifier
@@ -1045,7 +1035,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             ) { SubtitlesIcon(modifier = Modifier.size(22.dp)) }
                         }
 
-                        // Audio dugme
                         TvFocusableButton(
                             onClick = { openMenu(TrackMenuKind.AUDIO) },
                             modifier = Modifier
@@ -1084,7 +1073,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     }
                 }
 
-                // ✅ MENI titlova / audio (skrolabilan, fokus na prvu stavku)
                 if (menuKind != TrackMenuKind.NONE) {
                     Column(
                         modifier = Modifier
