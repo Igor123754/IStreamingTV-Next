@@ -1,5 +1,6 @@
 package com.igor.istreamingtv.ui.player
 
+import kotlinx.serialization.decodeFromString
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Bundle
