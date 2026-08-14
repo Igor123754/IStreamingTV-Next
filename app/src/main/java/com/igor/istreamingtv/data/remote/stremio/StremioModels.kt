@@ -1,47 +1,56 @@
 package com.igor.istreamingtv.data.remote.stremio
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class StremioManifest(
     val id: String,
     val version: String,
     val name: String,
-    val description: String?,
-    val types: List<String>,
-    val catalogs: List<StremioCatalog>?,
-    val resources: List<String>?
+    val description: String? = null,
+    val types: List<String> = emptyList(),
+    val catalogs: List<StremioCatalog>? = null,
+    val resources: List<String>? = null
 )
 
+@Serializable
 data class StremioCatalog(
     val type: String,
     val id: String,
     val name: String
 )
 
+@Serializable
 data class StremioStreamResponse(
-    val streams: List<StremioStream>
+    val streams: List<StremioStream> = emptyList()
 )
 
+@Serializable
 data class StremioStream(
-    val name: String?,
-    val title: String?,
-    val url: String?,
-    val externalUrl: String?,
-    val behaviorHints: BehaviorHints?
+    val name: String? = null,
+    val title: String? = null,
+    val url: String? = null,
+    @SerialName("externalUrl")
+    val externalUrl: String? = null,
+    @SerialName("behaviorHints")
+    val behaviorHints: BehaviorHints? = null
 ) {
-    fun displayTitle(): String {
-        return title ?: name ?: "Nepoznat izvor"
-    }
-
-    fun isPlayable(): Boolean {
-        return url != null
-    }
+    fun displayTitle(): String = title ?: name ?: "Nepoznat izvor"
+    fun isPlayable(): Boolean = url != null
 }
 
+@Serializable
 data class BehaviorHints(
-    val proxyHeaders: ProxyHeaders?,
-    val notWebReady: Boolean?,
-    val bingeGroup: String?
+    @SerialName("proxyHeaders")
+    val proxyHeaders: ProxyHeaders? = null,
+    @SerialName("notWebReady")
+    val notWebReady: Boolean? = null,
+    @SerialName("bingeGroup")
+    val bingeGroup: String? = null
 )
 
+@Serializable
 data class ProxyHeaders(
-    val request: Map<String, String>?
+    val request: Map<String, String>? = null
 )
