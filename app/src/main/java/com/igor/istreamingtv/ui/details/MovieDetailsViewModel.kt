@@ -30,7 +30,6 @@ data class DetailsUiState(
     val preparingStreams: Boolean = false,
     val movieCandidates: List<StreamPicker.Candidate> = emptyList(),
     val episodeCandidates: Map<String, List<StreamPicker.Candidate>> = emptyMap(),
-    // Titlovi SA JEZIKOM (sr/hr) — rankovani po sinhronizaciji
     val movieSubtitleTracks: List<SubtitleTrack> = emptyList(),
     val episodeSubtitleTracks: Map<String, List<SubtitleTrack>> = emptyMap(),
     val error: String? = null
@@ -65,14 +64,14 @@ class MovieDetailsViewModel : ViewModel() {
                 var collectionName: String? = null
                 var collectionParts = emptyList<TmdbMovie>()
                 if (!isTv) {
-                    val collectionId = details.belongs_to_collection?.id
-                    if (collectionId != null) {
+                    val collectionId = details.belongsToCollection?.id
+                    if (collectionId != null && collectionId != 0) {
                         try {
                             val collection = tmdbRepository.getCollectionDetails(collectionId)
                             collectionName = collection.name
                             collectionParts = collection.parts
                                 .filter { it.id != movie.id }
-                                .sortedBy { it.release_date ?: "" }
+                                .sortedBy { it.releaseDate ?: "" }
                         } catch (_: Exception) {
                             // Nema kolekcije
                         }
@@ -84,8 +83,8 @@ class MovieDetailsViewModel : ViewModel() {
                 var episodes = emptyList<TmdbEpisode>()
                 if (isTv) {
                     seasons = details.seasons ?: emptyList()
-                    selectedSeason = seasons.firstOrNull { it.season_number > 0 }?.season_number
-                        ?: seasons.firstOrNull()?.season_number
+                    selectedSeason = seasons.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
+                        ?: seasons.firstOrNull()?.seasonNumber
                         ?: 0
                     episodes = fetchEpisodes(movie.id, selectedSeason)
                 }
@@ -163,7 +162,7 @@ class MovieDetailsViewModel : ViewModel() {
 
         val imdb = _uiState.value.details?.pickImdbId() ?: return emptyList()
         val ep = _uiState.value.episodes.firstOrNull {
-            it.season_number == season && it.episode_number == episode
+            it.seasonNumber == season && it.episodeNumber == episode
         }
         val tracks = fetchRankedTracks("series", imdb, season, episode, ep?.runtime?.times(60))
         if (tracks.isNotEmpty()) {
@@ -198,10 +197,10 @@ class MovieDetailsViewModel : ViewModel() {
 
     private fun prepareEpisodeStreams(imdb: String, episode: TmdbEpisode) {
         viewModelScope.launch {
-            val key = "${episode.season_number}:${episode.episode_number}"
+            val key = "${episode.seasonNumber}:${episode.episodeNumber}"
             if (_uiState.value.episodeCandidates.containsKey(key)) return@launch
             val candidates = StreamPicker.getCandidates(
-                "series", imdb, episode.season_number, episode.episode_number
+                "series", imdb, episode.seasonNumber, episode.episodeNumber
             )
             val prepared = StreamPicker.prepare(candidates)
             _uiState.value = _uiState.value.copy(
@@ -213,10 +212,10 @@ class MovieDetailsViewModel : ViewModel() {
 
     private fun prepareEpisodeSubtitles(imdb: String, episode: TmdbEpisode) {
         viewModelScope.launch {
-            val key = "${episode.season_number}:${episode.episode_number}"
+            val key = "${episode.seasonNumber}:${episode.episodeNumber}"
             if (_uiState.value.episodeSubtitleTracks.containsKey(key)) return@launch
             val tracks = fetchRankedTracks(
-                "series", imdb, episode.season_number, episode.episode_number,
+                "series", imdb, episode.seasonNumber, episode.episodeNumber,
                 episode.runtime?.times(60)
             )
             if (tracks.isNotEmpty()) {
@@ -227,7 +226,6 @@ class MovieDetailsViewModel : ViewModel() {
         }
     }
 
-    /** Srpski (rankovani) pa hrvatski (rankovani) — SA oznakom jezika */
     private suspend fun fetchRankedTracks(
         type: String,
         imdb: String,
