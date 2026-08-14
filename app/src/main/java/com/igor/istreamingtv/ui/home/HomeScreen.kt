@@ -72,6 +72,13 @@ private val genreNames = mapOf(
     10767 to "Talk show", 10768 to "Rat i politika"
 )
 
+/** ✅ Radi i sa TMDB putanjama (/xxx.jpg) i sa Cinemeta apsolutnim URL-ovima */
+private fun imgUrl(path: String?, size: String): String = when {
+    path.isNullOrBlank() -> ""
+    path.startsWith("http") -> path
+    else -> "https://image.tmdb.org/t/p/$size$path"
+}
+
 private fun TmdbMovie.displayBackdropUrl(): String = backdropPath ?: posterPath ?: ""
 
 private fun TmdbMovie.displayGenre(): String =
@@ -79,10 +86,6 @@ private fun TmdbMovie.displayGenre(): String =
 
 private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
 
-/**
- * ✅ OPTIMIZOVANA SLIKA — RGB_565 (2x manje memorije + brže dekodiranje)
- * za fotografije; ARGB_8888 samo za providne logoe.
- */
 @Composable
 private fun FastImage(
     url: String,
@@ -115,25 +118,18 @@ fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
-        viewModel.refreshContinueWatching()
-    }
+    LaunchedEffect(Unit) { viewModel.refreshContinueWatching() }
 
     val onResume: (ContinueEntry) -> Unit = { entry ->
         scope.launch {
             if (entry.imdbId.isNullOrBlank()) return@launch
             val candidates = StreamPicker.getCandidates(
                 if (entry.isTv) "series" else "movie",
-                entry.imdbId,
-                entry.season,
-                entry.episode
+                entry.imdbId, entry.season, entry.episode
             )
             if (candidates.isNotEmpty()) {
                 val intent = Intent(context, PlayerActivity::class.java).apply {
-                    putExtra(
-                        "candidates",
-                        TmdbClient.json.encodeToString(candidates.map { it.url })
-                    )
+                    putExtra("candidates", TmdbClient.json.encodeToString(candidates.map { it.url }))
                     putExtra("imdb_id", entry.imdbId)
                     putExtra("season", entry.season)
                     putExtra("episode", entry.episode)
@@ -153,11 +149,7 @@ fun HomeScreen(
         viewModel.refreshContinueWatching()
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AppBackground)
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         when {
             state.isLoading -> ShimmerHomeScreen()
             state.error != null -> ErrorScreen(
@@ -226,25 +218,15 @@ private fun AppleTvHomeContent(
     val scope = rememberCoroutineScope()
 
     val openMovie: (TmdbMovie) -> Unit = { movie ->
-        onSaveScroll(
-            listState.firstVisibleItemIndex,
-            listState.firstVisibleItemScrollOffset
-        )
+        onSaveScroll(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
         onMovieClick(movie)
     }
 
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize()
-    ) {
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         item(key = "hero") {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(screenHeightDp)
-            ) {
+            Box(modifier = Modifier.fillMaxWidth().height(screenHeightDp)) {
                 if (featured != null) {
                     AppleTvHero(
                         item = featured,
@@ -266,11 +248,7 @@ private fun AppleTvHomeContent(
 
         if (continueWatching.isNotEmpty()) {
             item(key = "continue") {
-                ContinueRowSection(
-                    entries = continueWatching,
-                    onResume = onResume,
-                    onRemove = onRemoveContinue
-                )
+                ContinueRowSection(entries = continueWatching, onResume = onResume, onRemove = onRemoveContinue)
             }
         }
 
@@ -278,16 +256,12 @@ private fun AppleTvHomeContent(
             CatalogRowSection(
                 catalog = catalog,
                 initialPosition = getCatalogPosition(catalog.id),
-                onSavePosition = { index, offset ->
-                    onSaveCatalogPosition(catalog.id, index, offset)
-                },
+                onSavePosition = { index, offset -> onSaveCatalogPosition(catalog.id, index, offset) },
                 onMovieClick = openMovie
             )
         }
 
-        item(key = "bottom-spacer") {
-            Spacer(modifier = Modifier.height(60.dp))
-        }
+        item(key = "bottom-spacer") { Spacer(modifier = Modifier.height(60.dp)) }
     }
 }
 
@@ -298,39 +272,24 @@ private fun ContinueRowSection(
     onRemove: (ContinueEntry) -> Unit
 ) {
     Column(modifier = Modifier.padding(top = 40.dp)) {
-        Text(
-            text = "Nastavi gledanje",
-            color = Color.White,
-            fontSize = 22.sp,
+        Text("Nastavi gledanje", color = Color.White, fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
-        )
+            modifier = Modifier.padding(start = 48.dp, bottom = 16.dp))
 
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
         ) {
             items(entries, key = { it.key }) { entry ->
-                ContinueCard(
-                    entry = entry,
-                    onClick = { onResume(entry) },
-                    onRemove = { onRemove(entry) }
-                )
+                ContinueCard(entry = entry, onClick = { onResume(entry) }, onRemove = { onRemove(entry) })
             }
         }
     }
 }
 
 @Composable
-private fun ContinueCard(
-    entry: ContinueEntry,
-    onClick: () -> Unit,
-    onRemove: () -> Unit
-) {
-    val fraction = if (entry.durationMs > 0) {
-        (entry.positionMs.toFloat() / entry.durationMs).coerceIn(0f, 1f)
-    } else 0f
-
+private fun ContinueCard(entry: ContinueEntry, onClick: () -> Unit, onRemove: () -> Unit) {
+    val fraction = if (entry.durationMs > 0) (entry.positionMs.toFloat() / entry.durationMs).coerceIn(0f, 1f) else 0f
     var focused by remember { mutableStateOf(false) }
     var pendingClick by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(220), label = "")
@@ -338,36 +297,21 @@ private fun ContinueCard(
     Column(modifier = Modifier.width(240.dp)) {
         Box(
             modifier = Modifier
-                .width(240.dp)
-                .height(135.dp)
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = onRemove
-                )
+                .width(240.dp).height(135.dp)
+                .combinedClickable(onClick = onClick, onLongClick = onRemove)
                 .focusable()
                 .onFocusChanged { focused = it.isFocused }
                 .onPreviewKeyEvent { event ->
                     when {
-                        event.type == KeyEventType.KeyDown &&
-                            event.key == Key.DirectionCenter -> {
+                        event.type == KeyEventType.KeyDown && event.key == Key.DirectionCenter -> {
                             when {
-                                event.nativeKeyEvent.repeatCount >= 6 -> {
-                                    pendingClick = false
-                                    onRemove()
-                                    true
-                                }
+                                event.nativeKeyEvent.repeatCount >= 6 -> { pendingClick = false; onRemove(); true }
                                 event.nativeKeyEvent.repeatCount > 0 -> true
-                                else -> {
-                                    pendingClick = true
-                                    true
-                                }
+                                else -> { pendingClick = true; true }
                             }
                         }
-                        event.type == KeyEventType.KeyUp &&
-                            event.key == Key.DirectionCenter -> {
-                            if (pendingClick) onClick()
-                            pendingClick = false
-                            true
+                        event.type == KeyEventType.KeyUp && event.key == Key.DirectionCenter -> {
+                            if (pendingClick) onClick(); pendingClick = false; true
                         }
                         else -> false
                     }
@@ -375,65 +319,35 @@ private fun ContinueCard(
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .scale(scale)
-                    .clip(CardShape)
+                    .fillMaxSize().scale(scale).clip(CardShape)
                     .background(SurfaceBackground)
-                    .then(
-                        if (focused) Modifier.border(3.dp, Color.White, CardShape)
-                        else Modifier
-                    )
+                    .then(if (focused) Modifier.border(3.dp, Color.White, CardShape) else Modifier)
             ) {
-                FastImage(
-                    url = entry.backdropUrl.ifBlank { entry.posterUrl },
-                    modifier = Modifier.fillMaxSize()
-                )
-
+                FastImage(url = entry.backdropUrl.ifBlank { entry.posterUrl }, modifier = Modifier.fillMaxSize())
                 Box(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.3f))
+                        .align(Alignment.BottomCenter).fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp).height(4.dp)
+                        .clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.3f))
                 ) {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(Color.White)
+                        modifier = Modifier.fillMaxWidth(fraction).height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)).background(Color.White)
                     )
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-
+        Text(entry.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
-            text = entry.title,
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        Text(
-            text = if (entry.isTv) "Nastavi · S${entry.season}, E${entry.episode}"
-            else "Nastavi gledanje",
-            color = TextSecondary,
-            fontSize = 12.sp,
-            maxLines = 1
+            if (entry.isTv) "Nastavi · S${entry.season}, E${entry.episode}" else "Nastavi gledanje",
+            color = TextSecondary, fontSize = 12.sp, maxLines = 1
         )
     }
 }
 
-/**
- * ✅ HERO — Crossfade SAMO oko pozadine (dugmad stabilna, fokus se ne gubi).
- * Pozadina koristi RGB_565 → 2x brže dekodiranje fullscreen slike.
- */
 @Composable
 private fun AppleTvHero(
     item: HeroItem,
@@ -451,170 +365,93 @@ private fun AppleTvHero(
             .fillMaxSize()
             .onFocusChanged { if (it.hasFocus) onHeroGainedFocus() }
     ) {
-
         Crossfade(
-            targetState = movie.displayBackdropUrl(),
+            targetState = imgUrl(movie.displayBackdropUrl(), "w1280"),
             animationSpec = tween(800),
             label = "backdrop",
             modifier = Modifier.fillMaxSize()
         ) { url ->
-            FastImage(
-                url = "https://image.tmdb.org/t/p/w1280$url",
-                modifier = Modifier.fillMaxSize()
-            )
+            FastImage(url = url, modifier = Modifier.fillMaxSize())
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
-                        endX = 1100f
-                    )
-                )
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)),
-                        startY = 700f
-                    )
-                )
-        )
+        Box(Modifier.fillMaxSize().background(
+            Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent), endX = 1100f)))
+        Box(Modifier.fillMaxSize().background(
+            Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)), startY = 700f)))
 
         Box(modifier = Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 48.dp, top = 40.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.22f))
+                modifier = Modifier.align(Alignment.TopStart).padding(start = 48.dp, top = 40.dp)
+                    .clip(CircleShape).background(Color.White.copy(alpha = 0.22f))
                     .padding(horizontal = 18.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Home,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
+                Icon(Icons.Default.Home, null, tint = Color.White, modifier = Modifier.size(16.dp))
                 Text("Početna", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
 
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = 48.dp, end = 48.dp),
+                modifier = Modifier.fillMaxSize().padding(start = 48.dp, end = 48.dp),
                 verticalArrangement = Arrangement.Center
             ) {
                 val logoUrl = extras?.clearLogoUrl
                 if (logoUrl != null) {
-                    FastImage(
-                        url = logoUrl,
-                        modifier = Modifier
-                            .width(300.dp)
-                            .height(100.dp),
-                        contentScale = ContentScale.Fit,
-                        transparent = true,
-                        alignment = Alignment.CenterStart
-                    )
+                    FastImage(url = logoUrl, modifier = Modifier.width(300.dp).height(100.dp),
+                        contentScale = ContentScale.Fit, transparent = true,
+                        alignment = Alignment.CenterStart)
                 } else {
-                    Text(
-                        text = movie.displayTitle,
-                        color = Color.White,
-                        fontSize = 54.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth(0.6f)
-                    )
+                    Text(movie.displayTitle, color = Color.White, fontSize = 54.sp,
+                        fontWeight = FontWeight.ExtraBold, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(0.6f))
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = movie.displayGenre(),
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(movie.displayGenre(), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                     val cert = extras?.certification
                     if (!cert.isNullOrBlank()) {
-                        Text(
-                            text = cert,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
+                        Text(cert, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp))
                     }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                Text(
-                    text = extras?.overview ?: movie.displayOverview,
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(0.45f)
-                )
+                Text(extras?.overview ?: movie.displayOverview, color = Color.White, fontSize = 15.sp,
+                    lineHeight = 22.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(0.45f))
 
                 Spacer(modifier = Modifier.height(26.dp))
 
                 TvFocusableButton(onClick = { onMovieClick(movie) }) { focused ->
                     val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
                     Row(
-                        modifier = Modifier
-                            .scale(scale)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFFE9E9F2))
-                            .padding(horizontal = 36.dp, vertical = 14.dp),
+                        modifier = Modifier.scale(scale).clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFE9E9F2)).padding(horizontal = 36.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.Black,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(20.dp))
                         Text("Gledaj", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
 
             Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 30.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 30.dp),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 repeat(totalCount) { index ->
                     Box(
                         modifier = Modifier
-                            .then(
-                                if (index == currentIndex) Modifier.size(width = 18.dp, height = 7.dp)
-                                else Modifier.size(7.dp)
-                            )
+                            .then(if (index == currentIndex) Modifier.size(width = 18.dp, height = 7.dp) else Modifier.size(7.dp))
                             .clip(CircleShape)
-                            .background(
-                                if (index == currentIndex) Color.White
-                                else Color.White.copy(alpha = 0.35f)
-                            )
+                            .background(if (index == currentIndex) Color.White else Color.White.copy(alpha = 0.35f))
                     )
                 }
             }
@@ -635,77 +472,46 @@ private fun CatalogRowSection(
     )
 
     Column(modifier = Modifier.padding(top = 40.dp)) {
-        Text(
-            text = catalog.title,
-            color = Color.White,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
-        )
+        Text(catalog.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 48.dp, bottom = 16.dp))
 
         LazyRow(
             state = rowState,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
         ) {
-            items(catalog.items, key = { it.id }) { movie ->
-                PosterCard(
-                    movie = movie,
-                    onClick = {
-                        onSavePosition(
-                            rowState.firstVisibleItemIndex,
-                            rowState.firstVisibleItemScrollOffset
-                        )
-                        onMovieClick(movie)
-                    }
-                )
+            items(catalog.items, key = { "${catalog.id}_${it.imdbId ?: it.id}" }) { movie ->
+                PosterCard(movie = movie, onClick = {
+                    onSavePosition(rowState.firstVisibleItemIndex, rowState.firstVisibleItemScrollOffset)
+                    onMovieClick(movie)
+                })
             }
         }
     }
 }
 
 @Composable
-private fun PosterCard(
-    movie: TmdbMovie,
-    onClick: () -> Unit
-) {
+private fun PosterCard(movie: TmdbMovie, onClick: () -> Unit) {
     Column(modifier = Modifier.width(150.dp)) {
         TvFocusableButton(
             onClick = onClick,
-            modifier = Modifier
-                .width(150.dp)
-                .height(225.dp)
+            modifier = Modifier.width(150.dp).height(225.dp)
         ) { focused ->
             val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(220), label = "")
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .scale(scale)
-                    .clip(CardShape)
+                    .fillMaxSize().scale(scale).clip(CardShape)
                     .background(SurfaceBackground)
-                    .then(
-                        if (focused) Modifier.border(3.dp, Color.White, CardShape)
-                        else Modifier
-                    )
+                    .then(if (focused) Modifier.border(3.dp, Color.White, CardShape) else Modifier)
             ) {
-                FastImage(
-                    url = "https://image.tmdb.org/t/p/w342" + movie.posterPath,
-                    modifier = Modifier.fillMaxSize()
-                )
+                FastImage(url = imgUrl(movie.posterPath, "w342"), modifier = Modifier.fillMaxSize())
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text(
-            text = movie.displayTitle,
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            lineHeight = 18.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
+        Text(movie.displayTitle, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+            lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -717,12 +523,10 @@ fun ShimmerHomeScreen() {
         animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Restart),
         label = ""
     )
-
     fun shimmerBrush(): Brush = Brush.horizontalGradient(
         colors = listOf(Color(0xFF111113), Color(0xFF29292D), Color(0xFF111113)),
         startX = -700f + progress * 2400f, endX = progress * 2400f
     )
-
     Box(modifier = Modifier.fillMaxSize().background(shimmerBrush()))
 }
 
@@ -733,19 +537,14 @@ fun ErrorScreen(message: String, onRetry: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(text = "⚠", color = Color.White, fontSize = 46.sp)
+        Text("⚠", color = Color.White, fontSize = 46.sp)
         Spacer(modifier = Modifier.height(18.dp))
-        Text(text = message, color = TextSecondary, fontSize = 16.sp)
+        Text(message, color = TextSecondary, fontSize = 16.sp)
         Spacer(modifier = Modifier.height(28.dp))
         TvFocusableButton(onClick = onRetry) { focused ->
             val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(180), label = "")
-            Box(
-                modifier = Modifier
-                    .scale(scale)
-                    .clip(RoundedCornerShape(25.dp))
-                    .background(Color.White)
-                    .padding(horizontal = 30.dp, vertical = 13.dp)
-            ) {
+            Box(modifier = Modifier.scale(scale).clip(RoundedCornerShape(25.dp))
+                .background(Color.White).padding(horizontal = 30.dp, vertical = 13.dp)) {
                 Text("Pokušaj ponovo", color = Color.Black, fontWeight = FontWeight.SemiBold)
             }
         }
