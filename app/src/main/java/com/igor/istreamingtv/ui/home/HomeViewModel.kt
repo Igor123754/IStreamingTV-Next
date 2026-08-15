@@ -37,7 +37,6 @@ data class HomeUiState(
     val series: List<TmdbMovie> = emptyList(),
     val catalogs: List<Catalog> = emptyList(),
     val continueWatching: List<ContinueEntry> = emptyList(),
-    // ✅ KLJUČ JE SADA STRING (IMDb ID) — Cinemeta stavke imaju id == 0!
     val heroExtras: Map<String, HeroExtras> = emptyMap(),
     val error: String? = null
 )
@@ -75,7 +74,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ✅ Cinemeta katalogi — paralelno, brzo
     fun loadContent() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
@@ -101,6 +99,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     series = series,
                     catalogs = catalogs
                 )
+
+                // ✅ PARALELNI PREFETCH hero extras (10 naslova odjednom)
+                //    → rotacija na 9s je momentalna, a ID-jevi se keširaju
+                //    pa stranica detalja ne čeka find poziv!
+                (movies.take(5).map { it to false } + series.take(5).map { it to true }).forEach { (m, isTv) ->
+                    launch { loadHeroExtras(m, isTv) }
+                }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -110,7 +115,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ✅ Hero extras po IMDb ID-u (svaki naslov ima svoj unos)
     fun loadHeroExtras(movie: TmdbMovie, isTv: Boolean) {
         val key = movie.imdbId ?: movie.id.toString()
         if (_uiState.value.heroExtras.containsKey(key)) return
