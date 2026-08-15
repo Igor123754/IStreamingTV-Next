@@ -42,27 +42,21 @@ class MovieDetailsViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(DetailsUiState())
     val uiState: StateFlow<DetailsUiState> = _uiState.asStateFlow()
 
-    private var resolvedId: Int = 0
-
     fun load(movie: TmdbMovie, isTv: Boolean) {
         viewModelScope.launch {
             _uiState.value = DetailsUiState(isLoading = true, preparingStreams = true)
             try {
-                // ✅ IMDb → TMDB id — iz KEŠA ako je hero već rezolvio (bez novog poziva!)
-                var tmdbId = movie.id
-                if (tmdbId <= 0 && !movie.imdbId.isNullOrBlank()) {
-                    tmdbId = tmdbRepository.resolveTmdbId(movie.imdbId, isTv) ?: 0
-                }
+                // ✅ TMDB id direktan iz kataloga — 1 poziv, bez find ture
+                val tmdbId = movie.id
                 if (tmdbId <= 0) {
                     _uiState.value = DetailsUiState(isLoading = false, error = "Naslov nije pronađen")
                     return@launch
                 }
-                resolvedId = tmdbId
 
                 val details = if (isTv) tmdbRepository.getTvHeroDetails(tmdbId)
                 else tmdbRepository.getMovieHeroDetails(tmdbId)
 
-                // ✅ PARALELNO: similar + epizode istovremeno
+                // ✅ PARALELNO: similar + kolekcija + epizode istovremeno
                 val similarDeferred = async {
                     try {
                         if (isTv) tmdbRepository.getSimilarSeries(tmdbId)
@@ -70,38 +64,35 @@ class MovieDetailsViewModel : ViewModel() {
                     } catch (_: Exception) { emptyList() }
                 }
 
-                var collectionName: String? = null
-                var collectionParts = emptyList<TmdbMovie>()
-                if (!isTv) {
-                    val collectionId = details.belongsToCollection?.id
-                    if (collectionId != null && collectionId != 0) {
-                        try {
-                            val collection = tmdbRepository.getCollectionDetails(collectionId)
-                            collectionName = collection.name
-                            collectionParts = collection.parts
-                                .filter { it.id != tmdbId }
-                                .sortedBy { it.releaseDate ?: "" }
-                        } catch (_: Exception) { }
-                    }
+                val collectionDeferred = async {
+                    if (!isTv) {
+                        val collectionId = details.belongsToCollection?.id
+                        if (collectionId != null && collectionId != 0) {
+                            try {
+                                tmdbRepository.getCollectionDetails(collectionId)
+                            } catch (_: Exception) { null }
+                        } else null
+                    } else null
                 }
 
-                var seasons = emptyList<TmdbSeason>()
-                var selectedSeason = 0
-                var episodes = emptyList<TmdbEpisode>()
-                val episodesDeferred = if (isTv) {
-                    seasons = details.seasons ?: emptyList()
-                    selectedSeason = seasons.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
-                        ?: seasons.firstOrNull()?.seasonNumber ?: 0
+                val seasons = if (isTv) details.seasons ?: emptyList() else emptyList()
+                val selectedSeason = seasons.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
+                    ?: seasons.firstOrNull()?.seasonNumber ?: 0
+
+                val episodesDeferred = if (isTv && seasons.isNotEmpty()) {
                     async { fetchEpisodes(tmdbId, selectedSeason) }
                 } else null
 
-                episodes = episodesDeferred?.await() ?: emptyList()
+                val collection = collectionDeferred.await()
+                val episodes = episodesDeferred?.await() ?: emptyList()
 
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     details = details,
-                    collectionName = collectionName,
-                    collectionParts = collectionParts,
+                    collectionName = collection?.name,
+                    collectionParts = collection?.parts
+                        ?.filter { it.id != tmdbId }
+                        ?.sortedBy { it.releaseDate ?: "" } ?: emptyList(),
                     seasons = seasons,
                     selectedSeasonNumber = selectedSeason,
                     episodes = episodes
@@ -111,7 +102,7 @@ class MovieDetailsViewModel : ViewModel() {
                     _uiState.value = _uiState.value.copy(similar = similarDeferred.await())
                 }
 
-                val imdb = details.pickImdbId() ?: movie.imdbId
+                val imdb = details.pickImdbId()
                 if (!imdb.isNullOrBlank()) {
                     if (!isTv) {
                         prepareMovieStreams(imdb)
@@ -137,8 +128,7 @@ class MovieDetailsViewModel : ViewModel() {
     fun selectSeason(tvId: Int, seasonNumber: Int) {
         if (_uiState.value.selectedSeasonNumber == seasonNumber) return
         viewModelScope.launch {
-            val id = if (resolvedId != 0) resolvedId else tvId
-            val episodes = fetchEpisodes(id, seasonNumber)
+            val episodes = fetchEpisodes(tvId, seasonNumber)
             _uiState.value = _uiState.value.copy(
                 selectedSeasonNumber = seasonNumber,
                 episodes = episodes
