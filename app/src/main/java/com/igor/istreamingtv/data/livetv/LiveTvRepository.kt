@@ -11,7 +11,7 @@ class LiveTvRepository {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
@@ -31,7 +31,16 @@ class LiveTvRepository {
                     val input = if (epgUrl.endsWith(".gz", true)) GZIPInputStream(stream) else stream
                     val parsed = EpgParser.parse(input)
                     resp.close()
-                    parsed
+
+                    // ✅ ZADRŽI EPG SAMO ZA KANALE IZ TVOJE LISTE
+                    //    (drastično manje RAM-a — bitno za 2GB TV i sprečava OOM crash)
+                    val wantedKeys = buildSet {
+                        channels.forEach { ch ->
+                            ch.epgId?.let { add(it) }
+                            add(ch.name)
+                        }
+                    }
+                    parsed.filterKeys { wantedKeys.contains(it) }
                 }
             } catch (_: Exception) { emptyMap() }
 
