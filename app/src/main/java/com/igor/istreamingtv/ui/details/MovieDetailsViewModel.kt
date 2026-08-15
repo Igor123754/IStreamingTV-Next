@@ -42,14 +42,13 @@ class MovieDetailsViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(DetailsUiState())
     val uiState: StateFlow<DetailsUiState> = _uiState.asStateFlow()
 
-    // ✅ Rezolovani TMDB id (za Cinemeta stavke sa id == 0)
     private var resolvedId: Int = 0
 
     fun load(movie: TmdbMovie, isTv: Boolean) {
         viewModelScope.launch {
             _uiState.value = DetailsUiState(isLoading = true, preparingStreams = true)
             try {
-                // ✅ IMDb → TMDB id ako je potrebno
+                // ✅ IMDb → TMDB id — iz KEŠA ako je hero već rezolvio (bez novog poziva!)
                 var tmdbId = movie.id
                 if (tmdbId <= 0 && !movie.imdbId.isNullOrBlank()) {
                     tmdbId = tmdbRepository.resolveTmdbId(movie.imdbId, isTv) ?: 0
@@ -63,6 +62,7 @@ class MovieDetailsViewModel : ViewModel() {
                 val details = if (isTv) tmdbRepository.getTvHeroDetails(tmdbId)
                 else tmdbRepository.getMovieHeroDetails(tmdbId)
 
+                // ✅ PARALELNO: similar + epizode istovremeno
                 val similarDeferred = async {
                     try {
                         if (isTv) tmdbRepository.getSimilarSeries(tmdbId)
@@ -88,12 +88,14 @@ class MovieDetailsViewModel : ViewModel() {
                 var seasons = emptyList<TmdbSeason>()
                 var selectedSeason = 0
                 var episodes = emptyList<TmdbEpisode>()
-                if (isTv) {
+                val episodesDeferred = if (isTv) {
                     seasons = details.seasons ?: emptyList()
                     selectedSeason = seasons.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
                         ?: seasons.firstOrNull()?.seasonNumber ?: 0
-                    episodes = fetchEpisodes(tmdbId, selectedSeason)
-                }
+                    async { fetchEpisodes(tmdbId, selectedSeason) }
+                } else null
+
+                episodes = episodesDeferred?.await() ?: emptyList()
 
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
