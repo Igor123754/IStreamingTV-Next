@@ -26,13 +26,16 @@ object M3uParser {
                     hasPending = true
                 }
                 line.isNotEmpty() && !line.startsWith("#") && hasPending -> {
+                    val index = channels.size
                     channels.add(
                         LiveChannel(
-                            id = attrs["tvg-id"] ?: name.ifBlank { channels.size.toString() },
+                            // ✅ UVEK jedinstven ID (index) — sprečava crash na duplim tvg-id
+                            id = index.toString(),
                             name = name.ifBlank { attrs["tvg-name"] ?: "Kanal" },
                             logoUrl = attrs["tvg-logo"],
                             group = attrs["group-title"],
                             streamUrl = line,
+                            // ✅ Za EPG mapiranje — originalni tvg-id
                             epgId = attrs["tvg-id"] ?: attrs["tvg-name"] ?: name
                         )
                     )
