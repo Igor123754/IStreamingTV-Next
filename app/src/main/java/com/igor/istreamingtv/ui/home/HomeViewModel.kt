@@ -74,37 +74,45 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * ✅ APPLE TV+ STIL — bez keša:
+     * 1) Hero ODMAH (2 paralelna poziva) → ekran trenutno vidljiv
+     * 2) Prefetch hero extras u pozadini (TMDB id direktan — 1 poziv)
+     * 3) Katalozi PARALELNO + PROGRESIVNO — redovi stižu kako se učitaju
+     */
     fun loadContent() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
-                val topMovies = async { repository.getCinemetaCatalog("movie", "top") }
-                val topSeries = async { repository.getCinemetaCatalog("series", "top") }
-                val popMovies = async { repository.getCinemetaCatalog("movie", "popular") }
-                val popSeries = async { repository.getCinemetaCatalog("series", "popular") }
-
-                val movies = topMovies.await()
-                val series = topSeries.await()
-
-                val catalogs = listOf(
-                    Catalog("top-movies", "Popularni filmovi", movies.take(15)),
-                    Catalog("top-series", "Popularne serije", series.take(15)),
-                    Catalog("popular-movies", "Trending filmovi", popMovies.await().take(15)),
-                    Catalog("popular-series", "Trending serije", popSeries.await().take(15))
-                ).filter { it.items.isNotEmpty() }
+                // 1) HERO ODMAH
+                val heroMovies = async { repository.getTrendingMovies() }
+                val heroSeries = async { repository.getTrendingSeries() }
+                val movies = heroMovies.await()
+                val series = heroSeries.await()
 
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     movies = movies,
-                    series = series,
-                    catalogs = catalogs
+                    series = series
                 )
 
-                // ✅ PARALELNI PREFETCH hero extras (10 naslova odjednom)
-                //    → rotacija na 9s je momentalna, a ID-jevi se keširaju
-                //    pa stranica detalja ne čeka find poziv!
+                // 2) PREFETCH hero extras paralelno (rotacija momentalna)
                 (movies.take(5).map { it to false } + series.take(5).map { it to true }).forEach { (m, isTv) ->
                     launch { loadHeroExtras(m, isTv) }
+                }
+
+                // 3) KATALOZI PARALELNO + PROGRESIVNO
+                launch {
+                    addCatalog("popular-movies", "Popularni filmovi", repository.getPopularMovies())
+                }
+                launch {
+                    addCatalog("popular-series", "Popularne serije", repository.getPopularSeries())
+                }
+                launch {
+                    addCatalog("top-movies", "Najbolje ocenjeni filmovi", repository.getTopRatedMovies())
+                }
+                launch {
+                    addCatalog("top-series", "Najbolje ocenjene serije", repository.getTopRatedSeries())
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
@@ -115,17 +123,22 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ✅ Red se dodaje čim stigne — bez čekanja ostalih
+    private suspend fun addCatalog(id: String, title: String, items: List<TmdbMovie>) {
+        if (items.isEmpty()) return
+        _uiState.value = _uiState.value.copy(
+            catalogs = _uiState.value.catalogs + Catalog(id, title, items.take(12))
+        )
+    }
+
+    // ✅ 1 poziv po naslovu (TMDB id direktan — bez find turе)
     fun loadHeroExtras(movie: TmdbMovie, isTv: Boolean) {
-        val key = movie.imdbId ?: movie.id.toString()
+        val key = movie.id.toString()
         if (_uiState.value.heroExtras.containsKey(key)) return
         viewModelScope.launch {
             try {
-                var tmdbId = movie.id
-                if (tmdbId <= 0 && !movie.imdbId.isNullOrBlank()) {
-                    tmdbId = repository.resolveTmdbId(movie.imdbId, isTv) ?: return@launch
-                }
-                val details = if (isTv) repository.getTvHeroDetails(tmdbId)
-                else repository.getMovieHeroDetails(tmdbId)
+                val details = if (isTv) repository.getTvHeroDetails(movie.id)
+                else repository.getMovieHeroDetails(movie.id)
 
                 val extras = HeroExtras(
                     clearLogoUrl = details.pickClearLogoUrl(),
