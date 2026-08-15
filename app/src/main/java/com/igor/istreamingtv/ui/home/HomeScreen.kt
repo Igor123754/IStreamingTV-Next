@@ -50,12 +50,17 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.igor.istreamingtv.data.ContinueEntry
 import com.igor.istreamingtv.data.ContinueWatchingStore
+import com.igor.istreamingtv.data.livetv.EpgProgram
+import com.igor.istreamingtv.data.livetv.LiveChannel
 import com.igor.istreamingtv.data.remote.*
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.player.PlayerActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val AppBackground = Color(0xFF020204)
 private val SurfaceBackground = Color(0xFF0C0D12)
@@ -72,22 +77,24 @@ private val genreNames = mapOf(
     10767 to "Talk show", 10768 to "Rat i politika"
 )
 
-/** ✅ Radi i sa TMDB putanjama i sa Cinemeta apsolutnim URL-ovima */
 private fun imgUrl(path: String?, size: String): String = when {
     path.isNullOrBlank() -> ""
     path.startsWith("http") -> path
     else -> "https://image.tmdb.org/t/p/$size$path"
 }
 
-/** ✅ Jedinstveni ključ naslova (IMDb ID za Cinemeta) */
 private fun TmdbMovie.uniqueKey(): String = imdbId ?: id.toString()
-
 private fun TmdbMovie.displayBackdropUrl(): String = backdropPath ?: posterPath ?: ""
-
 private fun TmdbMovie.displayGenre(): String =
     genreIds?.firstNotNullOfOrNull { genreNames[it] } ?: "Film"
 
 private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
+
+/** ✅ Trenutni EPG program za kanal */
+private fun nowProgram(epg: Map<String, List<EpgProgram>>, ch: LiveChannel): EpgProgram? {
+    val now = System.currentTimeMillis()
+    return epg[ch.epgId ?: ch.id]?.firstOrNull { now >= it.startMs && now < it.endMs }
+}
 
 @Composable
 private fun FastImage(
@@ -152,6 +159,18 @@ fun HomeScreen(
         viewModel.refreshContinueWatching()
     }
 
+    // ✅ OTVORI LIVE PLAYER
+    val onWatchLive: (LiveChannel, EpgProgram?) -> Unit = { channel, program ->
+        val intent = Intent(context, PlayerActivity::class.java).apply {
+            putExtra("candidates", TmdbClient.json.encodeToString(listOf(channel.streamUrl)))
+            putExtra("live", true)
+            putExtra("title", channel.name)
+            putExtra("poster", channel.logoUrl ?: "")
+            putExtra("live_program", program?.title ?: "")
+        }
+        context.startActivity(intent)
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         when {
             state.isLoading -> ShimmerHomeScreen()
@@ -165,6 +184,8 @@ fun HomeScreen(
                 catalogs = state.catalogs,
                 continueWatching = state.continueWatching,
                 heroExtras = state.heroExtras,
+                liveChannels = state.liveChannels,
+                liveEpg = state.liveEpg,
                 initialScroll = viewModel.getHomeVerticalPosition(),
                 onSaveScroll = viewModel::saveHomeVerticalPosition,
                 getCatalogPosition = viewModel::getCatalogPosition,
@@ -172,6 +193,7 @@ fun HomeScreen(
                 onMovieClick = onMovieClick,
                 onResume = onResume,
                 onRemoveContinue = onRemoveContinue,
+                onWatchLive = onWatchLive,
                 onLoadHeroExtras = viewModel::loadHeroExtras
             )
         }
@@ -185,6 +207,8 @@ private fun AppleTvHomeContent(
     catalogs: List<Catalog>,
     continueWatching: List<ContinueEntry>,
     heroExtras: Map<String, HeroExtras>,
+    liveChannels: List<LiveChannel>,
+    liveEpg: Map<String, List<EpgProgram>>,
     initialScroll: ScrollPosition,
     onSaveScroll: (Int, Int) -> Unit,
     getCatalogPosition: (String) -> ScrollPosition,
@@ -192,6 +216,7 @@ private fun AppleTvHomeContent(
     onMovieClick: (TmdbMovie) -> Unit,
     onResume: (ContinueEntry) -> Unit,
     onRemoveContinue: (ContinueEntry) -> Unit,
+    onWatchLive: (LiveChannel, EpgProgram?) -> Unit,
     onLoadHeroExtras: (TmdbMovie, Boolean) -> Unit
 ) {
     val heroItems = remember(movies, series) {
@@ -201,6 +226,9 @@ private fun AppleTvHomeContent(
     var heroIndex by remember { mutableIntStateOf(0) }
     val featured = heroItems.getOrNull(heroIndex)
 
+    // ✅ Kanal pod fokusom u live redu → hero prikazuje njegov EPG
+    var liveFocused by remember { mutableStateOf<LiveChannel?>(null) }
+
     LaunchedEffect(heroItems.size) {
         if (heroItems.size < 2) return@LaunchedEffect
         while (true) {
@@ -209,7 +237,6 @@ private fun AppleTvHomeContent(
         }
     }
 
-    // ✅ KLJUČ PO IMDb ID-u — okida se za SVAKI novi naslov
     LaunchedEffect(featured?.movie?.uniqueKey()) {
         featured?.let { onLoadHeroExtras(it.movie, it.isTv) }
     }
@@ -231,8 +258,15 @@ private fun AppleTvHomeContent(
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         item(key = "hero") {
             Box(modifier = Modifier.fillMaxWidth().height(screenHeightDp)) {
-                if (featured != null) {
-                    AppleTvHero(
+                val liveCh = liveFocused
+                when {
+                    // ✅ EPG HERO kad je fokus na live redu
+                    liveCh != null -> LiveHero(
+                        channel = liveCh,
+                        program = nowProgram(liveEpg, liveCh),
+                        onWatch = { onWatchLive(liveCh, nowProgram(liveEpg, liveCh)) }
+                    )
+                    featured != null -> AppleTvHero(
                         item = featured,
                         heroExtras = heroExtras,
                         currentIndex = heroIndex,
@@ -247,6 +281,19 @@ private fun AppleTvHomeContent(
                         }
                     )
                 }
+            }
+        }
+
+        // ✅ UŽIVO TV — PRVI RED
+        if (liveChannels.isNotEmpty()) {
+            item(key = "live") {
+                LiveRowSection(
+                    channels = liveChannels,
+                    epg = liveEpg,
+                    onChannelFocus = { liveFocused = it },
+                    onRowLeft = { liveFocused = null },
+                    onWatch = onWatchLive
+                )
             }
         }
 
@@ -268,6 +315,193 @@ private fun AppleTvHomeContent(
         item(key = "bottom-spacer") { Spacer(modifier = Modifier.height(60.dp)) }
     }
 }
+
+// =====================================================================
+// ✅ UŽIVO TV — RED KANALA + EPG HERO
+// =====================================================================
+
+@Composable
+private fun LiveRowSection(
+    channels: List<LiveChannel>,
+    epg: Map<String, List<EpgProgram>>,
+    onChannelFocus: (LiveChannel) -> Unit,
+    onRowLeft: () -> Unit,
+    onWatch: (LiveChannel, EpgProgram?) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .padding(top = 40.dp)
+            .onFocusChanged { if (!it.hasFocus) onRowLeft() }
+    ) {
+        Text("Uživo TV", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 48.dp, bottom = 16.dp))
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
+        ) {
+            items(channels, key = { it.id }) { channel ->
+                LiveChannelCard(
+                    channel = channel,
+                    program = nowProgram(epg, channel),
+                    onFocus = { onChannelFocus(channel) },
+                    onWatch = { onWatch(channel, nowProgram(epg, channel)) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveChannelCard(
+    channel: LiveChannel,
+    program: EpgProgram?,
+    onFocus: () -> Unit,
+    onWatch: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(220), label = "")
+    val now = System.currentTimeMillis()
+    val progress = if (program != null && program.endMs > program.startMs)
+        ((now - program.startMs).toFloat() / (program.endMs - program.startMs)).coerceIn(0f, 1f) else 0f
+
+    Column(modifier = Modifier.width(240.dp)) {
+        TvFocusableButton(
+            onClick = onWatch,
+            modifier = Modifier
+                .width(240.dp)
+                .height(135.dp)
+                .onFocusChanged {
+                    focused = it.isFocused
+                    if (it.isFocused) onFocus()
+                }
+        ) { f ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .scale(if (f) 1.06f else 1f)
+                    .clip(CardShape)
+                    .background(SurfaceBackground)
+                    .then(if (f) Modifier.border(3.dp, Color.White, CardShape) else Modifier)
+            ) {
+                // Logo kanala u sredini
+                if (!channel.logoUrl.isNullOrBlank()) {
+                    FastImage(channel.logoUrl, Modifier.fillMaxSize().padding(24.dp),
+                        contentScale = ContentScale.Fit, transparent = true)
+                } else {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                // Progress trenutne emisije
+                if (program != null) {
+                    Box(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp).height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.3f))
+                    ) {
+                        Box(Modifier.fillMaxWidth(progress).height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)).background(Color.White))
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(program?.title ?: channel.group ?: "Uživo", color = TextSecondary, fontSize = 12.sp,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * ✅ EPG HERO — veliki fanart = slika trenutnog EPG programa,
+ * bedž sa vremenom, logo kanala gore desno, kategorija + naslov + opis.
+ */
+@Composable
+private fun LiveHero(
+    channel: LiveChannel,
+    program: EpgProgram?,
+    onWatch: () -> Unit
+) {
+    val timeFmt = remember { SimpleDateFormat("EEE · HH:mm", Locale.getDefault()) }
+    val bg = program?.iconUrl ?: channel.logoUrl ?: ""
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (bg.isNotBlank()) {
+            FastImage(bg, Modifier.fillMaxSize())
+        } else {
+            Box(Modifier.fillMaxSize().background(SurfaceBackground))
+        }
+
+        Box(Modifier.fillMaxSize().background(
+            Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent), endX = 1100f)))
+        Box(Modifier.fillMaxSize().background(
+            Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)), startY = 700f)))
+
+        // ✅ Bedž sa vremenom (gore levo)
+        if (program != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 48.dp, top = 40.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                Text(timeFmt.format(Date(program.startMs)), color = Color.White,
+                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        // ✅ Logo kanala (gore desno — umesto Apple TV loga)
+        if (!channel.logoUrl.isNullOrBlank()) {
+            FastImage(channel.logoUrl,
+                Modifier.align(Alignment.TopEnd).padding(end = 48.dp, top = 40.dp)
+                    .width(140.dp).height(90.dp),
+                contentScale = ContentScale.Fit, transparent = true)
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(start = 48.dp, end = 48.dp, bottom = 40.dp)
+        ) {
+            Text(channel.group ?: program?.category ?: "TV uživo", color = TextSecondary,
+                fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(program?.title ?: channel.name, color = Color.White, fontSize = 44.sp,
+                fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(0.6f))
+            Spacer(modifier = Modifier.height(12.dp))
+            program?.description?.let {
+                Text(it, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(0.45f))
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+
+            TvFocusableButton(onClick = onWatch) { focused ->
+                val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
+                Row(
+                    modifier = Modifier.scale(scale).clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFE9E9F2)).padding(horizontal = 36.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                    Text("Gledaj uživo", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+// =====================================================================
+// OSTALI REDOVI (isti kao pre)
+// =====================================================================
 
 @Composable
 private fun ContinueRowSection(
@@ -352,9 +586,6 @@ private fun ContinueCard(entry: ContinueEntry, onClick: () -> Unit, onRemove: ()
     }
 }
 
-/**
- * ✅ HERO — sada čita extras po IMDb ID-u → svaki naslov ima SVOJE podatke
- */
 @Composable
 private fun AppleTvHero(
     item: HeroItem,
@@ -365,7 +596,6 @@ private fun AppleTvHero(
     onHeroGainedFocus: () -> Unit
 ) {
     val movie = item.movie
-    // ✅ Ispravan ključ — više nije "0" za sve
     val extras = heroExtras[movie.uniqueKey()]
 
     Box(
@@ -517,7 +747,6 @@ private fun PosterCard(movie: TmdbMovie, onClick: () -> Unit) {
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-
         Text(movie.displayTitle, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
             lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
