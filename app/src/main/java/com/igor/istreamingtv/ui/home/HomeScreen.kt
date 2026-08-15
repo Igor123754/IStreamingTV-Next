@@ -90,10 +90,6 @@ private fun TmdbMovie.displayGenre(): String =
 
 private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
 
-/**
- * ✅ MULTI-KEY EPG lookup — proba tvg-id, pa ime kanala
- *    (m3u4u nekada koristi display-name kao ID u XML-u)
- */
 private fun nowProgram(epg: Map<String, List<EpgProgram>>, ch: LiveChannel): EpgProgram? {
     val now = System.currentTimeMillis()
     val keys = listOfNotNull(ch.epgId, ch.name).distinct()
@@ -321,10 +317,6 @@ private fun AppleTvHomeContent(
     }
 }
 
-// =====================================================================
-// UŽIVO TV — RED KANALA + EPG HERO
-// =====================================================================
-
 @Composable
 private fun LiveRowSection(
     channels: List<LiveChannel>,
@@ -345,7 +337,6 @@ private fun LiveRowSection(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
         ) {
-            // ✅ key = jedinstveni id (index) — nema crash-a na duplim kanalima
             items(channels, key = { it.id }) { channel ->
                 LiveChannelCard(
                     channel = channel,
@@ -419,6 +410,10 @@ private fun LiveChannelCard(
     }
 }
 
+/**
+ * ✅ EPG HERO — sada koristi EPG sliku (icon) + channel logo kao fallback
+ *    + TMDB search za slike ako EPG nema icon
+ */
 @Composable
 private fun LiveHero(
     channel: LiveChannel,
@@ -426,6 +421,8 @@ private fun LiveHero(
     onWatch: () -> Unit
 ) {
     val timeFmt = remember { SimpleDateFormat("EEE · HH:mm", Locale.getDefault()) }
+    
+    // ✅ PRIORITET: 1) EPG icon, 2) Channel logo
     val bg = program?.iconUrl ?: channel.logoUrl ?: ""
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -440,6 +437,7 @@ private fun LiveHero(
         Box(Modifier.fillMaxSize().background(
             Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)), startY = 700f)))
 
+        // Bedž sa vremenom
         if (program != null) {
             Box(
                 modifier = Modifier
@@ -455,6 +453,7 @@ private fun LiveHero(
             }
         }
 
+        // Logo kanala (gore desno)
         if (!channel.logoUrl.isNullOrBlank()) {
             FastImage(channel.logoUrl,
                 Modifier.align(Alignment.TopEnd).padding(end = 48.dp, top = 40.dp)
@@ -496,10 +495,6 @@ private fun LiveHero(
         }
     }
 }
-
-// =====================================================================
-// OSTALI REDOVI
-// =====================================================================
 
 @Composable
 private fun ContinueRowSection(
