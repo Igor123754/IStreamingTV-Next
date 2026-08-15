@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.igor.istreamingtv.BuildConfig
 import com.igor.istreamingtv.data.ContinueEntry
 import com.igor.istreamingtv.data.ContinueWatchingStore
+import com.igor.istreamingtv.data.livetv.EpgProgram
+import com.igor.istreamingtv.data.livetv.LiveChannel
+import com.igor.istreamingtv.data.livetv.LiveTvRepository
 import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.data.remote.pickCertification
 import com.igor.istreamingtv.data.remote.pickClearLogoUrl
@@ -38,12 +41,15 @@ data class HomeUiState(
     val catalogs: List<Catalog> = emptyList(),
     val continueWatching: List<ContinueEntry> = emptyList(),
     val heroExtras: Map<String, HeroExtras> = emptyMap(),
+    val liveChannels: List<LiveChannel> = emptyList(),          // ✅ NOVO
+    val liveEpg: Map<String, List<EpgProgram>> = emptyMap(),   // ✅ NOVO
     val error: String? = null
 )
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ContentRepository(BuildConfig.TMDB_API_KEY)
+    private val liveRepository = LiveTvRepository()
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -74,17 +80,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * ✅ APPLE TV+ STIL — bez keša:
-     * 1) Hero ODMAH (2 paralelna poziva) → ekran trenutno vidljiv
-     * 2) Prefetch hero extras u pozadini (TMDB id direktan — 1 poziv)
-     * 3) Katalozi PARALELNO + PROGRESIVNO — redovi stižu kako se učitaju
-     */
     fun loadContent() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
-                // 1) HERO ODMAH
                 val heroMovies = async { repository.getTrendingMovies() }
                 val heroSeries = async { repository.getTrendingSeries() }
                 val movies = heroMovies.await()
@@ -96,23 +95,24 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     series = series
                 )
 
-                // 2) PREFETCH hero extras paralelno (rotacija momentalna)
                 (movies.take(5).map { it to false } + series.take(5).map { it to true }).forEach { (m, isTv) ->
                     launch { loadHeroExtras(m, isTv) }
                 }
 
-                // 3) KATALOZI PARALELNO + PROGRESIVNO
+                launch { addCatalog("popular-movies", "Popularni filmovi", repository.getPopularMovies()) }
+                launch { addCatalog("popular-series", "Popularne serije", repository.getPopularSeries()) }
+                launch { addCatalog("top-movies", "Najbolje ocenjeni filmovi", repository.getTopRatedMovies()) }
+                launch { addCatalog("top-series", "Najbolje ocenjene serije", repository.getTopRatedSeries()) }
+
+                // ✅ LIVE TV — učitava se u pozadini, ne blokira ostalo
                 launch {
-                    addCatalog("popular-movies", "Popularni filmovi", repository.getPopularMovies())
-                }
-                launch {
-                    addCatalog("popular-series", "Popularne serije", repository.getPopularSeries())
-                }
-                launch {
-                    addCatalog("top-movies", "Najbolje ocenjeni filmovi", repository.getTopRatedMovies())
-                }
-                launch {
-                    addCatalog("top-series", "Najbolje ocenjene serije", repository.getTopRatedSeries())
+                    val data = liveRepository.load()
+                    if (data != null && data.channels.isNotEmpty()) {
+                        _uiState.value = _uiState.value.copy(
+                            liveChannels = data.channels,
+                            liveEpg = data.epg
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
@@ -123,7 +123,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ✅ Red se dodaje čim stigne — bez čekanja ostalih
     private suspend fun addCatalog(id: String, title: String, items: List<TmdbMovie>) {
         if (items.isEmpty()) return
         _uiState.value = _uiState.value.copy(
@@ -131,7 +130,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    // ✅ 1 poziv po naslovu (TMDB id direktan — bez find turе)
     fun loadHeroExtras(movie: TmdbMovie, isTv: Boolean) {
         val key = movie.id.toString()
         if (_uiState.value.heroExtras.containsKey(key)) return
@@ -139,7 +137,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val details = if (isTv) repository.getTvHeroDetails(movie.id)
                 else repository.getMovieHeroDetails(movie.id)
-
                 val extras = HeroExtras(
                     clearLogoUrl = details.pickClearLogoUrl(),
                     overview = details.pickSerbianOverview() ?: details.overview,
