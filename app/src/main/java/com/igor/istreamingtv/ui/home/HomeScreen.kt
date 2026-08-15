@@ -90,10 +90,19 @@ private fun TmdbMovie.displayGenre(): String =
 
 private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
 
-/** ✅ Trenutni EPG program za kanal */
+/**
+ * ✅ MULTI-KEY EPG lookup — proba tvg-id, pa ime kanala
+ *    (m3u4u nekada koristi display-name kao ID u XML-u)
+ */
 private fun nowProgram(epg: Map<String, List<EpgProgram>>, ch: LiveChannel): EpgProgram? {
     val now = System.currentTimeMillis()
-    return epg[ch.epgId ?: ch.id]?.firstOrNull { now >= it.startMs && now < it.endMs }
+    val keys = listOfNotNull(ch.epgId, ch.name).distinct()
+    for (k in keys) {
+        val list = epg[k] ?: continue
+        val p = list.firstOrNull { now >= it.startMs && now < it.endMs }
+        if (p != null) return p
+    }
+    return null
 }
 
 @Composable
@@ -159,7 +168,6 @@ fun HomeScreen(
         viewModel.refreshContinueWatching()
     }
 
-    // ✅ OTVORI LIVE PLAYER
     val onWatchLive: (LiveChannel, EpgProgram?) -> Unit = { channel, program ->
         val intent = Intent(context, PlayerActivity::class.java).apply {
             putExtra("candidates", TmdbClient.json.encodeToString(listOf(channel.streamUrl)))
@@ -226,7 +234,6 @@ private fun AppleTvHomeContent(
     var heroIndex by remember { mutableIntStateOf(0) }
     val featured = heroItems.getOrNull(heroIndex)
 
-    // ✅ Kanal pod fokusom u live redu → hero prikazuje njegov EPG
     var liveFocused by remember { mutableStateOf<LiveChannel?>(null) }
 
     LaunchedEffect(heroItems.size) {
@@ -260,7 +267,6 @@ private fun AppleTvHomeContent(
             Box(modifier = Modifier.fillMaxWidth().height(screenHeightDp)) {
                 val liveCh = liveFocused
                 when {
-                    // ✅ EPG HERO kad je fokus na live redu
                     liveCh != null -> LiveHero(
                         channel = liveCh,
                         program = nowProgram(liveEpg, liveCh),
@@ -284,7 +290,6 @@ private fun AppleTvHomeContent(
             }
         }
 
-        // ✅ UŽIVO TV — PRVI RED
         if (liveChannels.isNotEmpty()) {
             item(key = "live") {
                 LiveRowSection(
@@ -317,7 +322,7 @@ private fun AppleTvHomeContent(
 }
 
 // =====================================================================
-// ✅ UŽIVO TV — RED KANALA + EPG HERO
+// UŽIVO TV — RED KANALA + EPG HERO
 // =====================================================================
 
 @Composable
@@ -340,6 +345,7 @@ private fun LiveRowSection(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
         ) {
+            // ✅ key = jedinstveni id (index) — nema crash-a na duplim kanalima
             items(channels, key = { it.id }) { channel ->
                 LiveChannelCard(
                     channel = channel,
@@ -384,7 +390,6 @@ private fun LiveChannelCard(
                     .background(SurfaceBackground)
                     .then(if (f) Modifier.border(3.dp, Color.White, CardShape) else Modifier)
             ) {
-                // Logo kanala u sredini
                 if (!channel.logoUrl.isNullOrBlank()) {
                     FastImage(channel.logoUrl, Modifier.fillMaxSize().padding(24.dp),
                         contentScale = ContentScale.Fit, transparent = true)
@@ -393,7 +398,6 @@ private fun LiveChannelCard(
                         Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-                // Progress trenutne emisije
                 if (program != null) {
                     Box(
                         Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -415,10 +419,6 @@ private fun LiveChannelCard(
     }
 }
 
-/**
- * ✅ EPG HERO — veliki fanart = slika trenutnog EPG programa,
- * bedž sa vremenom, logo kanala gore desno, kategorija + naslov + opis.
- */
 @Composable
 private fun LiveHero(
     channel: LiveChannel,
@@ -440,7 +440,6 @@ private fun LiveHero(
         Box(Modifier.fillMaxSize().background(
             Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)), startY = 700f)))
 
-        // ✅ Bedž sa vremenom (gore levo)
         if (program != null) {
             Box(
                 modifier = Modifier
@@ -456,7 +455,6 @@ private fun LiveHero(
             }
         }
 
-        // ✅ Logo kanala (gore desno — umesto Apple TV loga)
         if (!channel.logoUrl.isNullOrBlank()) {
             FastImage(channel.logoUrl,
                 Modifier.align(Alignment.TopEnd).padding(end = 48.dp, top = 40.dp)
@@ -500,7 +498,7 @@ private fun LiveHero(
 }
 
 // =====================================================================
-// OSTALI REDOVI (isti kao pre)
+// OSTALI REDOVI
 // =====================================================================
 
 @Composable
