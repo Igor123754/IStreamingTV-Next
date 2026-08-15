@@ -36,6 +36,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -94,11 +95,15 @@ class PlayerActivity : ComponentActivity() {
     internal var playerBackdrop: String = ""
     internal var playerOverview: String = ""
 
+    // ✅ LIVE TV režim
+    internal var isLive: Boolean = false
+    internal var liveProgramTitle: String = ""
+
     internal var isSeriesPlay: Boolean = false
     internal var introStartMs: Long = -1
     internal var introEndMs: Long = -1
 
-    // ✅ SVE kontrolno stanje na Activity nivou (radi na SVIM daljinskim)
+    // ✅ Sva kontrola na Activity nivou (radi na SVIM daljinskim)
     internal var menuKind by mutableStateOf(TrackMenuKind.NONE)
     internal var panelOptions by mutableStateOf<List<String>>(emptyList())
     internal var panelSelected by mutableStateOf(0)
@@ -130,6 +135,10 @@ class PlayerActivity : ComponentActivity() {
             return
         }
 
+        // ✅ LIVE extras
+        isLive = intent.getBooleanExtra("live", false)
+        liveProgramTitle = intent.getStringExtra("live_program") ?: ""
+
         imdbId = intent.getStringExtra("imdb_id") ?: intent.getStringExtra("series_imdb")
         seasonNumber = intent.getIntExtra("season", -1)
         episodeNumber = intent.getIntExtra("episode", -1)
@@ -140,17 +149,6 @@ class PlayerActivity : ComponentActivity() {
         playerPoster = intent.getStringExtra("poster") ?: ""
         playerBackdrop = intent.getStringExtra("backdrop") ?: ""
         playerOverview = intent.getStringExtra("overview") ?: ""
-
-        if (!imdbId.isNullOrBlank() && seasonNumber >= 0 && episodeNumber >= 0) {
-            isSeriesPlay = true
-            lifecycleScope.launch {
-                val intro = fetchIntroTimestamps(imdbId!!, seasonNumber, episodeNumber)
-                if (intro != null) {
-                    introStartMs = (intro.first * 1000).toLong()
-                    introEndMs = (intro.second * 1000).toLong()
-                }
-            }
-        }
 
         val composeView = ComposeView(this)
         composeView.setBackgroundColor(android.graphics.Color.BLACK)
@@ -163,24 +161,40 @@ class PlayerActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-        lifecycleScope.launch {
-            if (currentSubtitleTracks.isEmpty() && !imdbId.isNullOrBlank()) {
-                val type = if (seasonNumber >= 0) "series" else "movie"
-                val fetched = withTimeoutOrNull(1500) {
-                    withContext(Dispatchers.IO) {
-                        try {
-                            SubtitleFetcher.toTracks(
-                                SubtitleFetcher.getAcceptedSubtitles(type, imdbId!!, seasonNumber, episodeNumber), 6
-                            )
-                        } catch (_: Exception) { emptyList() }
+        if (isLive) {
+            // ✅ LIVE: odmah pusti stream — bez titlova/intro/continue logike
+            playCandidate(0)
+        } else {
+            if (!imdbId.isNullOrBlank() && seasonNumber >= 0 && episodeNumber >= 0) {
+                isSeriesPlay = true
+                lifecycleScope.launch {
+                    val intro = fetchIntroTimestamps(imdbId!!, seasonNumber, episodeNumber)
+                    if (intro != null) {
+                        introStartMs = (intro.first * 1000).toLong()
+                        introEndMs = (intro.second * 1000).toLong()
                     }
                 }
-                if (!fetched.isNullOrEmpty()) {
-                    currentSubtitleTracks.clear()
-                    currentSubtitleTracks.addAll(fetched)
-                }
             }
-            withContext(Dispatchers.Main) { playCandidate(0) }
+
+            lifecycleScope.launch {
+                if (currentSubtitleTracks.isEmpty() && !imdbId.isNullOrBlank()) {
+                    val type = if (seasonNumber >= 0) "series" else "movie"
+                    val fetched = withTimeoutOrNull(1500) {
+                        withContext(Dispatchers.IO) {
+                            try {
+                                SubtitleFetcher.toTracks(
+                                    SubtitleFetcher.getAcceptedSubtitles(type, imdbId!!, seasonNumber, episodeNumber), 6
+                                )
+                            } catch (_: Exception) { emptyList() }
+                        }
+                    }
+                    if (!fetched.isNullOrEmpty()) {
+                        currentSubtitleTracks.clear()
+                        currentSubtitleTracks.addAll(fetched)
+                    }
+                }
+                withContext(Dispatchers.Main) { playCandidate(0) }
+            }
         }
     }
 
@@ -221,7 +235,7 @@ class PlayerActivity : ComponentActivity() {
             KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
 
-                // Ako su kontrole skrivene → prvi pritisak ih SAMO budi
+                // Kontrole skrivene → prvi pritisak ih SAMO budi
                 if (!controlsVisible) {
                     controlsVisible = true
                     controlsFocusIndex = 0
@@ -232,15 +246,20 @@ class PlayerActivity : ComponentActivity() {
                 interact()
                 when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT -> {
-                        if (controlsFocusIndex == 0) seekBy(-10_000)
-                        else if (controlsFocusIndex == 2) controlsFocusIndex = 1
+                        // ✅ LIVE: nema premotavanja
+                        if (!isLive) {
+                            if (controlsFocusIndex == 0) seekBy(-10_000)
+                            else if (controlsFocusIndex == 2) controlsFocusIndex = 1
+                        }
                     }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                        if (controlsFocusIndex == 0) seekBy(10_000)
-                        else if (controlsFocusIndex == 1) controlsFocusIndex = 2
+                        if (!isLive) {
+                            if (controlsFocusIndex == 0) seekBy(10_000)
+                            else if (controlsFocusIndex == 1) controlsFocusIndex = 2
+                        }
                     }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        if (controlsFocusIndex == 0) controlsFocusIndex = 1
+                        if (!isLive && controlsFocusIndex == 0) controlsFocusIndex = 1
                     }
                     KeyEvent.KEYCODE_DPAD_UP -> {
                         if (controlsFocusIndex != 0) controlsFocusIndex = 0
@@ -248,8 +267,8 @@ class PlayerActivity : ComponentActivity() {
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                         when (controlsFocusIndex) {
                             0 -> togglePlayInternal()
-                            1 -> openSubtitlesPanel()
-                            2 -> openAudioPanel()
+                            1 -> if (!isLive) openSubtitlesPanel()
+                            2 -> if (!isLive) openAudioPanel()
                         }
                     }
                 }
@@ -436,20 +455,26 @@ class PlayerActivity : ComponentActivity() {
 
         exo.setMediaItem(mib.build())
         exo.prepare()
-        if (saved > 0) exo.seekTo(saved)
+        // ✅ LIVE: bez resume pozicije
+        if (saved > 0 && !isLive) exo.seekTo(saved)
         exo.playWhenReady = true
 
         var autoSync = false
         exo.addListener(object : Player.Listener {
             override fun onPlayerError(e: PlaybackException) {
-                if (candidateIndex < candidateUrls.size - 1) {
+                if (!isLive && candidateIndex < candidateUrls.size - 1) {
                     Toast.makeText(context, "Izvor ne radi — prelazim na sledeći...", Toast.LENGTH_SHORT).show()
                     playCandidate(candidateIndex + 1)
-                } else Toast.makeText(context, "Greška reprodukcije: ${e.errorCodeName}", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "Greška reprodukcije: ${e.errorCodeName}", Toast.LENGTH_LONG).show()
+                }
             }
             override fun onPlaybackStateChanged(s: Int) {
-                if (s == Player.STATE_ENDED) tryNextEpisode()
-                if (s == Player.STATE_READY && !autoSync && tracks.size > 1) { autoSync = true; autoPickSyncedSubtitle(exo, tracks) }
+                if (s == Player.STATE_ENDED && !isLive) tryNextEpisode()
+                if (s == Player.STATE_READY && !autoSync && !isLive && tracks.size > 1) {
+                    autoSync = true
+                    autoPickSyncedSubtitle(exo, tracks)
+                }
             }
         })
 
@@ -487,19 +512,23 @@ class PlayerActivity : ComponentActivity() {
         super.onStop()
         val p = player ?: return
         val url = currentUrl ?: return
-        try {
-            val pos = p.currentPosition; val dur = p.duration
-            val prefs = getSharedPreferences("player_positions", MODE_PRIVATE)
-            when {
-                dur > 0 && pos > dur - 15_000 -> prefs.edit().remove(url).apply()
-                pos > 5_000 -> prefs.edit().putLong(url, pos).apply()
-            }
-            if (!imdbId.isNullOrBlank() || playerTitle.isNotBlank()) {
-                val key = if (seasonNumber >= 0) "${imdbId}_s${seasonNumber}_e${episodeNumber}" else imdbId ?: url
-                ContinueWatchingStore.upsert(this, ContinueEntry(key, imdbId, playerTitle, playerPoster, playerBackdrop,
-                    seasonNumber >= 0, seasonNumber, episodeNumber, pos, dur, System.currentTimeMillis()), pos, dur)
-            }
-        } catch (_: Exception) {}
+        // ✅ LIVE: bez čuvanja pozicije i Continue Watching
+        if (!isLive) {
+            try {
+                val pos = p.currentPosition; val dur = p.duration
+                val prefs = getSharedPreferences("player_positions", MODE_PRIVATE)
+                when {
+                    dur > 0 && pos > dur - 15_000 -> prefs.edit().remove(url).apply()
+                    pos > 5_000 -> prefs.edit().putLong(url, pos).apply()
+                }
+                if (!imdbId.isNullOrBlank() || playerTitle.isNotBlank()) {
+                    val key = if (seasonNumber >= 0) "${imdbId}_s${seasonNumber}_e${episodeNumber}" else imdbId ?: url
+                    ContinueWatchingStore.upsert(this, ContinueEntry(key, imdbId, playerTitle, playerPoster,
+                        playerBackdrop, seasonNumber >= 0, seasonNumber, episodeNumber, pos, dur,
+                        System.currentTimeMillis()), pos, dur)
+                }
+            } catch (_: Exception) {}
+        }
         p.release(); player = null
     }
 
@@ -507,7 +536,7 @@ class PlayerActivity : ComponentActivity() {
 }
 
 // =====================================================================
-// APPLE TV+ STIL UI — DVE RAVNI (plejer + panel podešavanja)
+// APPLE TV+ STIL UI — DVE RAVNI (plejer + panel) + LIVE režim
 // =====================================================================
 
 private data class TrackOption(val label: String, val groupIndex: Int, val trackIndex: Int, val selected: Boolean, val type: Int)
@@ -640,7 +669,6 @@ private fun SettingsPanel(activity: PlayerActivity) {
     }
 }
 
-/** ✅ Traka — highlight čita activity.controlsFocusIndex (ne Compose fokus) */
 @Composable
 private fun AppleSeekBar(
     activity: PlayerActivity,
@@ -655,7 +683,7 @@ private fun AppleSeekBar(
         modifier = modifier
             .height(28.dp)
             .onGloballyPositioned { widthPx = it.size.width.toFloat().coerceAtLeast(1f) }
-            .clickable(onClick = {}) // touch: apsorbuje tap (premota se preko drag/tap ispod)
+            .clickable(onClick = {})
             .pointerInput(Unit) {
                 detectTapGestures {
                     activity.interact()
@@ -694,6 +722,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     val menuKind = activity.menuKind
     val controlsVisible = activity.controlsVisible
     val focusIndex = activity.controlsFocusIndex
+    val isLive = activity.isLive
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -714,7 +743,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     LaunchedEffect(controlsVisible, showPausedInfo) {
         while (controlsVisible || showPausedInfo) { nowMillis = System.currentTimeMillis(); delay(1000) }
     }
-    // ✅ Auto-hide kontrole (Activity stanje)
     LaunchedEffect(activity.lastInteraction, menuKind, showPausedInfo) {
         activity.controlsVisible = true
         if (menuKind == TrackMenuKind.NONE && !showPausedInfo) {
@@ -728,7 +756,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     val clockText = timeFmt.format(Date(nowMillis))
     val endText = timeFmt.format(Date(nowMillis + (duration - position).coerceAtLeast(0)))
 
-    val showSkipIntro = activity.isSeriesPlay && isPlaying &&
+    val showSkipIntro = !isLive && activity.isSeriesPlay && isPlaying &&
         activity.introStartMs >= 0 && activity.introEndMs > 0 &&
         position in activity.introStartMs..activity.introEndMs
 
@@ -792,7 +820,9 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             Column(Modifier.align(Alignment.TopEnd).padding(end = 28.dp, top = 28.dp), horizontalAlignment = Alignment.End) {
                 Text(clockText, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(2.dp))
-                Text("Kraj: $endText", color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp)
+                if (!isLive) {
+                    Text("Kraj: $endText", color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp)
+                }
             }
         }
 
@@ -805,68 +835,108 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     PauseBars(Modifier.align(Alignment.BottomCenter).padding(bottom = 128.dp))
 
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 40.dp, end = 40.dp, bottom = 24.dp)) {
-                    if (showPausedInfo) {
+                    if (showPausedInfo && !isLive) {
                         Row(Modifier.fillMaxWidth().padding(bottom = 18.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (activity.playerPoster.isNotBlank())
-                                AsyncImage(activity.playerPoster, null, Modifier.width(90.dp).height(135.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop)
+                                AsyncImage(activity.playerPoster, null, Modifier.width(90.dp).height(135.dp)
+                                    .clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop)
                             Column(Modifier.weight(1f)) {
                                 if (activity.playerTitle.isNotBlank()) {
                                     Text(activity.playerTitle, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                     Spacer(Modifier.height(6.dp))
                                 }
                                 if (activity.playerOverview.isNotBlank())
-                                    Text(activity.playerOverview, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp, lineHeight = 18.sp, maxLines = 3,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    Text(activity.playerOverview, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp,
+                                        lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
 
-                    if (activity.playerSeason >= 0) {
-                        Text("S${activity.playerSeason}, E${activity.playerEpisode}", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
-                        Spacer(Modifier.height(4.dp))
-                    }
-                    if (activity.playerTitle.isNotBlank()) {
-                        Text(activity.playerTitle, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                        Spacer(Modifier.height(10.dp))
-                    }
+                    if (isLive) {
+                        // ✅ LIVE: bedž "UŽIVO" + kanal + trenutna emisija (bez trake)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFFE50914))
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(Modifier.size(8.dp).clip(CircleShape).background(Color.White))
+                                Text("UŽIVO", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Text(activity.playerTitle, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            if (activity.liveProgramTitle.isNotBlank()) {
+                                Text("· ${activity.liveProgramTitle}", color = Color.White.copy(alpha = 0.8f),
+                                    fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f))
+                            }
+                        }
+                    } else {
+                        // VOD: traka + play/pauza + CC + audio
+                        if (activity.playerSeason >= 0) {
+                            Text("S${activity.playerSeason}, E${activity.playerEpisode}", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
+                            Spacer(Modifier.height(4.dp))
+                        }
+                        if (activity.playerTitle.isNotBlank()) {
+                            Text(activity.playerTitle, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                            Spacer(Modifier.height(10.dp))
+                        }
 
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        AppleSeekBar(
-                            activity = activity,
-                            fraction = sliderFraction,
-                            modifier = Modifier.weight(1f)
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                            AppleSeekBar(
+                                activity = activity,
+                                fraction = sliderFraction,
+                                modifier = Modifier.weight(1f)
+                            )
 
-                        // ✅ CC dugme — highlight kad je focusIndex == 1
-                        val ccFocused = focusIndex == 1
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = if (ccFocused) 0.3f else 0.15f))
-                                .then(if (ccFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
-                                .size(44.dp)
-                                .clickable { activity.interact(); activity.openSubtitlesPanel() },
-                            contentAlignment = Alignment.Center
-                        ) { SubtitlesIcon(Modifier.size(22.dp)) }
+                            val playFocused = focusIndex == 0
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = if (playFocused) 0.3f else 0.15f))
+                                    .then(if (playFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
+                                    .size(44.dp)
+                                    .clickable { activity.interact(); activity.togglePlayInternal() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isPlaying) PauseBars()
+                                else Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                            }
 
-                        // ✅ Audio dugme — highlight kad je focusIndex == 2
-                        val audioFocused = focusIndex == 2
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = if (audioFocused) 0.3f else 0.15f))
-                                .then(if (audioFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
-                                .size(44.dp)
-                                .clickable { activity.interact(); activity.openAudioPanel() },
-                            contentAlignment = Alignment.Center
-                        ) { AudioIcon(Modifier.size(22.dp)) }
-                    }
+                            val ccFocused = focusIndex == 1
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = if (ccFocused) 0.3f else 0.15f))
+                                    .then(if (ccFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
+                                    .size(44.dp)
+                                    .clickable { activity.interact(); activity.openSubtitlesPanel() },
+                                contentAlignment = Alignment.Center
+                            ) { SubtitlesIcon(Modifier.size(22.dp)) }
 
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(formatTime(position), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
-                        Text("-" + formatTime((duration - position).coerceAtLeast(0)), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                            val audioFocused = focusIndex == 2
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = if (audioFocused) 0.3f else 0.15f))
+                                    .then(if (audioFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
+                                    .size(44.dp)
+                                    .clickable { activity.interact(); activity.openAudioPanel() },
+                                contentAlignment = Alignment.Center
+                            ) { AudioIcon(Modifier.size(22.dp)) }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(formatTime(position), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                            Text("-" + formatTime((duration - position).coerceAtLeast(0)), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                        }
                     }
                 }
             }
