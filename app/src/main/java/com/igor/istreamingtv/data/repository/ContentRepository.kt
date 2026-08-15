@@ -9,12 +9,19 @@ import com.igor.istreamingtv.data.remote.TmdbMovieDetails
 import com.igor.istreamingtv.data.remote.TmdbSeasonDetails
 import com.igor.istreamingtv.data.remote.stremio.StremioCatalogApi
 import com.igor.istreamingtv.data.remote.stremio.StremioMeta
+import java.util.concurrent.ConcurrentHashMap
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 class ContentRepository(
     private val accessToken: String
 ) {
+    companion object {
+        // ✅ DELJENI KEŠ IMDb→TMDB (svi ViewModel-i i ekrani vide isto)
+        //    Hero na početnoj rezolviše ID → detalji ga REKORISTE bez novog poziva
+        private val idCache = ConcurrentHashMap<String, Int>()
+    }
+
     private val api = TmdbClient.createRetrofit(accessToken).create(TmdbApi::class.java)
 
     // ✅ Cinemeta za kataloge (brži, manji JSON)
@@ -39,12 +46,16 @@ class ContentRepository(
     suspend fun getSimilarMovies(movieId: Int): List<TmdbMovie> = api.getSimilarMovies(movieId).results
     suspend fun getSimilarSeries(tvId: Int): List<TmdbMovie> = api.getSimilarSeries(tvId).results
 
-    // ✅ NOVO — IMDb → TMDB id
+    // ✅ IMDb → TMDB id SA KEŠOM (bez dupliranja poziva)
     suspend fun resolveTmdbId(imdbId: String, isTv: Boolean): Int? {
+        val key = "$imdbId:${if (isTv) "tv" else "movie"}"
+        idCache[key]?.let { return it }
         return try {
             val r = api.findByImdbId(imdbId)
-            if (isTv) r.tvResults.firstOrNull()?.id ?: r.movieResults.firstOrNull()?.id
+            val id = if (isTv) r.tvResults.firstOrNull()?.id ?: r.movieResults.firstOrNull()?.id
             else r.movieResults.firstOrNull()?.id ?: r.tvResults.firstOrNull()?.id
+            if (id != null) idCache[key] = id
+            id
         } catch (_: Exception) {
             null
         }
@@ -64,7 +75,7 @@ private fun StremioMeta.toTmdbMovie(): TmdbMovie = TmdbMovie(
     title = if (this.type == "movie") this.name else null,
     name = if (this.type == "series") this.name else null,
     overview = this.description,
-    posterPath = this.poster,          // apsolutan URL (Cinemeta)
+    posterPath = this.poster,
     backdropPath = this.background ?: this.poster,
     releaseDate = this.releaseInfo,
     voteAverage = this.imdbRating?.toDoubleOrNull() ?: 0.0
