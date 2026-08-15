@@ -1,9 +1,9 @@
 package com.igor.istreamingtv.data.livetv
 
 object LiveTvConfig {
-    // 🔧 UPIŠI OVDE SVOJE URL-OVE:
-    const val M3U_URL = "https://example.com/moja-lista.m3u8"
-    const val EPG_URL = "" // ako je prazno → koristi se url-tvg iz M3U
+    // ✅ TVOJA PRAVA M3U LISTA + EPG (m3u4u):
+    const val M3U_URL = "http://m3u4u.com/m3u/476rnmmqd7fp464pnekg"
+    const val EPG_URL = "http://m3u4u.com/xml/476rnmmqd7fp464pnekg"
 }
 
 data class LiveChannel(
