@@ -8,21 +8,24 @@ import java.util.Locale
 
 /**
  * XMLTV EPG parser — STREAMING (XmlPullParser), bez držanja celog XML-a u RAM-u.
- * Čuva samo programe u opsegu [sada − 6h, sada + 48h] → pogodno za 2GB uređaje.
+ * ✅ Auto-detekt encodinga, prozor 24h, max 40 programa po kanalu → bezbedno za 2GB.
  */
 object EpgParser {
 
-    private val TIME_FORMAT = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
+    private val F1 = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
+    private val F2 = SimpleDateFormat("yyyyMMddHHmmss", Locale.US)
+
+    private const val MAX_PER_CHANNEL = 40
 
     fun parse(input: InputStream): Map<String, List<EpgProgram>> {
         val out = mutableMapOf<String, MutableList<EpgProgram>>()
         val now = System.currentTimeMillis()
-        val min = now - 6 * 3_600_000L
-        val max = now + 48 * 3_600_000L
+        val min = now - 3 * 3_600_000L
+        val max = now + 24 * 3_600_000L
 
         try {
             val p = Xml.newPullParser()
-            p.setInput(input, "UTF-8")
+            p.setInput(input, null) // ✅ auto-detekt encodinga (UTF-8, ISO-8859-1...)
 
             var channel: String? = null
             var start = 0L; var stop = 0L
@@ -54,9 +57,10 @@ object EpgParser {
                         "category" -> { category = text.toString().trim(); text = null }
                         "programme" -> {
                             if (valid && title.isNotBlank()) {
-                                out.getOrPut(channel!!) { mutableListOf() }.add(
-                                    EpgProgram(channel!!, title, desc, icon, start, stop, category)
-                                )
+                                val list = out.getOrPut(channel!!) { mutableListOf() }
+                                if (list.size < MAX_PER_CHANNEL) {
+                                    list.add(EpgProgram(channel!!, title, desc, icon, start, stop, category))
+                                }
                             }
                             valid = false
                         }
@@ -66,10 +70,19 @@ object EpgParser {
             }
         } catch (_: Exception) {
         }
+
+        // Sortiraj po vremenu (za tačan "sada" program)
+        out.values.forEach { it.sortBy { p -> p.startMs } }
         return out
     }
 
-    private fun parseTime(s: String?): Long? = try {
-        s?.let { TIME_FORMAT.parse(it.trim())?.time }
-    } catch (_: Exception) { null }
+    private fun parseTime(s: String?): Long? {
+        if (s.isNullOrBlank()) return null
+        val t = s.trim()
+        return try {
+            F1.parse(t)?.time
+        } catch (_: Exception) {
+            try { F2.parse(t)?.time } catch (_: Exception) { null }
+        }
+    }
 }
