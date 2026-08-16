@@ -92,10 +92,7 @@ private fun TmdbMovie.displayGenre(): String =
 
 private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
 
-/**
- * ✅ FUZZY EPG lookup — radi i kad XML ID ima sufiks " (src05)" ili
- *    drugačiju kapitalizaciju od M3U tvg-id (srpski kanali!)
- */
+/** ✅ Fuzzy EPG lookup — radi sa sufiksima " (src05)" i različitom kapitalizacijom */
 private fun nowProgram(epg: Map<String, List<EpgProgram>>, ch: LiveChannel): EpgProgram? {
     val now = System.currentTimeMillis()
     return epgListFor(epg, ch)?.firstOrNull { now >= it.startMs && now < it.endMs }
@@ -236,6 +233,7 @@ private fun AppleTvHomeContent(
     var heroIndex by remember { mutableIntStateOf(0) }
     val featured = heroItems.getOrNull(heroIndex)
 
+    // ✅ Kanal pod fokusom u live redu → hero prikazuje njegov EPG
     var liveFocused by remember { mutableStateOf<LiveChannel?>(null) }
 
     LaunchedEffect(heroItems.size) {
@@ -359,6 +357,11 @@ private fun LiveRowSection(
     }
 }
 
+/**
+ * ✅ FIX: koristimo it.hasFocus (ne isFocused) — modifier je VAN fokusnog
+ *    čvora u TvFocusableButton, pa isFocused nikad nije true.
+ *    Sada hero PRIMA svaki novi fokusirani kanal (bez starih podataka).
+ */
 @Composable
 private fun LiveChannelCard(
     channel: LiveChannel,
@@ -381,8 +384,8 @@ private fun LiveChannelCard(
                 .width(240.dp)
                 .height(135.dp)
                 .onFocusChanged {
-                    focused = it.isFocused
-                    if (it.isFocused) onFocus()
+                    focused = it.hasFocus
+                    if (it.hasFocus) onFocus()
                 }
         ) { f ->
             Box(
