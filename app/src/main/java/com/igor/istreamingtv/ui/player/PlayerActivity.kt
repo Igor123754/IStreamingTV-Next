@@ -75,6 +75,7 @@ import com.igor.istreamingtv.data.ContinueWatchingStore
 import com.igor.istreamingtv.data.livetv.EpgProgram
 import com.igor.istreamingtv.data.livetv.LiveChannel
 import com.igor.istreamingtv.data.livetv.LiveTvSession
+import com.igor.istreamingtv.data.livetv.epgListFor
 import com.igor.istreamingtv.data.remote.StreamPicker
 import com.igor.istreamingtv.data.remote.SubtitleFetcher
 import com.igor.istreamingtv.data.remote.SubtitleTrack
@@ -114,7 +115,7 @@ class PlayerActivity : ComponentActivity() {
     internal var liveStartMs by mutableStateOf(0L)
     internal var liveEndMs by mutableStateOf(0L)
 
-    // ✅ EPG traka — ↓ na daljinskom ILI swipe gore / "Vodič" dugme na tabletu
+    // ✅ EPG bar — ↓ on remote or swipe up on tablet
     internal var epgStripVisible by mutableStateOf(false)
 
     internal var isSeriesPlay: Boolean = false
@@ -141,7 +142,7 @@ class PlayerActivity : ComponentActivity() {
     private var runtimeSec: Int = -1
 
     companion object {
-        /** Deljeni HTTP klient — connection pooling (brži zapping, bez keša sadržaja) */
+        /** Shared HTTP client — connection pooling (faster zapping, no content cache) */
         private val sharedHttp: OkHttpClient by lazy {
             OkHttpClient.Builder()
                 .connectTimeout(6, TimeUnit.SECONDS)
@@ -160,7 +161,7 @@ class PlayerActivity : ComponentActivity() {
 
         parseIntent()
         if (candidateUrls.isEmpty()) {
-            Toast.makeText(this, "Nema izvora za reprodukciju", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "No source for playback", Toast.LENGTH_SHORT).show()
             finish()
             return
         }
@@ -229,7 +230,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     // =====================================================================
-    // KONTROLA NA ACTIVITY NIVOU — radi na SVIM TV daljinskim
+    // Activity-level control — works on all TV remotes
     // =====================================================================
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
@@ -259,8 +260,11 @@ class PlayerActivity : ComponentActivity() {
             }
             if (epgStripVisible) {
                 when (event.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT ->
+                    // ✅ Browsing the guide resets the 10-second auto-close timer
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        interact()
                         return super.dispatchKeyEvent(event)
+                    }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                         epgStripVisible = false; return true
                     }
@@ -348,17 +352,11 @@ class PlayerActivity : ComponentActivity() {
     }
 
     // =====================================================================
-    // ✅ CH+/CH- ZAPPING — instant, bez rekreiranja player-a, bez keša
+    // ✅ CH+/CH- ZAPPING
     // =====================================================================
     private fun liveProgramFor(ch: LiveChannel): EpgProgram? {
         val now = System.currentTimeMillis()
-        val keys = listOfNotNull(ch.epgId, ch.name).distinct()
-        for (k in keys) {
-            val list = LiveTvSession.epg[k] ?: continue
-            val p = list.firstOrNull { now >= it.startMs && now < it.endMs }
-            if (p != null) return p
-        }
-        return null
+        return epgListFor(LiveTvSession.epg, ch)?.firstOrNull { now >= it.startMs && now < it.endMs }
     }
 
     internal fun zapLive(delta: Int) {
@@ -559,10 +557,10 @@ class PlayerActivity : ComponentActivity() {
         exo.addListener(object : Player.Listener {
             override fun onPlayerError(e: PlaybackException) {
                 if (!isLive && candidateIndex < candidateUrls.size - 1) {
-                    Toast.makeText(context, "Izvor ne radi — prelazim na sledeći...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Source not working — switching to next...", Toast.LENGTH_SHORT).show()
                     playCandidate(candidateIndex + 1)
                 } else {
-                    Toast.makeText(context, "Greška reprodukcije: ${e.errorCodeName}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Playback error: ${e.errorCodeName}", Toast.LENGTH_LONG).show()
                 }
             }
             override fun onPlaybackStateChanged(s: Int) {
@@ -590,7 +588,7 @@ class PlayerActivity : ComponentActivity() {
                 SubtitleFetcher.toTracks(SubtitleFetcher.getAcceptedSubtitles("series", imdb, seasonNumber, next), 6)
             } catch (_: Exception) { emptyList() }
             withContext(Dispatchers.Main) {
-                Toast.makeText(this@PlayerActivity, "Sledeća epizoda: S$seasonNumber · E$next", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@PlayerActivity, "Next episode: S$seasonNumber · E$next", Toast.LENGTH_SHORT).show()
                 episodeNumber = next; playerSeason = seasonNumber; playerEpisode = next
                 currentSubtitleTracks.clear(); currentSubtitleTracks.addAll(nextTracks)
                 candidateUrls.clear(); candidateUrls.addAll(urls)
@@ -631,20 +629,20 @@ class PlayerActivity : ComponentActivity() {
 }
 
 // =====================================================================
-// APPLE TV+ STIL UI — DVE RAVNI + LIVE + EPG TRAKA (radi i na TABLETU)
+// APPLE TV+ style UI — two layers + LIVE + EPG bar
 // =====================================================================
 
 private data class TrackOption(val label: String, val groupIndex: Int, val trackIndex: Int, val selected: Boolean, val type: Int)
 
 private fun audioLanguageName(code: String?): String = when (code?.lowercase()) {
-    "en", "eng" -> "Engleski"; "sr", "scc", "srp" -> "Srpski"; "hr", "hrv" -> "Hrvatski"
-    "hi", "hin" -> "Hindi"; "de", "ger", "deu" -> "Nemački"; "fr", "fre", "fra" -> "Francuski"
-    "es", "spa" -> "Španski"; null, "" -> "Original"; else -> code.uppercase()
+    "en", "eng" -> "English"; "sr", "scc", "srp" -> "Serbian"; "hr", "hrv" -> "Croatian"
+    "hi", "hin" -> "Hindi"; "de", "ger", "deu" -> "German"; "fr", "fre", "fra" -> "French"
+    "es", "spa" -> "Spanish"; null, "" -> "Original"; else -> code.uppercase()
 }
 
 private fun remainingText(endMs: Long, nowMs: Long): String {
     val min = max(0L, (endMs - nowMs) / 60_000L)
-    return if (min >= 60) "Još ${min / 60} h ${min % 60} min" else "Još $min min"
+    return if (min >= 60) "${min / 60} h ${min % 60} min left" else "$min min left"
 }
 
 private fun collectOptions(player: Player, type: Int): List<TrackOption> {
@@ -674,7 +672,7 @@ private fun buildPanelData(player: Player, type: Int): Pair<List<String>, Int> {
     val labels = mutableListOf<String>()
     var sel = 0
     val disabled = player.trackSelectionParameters.disabledTrackTypes.contains(type)
-    if (type == C.TRACK_TYPE_TEXT) { labels.add("Isključeno"); if (disabled) sel = 0 }
+    if (type == C.TRACK_TYPE_TEXT) { labels.add("Off"); if (disabled) sel = 0 }
     var idx = if (type == C.TRACK_TYPE_TEXT) 1 else 0
     player.currentTracks.groups.forEach { g ->
         if (g.type == type) for (i in 0 until g.length) {
@@ -723,24 +721,9 @@ private fun AudioIcon(modifier: Modifier = Modifier) {
     }
 }
 
-/** ✅ Ikona TV vodiča (mreža 2x2) — za "Vodič" pill dugme */
-@Composable
-private fun GuideIcon(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val w = size.width; val h = size.height
-        val cell = w * 0.42f
-        val gap = w * 0.16f
-        val r = androidx.compose.ui.geometry.CornerRadius(w * 0.12f)
-        drawRoundRect(Color.White, androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Size(cell, cell), cornerRadius = r)
-        drawRoundRect(Color.White, androidx.compose.ui.geometry.Offset(cell + gap, 0f), androidx.compose.ui.geometry.Size(cell, cell), cornerRadius = r)
-        drawRoundRect(Color.White, androidx.compose.ui.geometry.Offset(0f, cell + gap), androidx.compose.ui.geometry.Size(cell, cell), cornerRadius = r)
-        drawRoundRect(Color.White, androidx.compose.ui.geometry.Offset(cell + gap, cell + gap), androidx.compose.ui.geometry.Size(cell, cell), cornerRadius = r)
-    }
-}
-
 @Composable
 private fun SettingsPanel(activity: PlayerActivity) {
-    val title = if (activity.menuKind == TrackMenuKind.SUBTITLES) "Titlovi" else "Audio"
+    val title = if (activity.menuKind == TrackMenuKind.SUBTITLES) "Subtitles" else "Audio"
     val options = activity.panelOptions
     val selected = activity.panelSelected
 
@@ -785,7 +768,7 @@ private fun SettingsPanel(activity: PlayerActivity) {
 }
 
 // =====================================================================
-// ✅ EPG TRAKA — Apple TV+ stil, radi na TV-u (↓) I na TABLETU (swipe/dugme)
+// ✅ EPG bar — past | present | future, auto-close after 10 seconds
 // =====================================================================
 
 @Composable
@@ -816,7 +799,6 @@ private fun EpgStrip(
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.92f))))
             .padding(start = 48.dp, end = 48.dp, bottom = 24.dp, top = 48.dp)
     ) {
-        // ✅ Zaglavlje sa logoom kanala (Apple TV+ stil)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -835,7 +817,7 @@ private fun EpgStrip(
                     contentScale = ContentScale.Fit
                 )
             }
-            Text("TV vodič", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("TV Guide", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text("· ${channel.name}", color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp)
         }
         Spacer(Modifier.height(16.dp))
@@ -918,7 +900,6 @@ private fun EpgCard(
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))))
                 )
 
-                // ✅ Apple TV+ pill bedževi
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -929,9 +910,9 @@ private fun EpgCard(
                 ) {
                     Text(
                         when {
-                            isNow -> "SADA"
-                            isNext -> "SLEDEĆE"
-                            else -> "PROŠLO"
+                            isNow -> "NOW"
+                            isNext -> "NEXT"
+                            else -> "PAST"
                         },
                         color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold
                     )
@@ -1049,6 +1030,13 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             activity.controlsFocusIndex = 0
         }
     }
+    // ✅ EPG bar auto-closes after 10 seconds of inactivity
+    LaunchedEffect(epgStripVisible, activity.lastInteraction) {
+        if (epgStripVisible) {
+            delay(10_000)
+            activity.epgStripVisible = false
+        }
+    }
 
     val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val clockText = timeFmt.format(Date(nowMillis))
@@ -1059,9 +1047,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     } else 0f
 
     val liveChannel = if (isLive) LiveTvSession.channels.getOrNull(LiveTvSession.currentIndex) else null
-    val livePrograms = liveChannel?.let { ch ->
-        LiveTvSession.epg[ch.epgId ?: ch.name] ?: emptyList()
-    } ?: emptyList()
+    val livePrograms = liveChannel?.let { ch -> epgListFor(LiveTvSession.epg, ch) } ?: emptyList()
 
     val showSkipIntro = !isLive && activity.isSeriesPlay && isPlaying &&
         activity.introStartMs >= 0 && activity.introEndMs > 0 &&
@@ -1092,7 +1078,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             modifier = Modifier.fillMaxSize()
         )
 
-        // ✅ TOUCH (tablet): tap = kontrole / zatvori traku; swipe gore/dole = traka
+        // TOUCH (tablet): tap = controls / close bar; swipe up/down = bar
         Box(
             Modifier.fillMaxSize()
                 .pointerInput(Unit) {
@@ -1143,28 +1129,9 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     .border(1.dp, Color.White.copy(alpha = if (focused) 0.9f else 0.5f), RoundedCornerShape(8.dp))
                     .padding(horizontal = 20.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Preskoči uvod", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Skip intro", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     Text("▶▶", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
-            }
-        }
-
-        // ✅ "VODIČ" pill dugme (touch affordance za tablet + miš)
-        if (isLive && !epgStripVisible && (controlsVisible || showPausedInfo)) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 40.dp, bottom = 110.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
-                    .clickable { activity.interact(); activity.epgStripVisible = true }
-                    .padding(horizontal = 16.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                GuideIcon(Modifier.size(14.dp))
-                Text("Vodič", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
 
@@ -1173,7 +1140,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 Text(clockText, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(2.dp))
                 if (!isLive) {
-                    Text("Kraj: $endText", color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp)
+                    Text("End: $endText", color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp)
                 }
             }
         }
