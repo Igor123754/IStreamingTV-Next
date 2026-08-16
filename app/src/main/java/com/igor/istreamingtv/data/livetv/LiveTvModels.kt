@@ -29,3 +29,13 @@ data class LiveTvData(
     val channels: List<LiveChannel>,
     val epg: Map<String, List<EpgProgram>>
 )
+
+/**
+ * ✅ SESIJSKO STANJE (samo RAM, bez keša na disku) — deli se između
+ *    početne i player-a da CH+/CH- zapping radi instant sa svim informacijama.
+ */
+object LiveTvSession {
+    var channels: List<LiveChannel> = emptyList()
+    var epg: Map<String, List<EpgProgram>> = emptyMap()
+    var currentIndex: Int = 0
+}
