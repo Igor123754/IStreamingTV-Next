@@ -41,6 +41,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -232,7 +233,6 @@ class PlayerActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
 
-        // BACK / ESCAPE: panel → EPG traka → izlaz
         when (event.keyCode) {
             KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
                 if (menuKind != TrackMenuKind.NONE) { menuKind = TrackMenuKind.NONE; return true }
@@ -241,7 +241,6 @@ class PlayerActivity : ComponentActivity() {
             }
         }
 
-        // ✅ LIVE: CH+/CH- zapping + ↓ EPG traka + ↑ zatvori
         if (isLive) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_CHANNEL_UP -> { zapLive(+1); return true }
@@ -257,8 +256,6 @@ class PlayerActivity : ComponentActivity() {
                     if (epgStripVisible) { epgStripVisible = false; return true }
                 }
             }
-            // ✅ Dok je EPG traka otvorena: ←/→ idaju Compose fokusu (listanje vodiča),
-            //    OK zatvara traku
             if (epgStripVisible) {
                 when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT ->
@@ -780,7 +777,8 @@ private fun EpgStrip(
     activity: PlayerActivity,
     channel: LiveChannel,
     programs: List<EpgProgram>,
-    nowMs: Long
+    nowMs: Long,
+    modifier: Modifier = Modifier
 ) {
     val currentIndex = programs.indexOfFirst { nowMs >= it.startMs && nowMs < it.endMs }
     val focusIndex = if (currentIndex >= 0) currentIndex
@@ -797,9 +795,9 @@ private fun EpgStrip(
 
     val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
+    // ✅ FIX: align se prosleđuje sa poziva (BoxScope), ovde samo modifier
     Column(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
+        modifier = modifier
             .fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
             .padding(start = 48.dp, end = 48.dp, bottom = 24.dp, top = 48.dp)
@@ -851,6 +849,7 @@ private fun EpgCard(
 
     val baseModifier = Modifier.width(270.dp).height(152.dp)
     val mod = if (focusRequester != null) baseModifier.focusRequester(focusRequester) else baseModifier
+    val context = LocalContext.current
 
     Column(modifier = Modifier.alpha(if (isPast) 0.45f else 1f)) {
         TvFocusableButton(onClick = onDismiss, modifier = mod) { focused ->
@@ -862,10 +861,9 @@ private fun EpgCard(
                     .background(Color(0xFF141416))
                     .then(if (isNow || focused) Modifier.border(3.dp, Color.White, RoundedCornerShape(12.dp)) else Modifier)
             ) {
-                // Slika emisije (fallback logo kanala)
                 if (!program.iconUrl.isNullOrBlank()) {
                     AsyncImage(
-                        model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                        model = ImageRequest.Builder(context)
                             .data(program.iconUrl).crossfade(false)
                             .bitmapConfig(Bitmap.Config.RGB_565).build(),
                         contentDescription = null,
@@ -874,7 +872,7 @@ private fun EpgCard(
                     )
                 } else if (!channel.logoUrl.isNullOrBlank()) {
                     AsyncImage(
-                        model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                        model = ImageRequest.Builder(context)
                             .data(channel.logoUrl).crossfade(false)
                             .bitmapConfig(Bitmap.Config.ARGB_8888).build(),
                         contentDescription = null,
@@ -883,22 +881,17 @@ private fun EpgCard(
                     )
                 }
 
-                // Gradient dole
                 Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(64.dp)
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))))
                 )
 
-                // ✅ Bedž: SADA / SLEDI / PROŠLO
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(8.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(
-                            if (isNow) Color(0xFFE50914)
-                            else Color.Black.copy(alpha = 0.6f)
-                        )
+                        .background(if (isNow) Color(0xFFE50914) else Color.Black.copy(alpha = 0.6f))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
@@ -911,7 +904,6 @@ private fun EpgCard(
                     )
                 }
 
-                // Naslov + vreme
                 Column(
                     modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
                         .padding(start = 10.dp, end = 10.dp, bottom = if (isNow) 14.dp else 8.dp)
@@ -924,7 +916,6 @@ private fun EpgCard(
                     )
                 }
 
-                // ✅ Progress bar za trenutni program
                 if (isNow) {
                     Box(
                         Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -1012,7 +1003,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     LaunchedEffect(isPlaying, isReady) {
         if (!isPlaying && isReady) { delay(5000); showPausedInfo = true } else showPausedInfo = false
     }
-    // ✅ Sat/EPG vreme se osvežava i dok je EPG traka otvorena
     LaunchedEffect(controlsVisible, showPausedInfo, epgStripVisible) {
         while (controlsVisible || showPausedInfo || epgStripVisible) {
             nowMillis = System.currentTimeMillis(); delay(1000)
@@ -1123,7 +1113,8 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                         activity = activity,
                         channel = liveChannel,
                         programs = livePrograms,
-                        nowMs = nowMillis
+                        nowMs = nowMillis,
+                        modifier = Modifier.align(Alignment.BottomCenter)
                     )
                 } else {
                     Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 40.dp, end = 40.dp, bottom = 24.dp)) {
