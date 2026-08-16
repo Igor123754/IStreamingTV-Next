@@ -64,6 +64,9 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.igor.istreamingtv.data.ContinueEntry
 import com.igor.istreamingtv.data.ContinueWatchingStore
+import com.igor.istreamingtv.data.livetv.EpgProgram
+import com.igor.istreamingtv.data.livetv.LiveChannel
+import com.igor.istreamingtv.data.livetv.LiveTvSession
 import com.igor.istreamingtv.data.remote.StreamPicker
 import com.igor.istreamingtv.data.remote.SubtitleFetcher
 import com.igor.istreamingtv.data.remote.SubtitleTrack
@@ -91,18 +94,17 @@ class PlayerActivity : ComponentActivity() {
 
     internal var player by mutableStateOf<ExoPlayer?>(null)
     internal var playerView: PlayerView? = null
-    internal var playerTitle: String = ""
-    internal var playerSeason: Int = -1
-    internal var playerEpisode: Int = -1
-    internal var playerPoster: String = ""
+    internal var playerTitle by mutableStateOf("")
+    internal var playerPoster by mutableStateOf("")
     internal var playerBackdrop: String = ""
     internal var playerOverview: String = ""
+    internal var playerSeason: Int = -1
+    internal var playerEpisode: Int = -1
 
     internal var isLive: Boolean = false
-    internal var liveProgramTitle: String = ""
-    // ✅ EPG vreme za progress bar
-    internal var liveStartMs: Long = 0L
-    internal var liveEndMs: Long = 0L
+    internal var liveProgramTitle by mutableStateOf("")
+    internal var liveStartMs by mutableStateOf(0L)
+    internal var liveEndMs by mutableStateOf(0L)
 
     internal var isSeriesPlay: Boolean = false
     internal var introStartMs: Long = -1
@@ -228,6 +230,14 @@ class PlayerActivity : ComponentActivity() {
             }
         }
 
+        // ✅ CH+ / CH- — instant zapping (radi i kad su kontrole skrivene)
+        if (isLive) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_CHANNEL_UP -> { zapLive(+1); return true }
+                KeyEvent.KEYCODE_CHANNEL_DOWN -> { zapLive(-1); return true }
+            }
+        }
+
         if (menuKind != TrackMenuKind.NONE) {
             if (panelOptions.isEmpty()) return true
             when (event.keyCode) {
@@ -305,6 +315,51 @@ class PlayerActivity : ComponentActivity() {
     internal fun seekToFraction(f: Float) {
         val p = player ?: return
         p.seekTo((f * p.duration.coerceAtLeast(0)).toLong())
+    }
+
+    // =====================================================================
+    // ✅ CH+/CH- ZAPPING — instant, bez rekreiranja player-a, bez keša
+    // =====================================================================
+    private fun liveProgramFor(ch: LiveChannel): EpgProgram? {
+        val now = System.currentTimeMillis()
+        val keys = listOfNotNull(ch.epgId, ch.name).distinct()
+        for (k in keys) {
+            val list = LiveTvSession.epg[k] ?: continue
+            val p = list.firstOrNull { now >= it.startMs && now < it.endMs }
+            if (p != null) return p
+        }
+        return null
+    }
+
+    internal fun zapLive(delta: Int) {
+        val channels = LiveTvSession.channels
+        if (channels.isEmpty()) return
+        val n = channels.size
+        val newIndex = ((LiveTvSession.currentIndex + delta) % n + n) % n
+        LiveTvSession.currentIndex = newIndex
+        val ch = channels[newIndex]
+        val program = liveProgramFor(ch)
+
+        // ✅ Sve informacije se odmah osveže (State varijable → UI recompose)
+        playerTitle = ch.name
+        playerPoster = ch.logoUrl ?: ""
+        liveProgramTitle = program?.title ?: ""
+        liveStartMs = program?.startMs ?: 0L
+        liveEndMs = program?.endMs ?: 0L
+
+        candidateUrls.clear(); candidateUrls.add(ch.streamUrl); candidateIndex = 0
+        currentUrl = ch.streamUrl
+
+        // ✅ Instant: isti ExoPlayer prima novi stream (stop + setMediaItem + prepare)
+        player?.let { exo ->
+            exo.stop()
+            exo.setMediaItem(MediaItem.fromUri(ch.streamUrl))
+            exo.prepare()
+            exo.playWhenReady = true
+        }
+
+        controlsVisible = true
+        interact()
     }
 
     internal fun openSubtitlesPanel() {
@@ -417,6 +472,7 @@ class PlayerActivity : ComponentActivity() {
         if (tracks.isNotEmpty()) pb.setPreferredTextLanguage(tracks.first().lang)
         trackSelector.parameters = pb.build()
 
+        // ✅ 2GB RAM: mali bufferi za live (start 250ms), umereni za VOD
         val loadControl = if (isLive) {
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(2_500, 10_000, 250, 1_000)
@@ -557,7 +613,6 @@ private fun audioLanguageName(code: String?): String = when (code?.lowercase()) 
     "es", "spa" -> "Španski"; null, "" -> "Original"; else -> code.uppercase()
 }
 
-/** ✅ "Još 45 min" / "Još 1 h 05 min" */
 private fun remainingText(endMs: Long, nowMs: Long): String {
     val min = max(0L, (endMs - nowMs) / 60_000L)
     return if (min >= 60) "Još ${min / 60} h ${min % 60} min" else "Još $min min"
@@ -772,7 +827,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     val clockText = timeFmt.format(Date(nowMillis))
     val endText = timeFmt.format(Date(nowMillis + (duration - position).coerceAtLeast(0)))
 
-    // ✅ EPG progress za live
     val liveProgress = if (isLive && activity.liveEndMs > activity.liveStartMs) {
         ((nowMillis - activity.liveStartMs).toFloat() / (activity.liveEndMs - activity.liveStartMs)).coerceIn(0f, 1f)
     } else 0f
@@ -874,10 +928,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     }
 
                     if (isLive) {
-                        // ✅ APPLE TV+ STIL LIVE: logo BEZ ivica + EPG traka sa preostalim vremenom
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-
-                            // Red 1: TV logo (bez ivica) + kanal + emisija
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -902,7 +953,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                                 }
                             }
 
-                            // Red 2: EPG progress traka + "Još X min"
                             if (activity.liveEndMs > activity.liveStartMs) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
