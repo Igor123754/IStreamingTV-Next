@@ -83,6 +83,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+import kotlin.math.max
 
 internal enum class TrackMenuKind { NONE, SUBTITLES, AUDIO }
 
@@ -99,6 +100,9 @@ class PlayerActivity : ComponentActivity() {
 
     internal var isLive: Boolean = false
     internal var liveProgramTitle: String = ""
+    // ✅ EPG vreme za progress bar
+    internal var liveStartMs: Long = 0L
+    internal var liveEndMs: Long = 0L
 
     internal var isSeriesPlay: Boolean = false
     internal var introStartMs: Long = -1
@@ -124,11 +128,7 @@ class PlayerActivity : ComponentActivity() {
     private var runtimeSec: Int = -1
 
     companion object {
-        /**
-         * ✅ DELJENI HTTP KLIENT — connection pooling između sesija/kanala.
-         *    Nije keš sadržaja: veze se REKORISTE pa je zapping i start
-         *    stream-a drastično brži (bez ponovnog rukovanja/DSN-a).
-         */
+        /** Deljeni HTTP klient — connection pooling (brži zapping, bez keša sadržaja) */
         private val sharedHttp: OkHttpClient by lazy {
             OkHttpClient.Builder()
                 .connectTimeout(6, TimeUnit.SECONDS)
@@ -154,6 +154,8 @@ class PlayerActivity : ComponentActivity() {
 
         isLive = intent.getBooleanExtra("live", false)
         liveProgramTitle = intent.getStringExtra("live_program") ?: ""
+        liveStartMs = intent.getLongExtra("live_start", 0L)
+        liveEndMs = intent.getLongExtra("live_end", 0L)
 
         imdbId = intent.getStringExtra("imdb_id") ?: intent.getStringExtra("series_imdb")
         seasonNumber = intent.getIntExtra("season", -1)
@@ -178,7 +180,6 @@ class PlayerActivity : ComponentActivity() {
         }
 
         if (isLive) {
-            // ✅ LIVE: odmah pusti — bez ikakvog čekanja
             playCandidate(0)
         } else {
             if (!imdbId.isNullOrBlank() && seasonNumber >= 0 && episodeNumber >= 0) {
@@ -416,7 +417,6 @@ class PlayerActivity : ComponentActivity() {
         if (tracks.isNotEmpty()) pb.setPreferredTextLanguage(tracks.first().lang)
         trackSelector.parameters = pb.build()
 
-        // ✅ LIVE = EKSTREMNO BRZ START (250ms buffer), VOD = stabilno
         val loadControl = if (isLive) {
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(2_500, 10_000, 250, 1_000)
@@ -431,7 +431,6 @@ class PlayerActivity : ComponentActivity() {
                 .build()
         }
 
-        // ✅ DELJENI KLIENT — connection pooling (brži zapping, bez keša sadržaja)
         val dsFactory = OkHttpDataSource.Factory(sharedHttp)
             .setDefaultRequestProperties(mapOf("User-Agent" to "IStreamingTV/1.0 (Android; Media3)"))
 
@@ -547,7 +546,7 @@ class PlayerActivity : ComponentActivity() {
 }
 
 // =====================================================================
-// APPLE TV+ STIL UI — DVE RAVNI (plejer + panel) + LIVE sa TV LOGO-om
+// APPLE TV+ STIL UI — DVE RAVNI + LIVE sa TV LOGO-om i EPG TRAKOM
 // =====================================================================
 
 private data class TrackOption(val label: String, val groupIndex: Int, val trackIndex: Int, val selected: Boolean, val type: Int)
@@ -556,6 +555,12 @@ private fun audioLanguageName(code: String?): String = when (code?.lowercase()) 
     "en", "eng" -> "Engleski"; "sr", "scc", "srp" -> "Srpski"; "hr", "hrv" -> "Hrvatski"
     "hi", "hin" -> "Hindi"; "de", "ger", "deu" -> "Nemački"; "fr", "fre", "fra" -> "Francuski"
     "es", "spa" -> "Španski"; null, "" -> "Original"; else -> code.uppercase()
+}
+
+/** ✅ "Još 45 min" / "Još 1 h 05 min" */
+private fun remainingText(endMs: Long, nowMs: Long): String {
+    val min = max(0L, (endMs - nowMs) / 60_000L)
+    return if (min >= 60) "Još ${min / 60} h ${min % 60} min" else "Još $min min"
 }
 
 private fun collectOptions(player: Player, type: Int): List<TrackOption> {
@@ -767,6 +772,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     val clockText = timeFmt.format(Date(nowMillis))
     val endText = timeFmt.format(Date(nowMillis + (duration - position).coerceAtLeast(0)))
 
+    // ✅ EPG progress za live
+    val liveProgress = if (isLive && activity.liveEndMs > activity.liveStartMs) {
+        ((nowMillis - activity.liveStartMs).toFloat() / (activity.liveEndMs - activity.liveStartMs)).coerceIn(0f, 1f)
+    } else 0f
+
     val showSkipIntro = !isLive && activity.isSeriesPlay && isPlaying &&
         activity.introStartMs >= 0 && activity.introEndMs > 0 &&
         position in activity.introStartMs..activity.introEndMs
@@ -864,20 +874,15 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     }
 
                     if (isLive) {
-                        // ✅ APPLE TV+ STIL: KOMPAKTAN TV LOGO + naziv kanala + emisija
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            if (activity.playerPoster.isNotBlank()) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color.Black.copy(alpha = 0.5f))
-                                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
+                        // ✅ APPLE TV+ STIL LIVE: logo BEZ ivica + EPG traka sa preostalim vremenom
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
+                            // Red 1: TV logo (bez ivica) + kanal + emisija
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                if (activity.playerPoster.isNotBlank()) {
                                     AsyncImage(
                                         model = ImageRequest.Builder(activity)
                                             .data(activity.playerPoster)
@@ -885,16 +890,46 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                                             .bitmapConfig(Bitmap.Config.ARGB_8888)
                                             .build(),
                                         contentDescription = null,
-                                        modifier = Modifier.size(34.dp),
+                                        modifier = Modifier.size(40.dp),
                                         contentScale = ContentScale.Fit
                                     )
                                 }
+                                Text(activity.playerTitle, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                                if (activity.liveProgramTitle.isNotBlank()) {
+                                    Text("· ${activity.liveProgramTitle}", color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f))
+                                }
                             }
-                            Text(activity.playerTitle, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                            if (activity.liveProgramTitle.isNotBlank()) {
-                                Text("· ${activity.liveProgramTitle}", color = Color.White.copy(alpha = 0.8f),
-                                    fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f))
+
+                            // Red 2: EPG progress traka + "Još X min"
+                            if (activity.liveEndMs > activity.liveStartMs) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .weight(1f)
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(Color.White.copy(alpha = 0.3f))
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .fillMaxWidth(liveProgress)
+                                                .height(4.dp)
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(Color.White)
+                                        )
+                                    }
+                                    Text(
+                                        remainingText(activity.liveEndMs, nowMillis),
+                                        color = Color.White.copy(alpha = 0.85f),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     } else {
