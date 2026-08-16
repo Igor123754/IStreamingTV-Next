@@ -53,6 +53,7 @@ import com.igor.istreamingtv.data.ContinueWatchingStore
 import com.igor.istreamingtv.data.livetv.EpgProgram
 import com.igor.istreamingtv.data.livetv.LiveChannel
 import com.igor.istreamingtv.data.livetv.LiveTvSession
+import com.igor.istreamingtv.data.livetv.epgListFor
 import com.igor.istreamingtv.data.remote.*
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.player.PlayerActivity
@@ -91,16 +92,13 @@ private fun TmdbMovie.displayGenre(): String =
 
 private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
 
-/** ✅ Trenutni EPG program za kanal (multi-key lookup) */
+/**
+ * ✅ FUZZY EPG lookup — radi i kad XML ID ima sufiks " (src05)" ili
+ *    drugačiju kapitalizaciju od M3U tvg-id (srpski kanali!)
+ */
 private fun nowProgram(epg: Map<String, List<EpgProgram>>, ch: LiveChannel): EpgProgram? {
     val now = System.currentTimeMillis()
-    val keys = listOfNotNull(ch.epgId, ch.name).distinct()
-    for (k in keys) {
-        val list = epg[k] ?: continue
-        val p = list.firstOrNull { now >= it.startMs && now < it.endMs }
-        if (p != null) return p
-    }
-    return null
+    return epgListFor(epg, ch)?.firstOrNull { now >= it.startMs && now < it.endMs }
 }
 
 @Composable
@@ -166,7 +164,6 @@ fun HomeScreen(
         viewModel.refreshContinueWatching()
     }
 
-    // ✅ OTVORI LIVE PLAYER — popuni SESIJU za CH+/CH- zapping + EPG vreme
     val onWatchLive: (LiveChannel, EpgProgram?) -> Unit = { channel, program ->
         LiveTvSession.channels = state.liveChannels
         LiveTvSession.epg = state.liveEpg
@@ -239,7 +236,6 @@ private fun AppleTvHomeContent(
     var heroIndex by remember { mutableIntStateOf(0) }
     val featured = heroItems.getOrNull(heroIndex)
 
-    // ✅ Kanal pod fokusom u live redu → hero prikazuje njegov EPG
     var liveFocused by remember { mutableStateOf<LiveChannel?>(null) }
 
     LaunchedEffect(heroItems.size) {
@@ -296,7 +292,6 @@ private fun AppleTvHomeContent(
             }
         }
 
-        // ✅ UŽIVO TV — PRVI RED
         if (liveChannels.isNotEmpty()) {
             item(key = "live") {
                 LiveRowSection(
@@ -364,10 +359,6 @@ private fun LiveRowSection(
     }
 }
 
-/**
- * ✅ KARTICA KANALA — pozadina = EPG SLIKA PROGRAMA (Apple TV+ "Up Next" stil),
- *    mali logo kanala gore levo; fallback = logo kanala u sredini.
- */
 @Composable
 private fun LiveChannelCard(
     channel: LiveChannel,
@@ -403,10 +394,8 @@ private fun LiveChannelCard(
                     .then(if (f) Modifier.border(3.dp, Color.White, CardShape) else Modifier)
             ) {
                 when {
-                    // ✅ 1) EPG SLIKA PROGRAMA kao pozadina kartice
                     !programImage.isNullOrBlank() -> {
                         FastImage(programImage, Modifier.fillMaxSize())
-                        // Mali logo kanala gore levo
                         if (!channel.logoUrl.isNullOrBlank()) {
                             Box(
                                 modifier = Modifier
@@ -421,12 +410,10 @@ private fun LiveChannelCard(
                             }
                         }
                     }
-                    // 2) Fallback: logo kanala u sredini
                     !channel.logoUrl.isNullOrBlank() -> {
                         FastImage(channel.logoUrl, Modifier.fillMaxSize().padding(24.dp),
                             contentScale = ContentScale.Fit, transparent = true)
                     }
-                    // 3) Nema ničega: naziv kanala
                     else -> {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -434,7 +421,6 @@ private fun LiveChannelCard(
                     }
                 }
 
-                // Blagi gradient dole zbog progress bara
                 if (!programImage.isNullOrBlank()) {
                     Box(
                         Modifier
@@ -445,7 +431,6 @@ private fun LiveChannelCard(
                     )
                 }
 
-                // Progress trenutne emisije
                 if (program != null) {
                     Box(
                         Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -467,10 +452,6 @@ private fun LiveChannelCard(
     }
 }
 
-/**
- * ✅ EPG HERO — veliki fanart = slika trenutnog EPG programa,
- *    bedž sa vremenom, logo kanala gore desno, kategorija + naslov + opis.
- */
 @Composable
 private fun LiveHero(
     channel: LiveChannel,
@@ -493,7 +474,6 @@ private fun LiveHero(
         Box(Modifier.fillMaxSize().background(
             Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)), startY = 700f)))
 
-        // Bedž sa vremenom (gore levo)
         if (program != null) {
             Box(
                 modifier = Modifier
@@ -509,7 +489,6 @@ private fun LiveHero(
             }
         }
 
-        // Logo kanala (gore desno)
         if (!channel.logoUrl.isNullOrBlank()) {
             FastImage(channel.logoUrl,
                 Modifier.align(Alignment.TopEnd).padding(end = 48.dp, top = 40.dp)
