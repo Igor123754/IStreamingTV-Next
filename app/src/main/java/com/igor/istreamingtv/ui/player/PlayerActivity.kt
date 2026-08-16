@@ -16,6 +16,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -113,7 +114,7 @@ class PlayerActivity : ComponentActivity() {
     internal var liveStartMs by mutableStateOf(0L)
     internal var liveEndMs by mutableStateOf(0L)
 
-    // ✅ EPG traka (YouTube stil) — otvara se na ↓
+    // ✅ EPG traka — ↓ na daljinskom ILI swipe gore / "Vodič" dugme na tabletu
     internal var epgStripVisible by mutableStateOf(false)
 
     internal var isSeriesPlay: Boolean = false
@@ -630,7 +631,7 @@ class PlayerActivity : ComponentActivity() {
 }
 
 // =====================================================================
-// APPLE TV+ STIL UI — DVE RAVNI + LIVE + EPG TRAKA (YouTube stil)
+// APPLE TV+ STIL UI — DVE RAVNI + LIVE + EPG TRAKA (radi i na TABLETU)
 // =====================================================================
 
 private data class TrackOption(val label: String, val groupIndex: Int, val trackIndex: Int, val selected: Boolean, val type: Int)
@@ -722,6 +723,21 @@ private fun AudioIcon(modifier: Modifier = Modifier) {
     }
 }
 
+/** ✅ Ikona TV vodiča (mreža 2x2) — za "Vodič" pill dugme */
+@Composable
+private fun GuideIcon(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width; val h = size.height
+        val cell = w * 0.42f
+        val gap = w * 0.16f
+        val r = androidx.compose.ui.geometry.CornerRadius(w * 0.12f)
+        drawRoundRect(Color.White, androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Size(cell, cell), cornerRadius = r)
+        drawRoundRect(Color.White, androidx.compose.ui.geometry.Offset(cell + gap, 0f), androidx.compose.ui.geometry.Size(cell, cell), cornerRadius = r)
+        drawRoundRect(Color.White, androidx.compose.ui.geometry.Offset(0f, cell + gap), androidx.compose.ui.geometry.Size(cell, cell), cornerRadius = r)
+        drawRoundRect(Color.White, androidx.compose.ui.geometry.Offset(cell + gap, cell + gap), androidx.compose.ui.geometry.Size(cell, cell), cornerRadius = r)
+    }
+}
+
 @Composable
 private fun SettingsPanel(activity: PlayerActivity) {
     val title = if (activity.menuKind == TrackMenuKind.SUBTITLES) "Titlovi" else "Audio"
@@ -769,7 +785,7 @@ private fun SettingsPanel(activity: PlayerActivity) {
 }
 
 // =====================================================================
-// ✅ EPG TRAKA (YouTube stil) — 3 sličice: PROŠLO | SADA | SLEDI
+// ✅ EPG TRAKA — Apple TV+ stil, radi na TV-u (↓) I na TABLETU (swipe/dugme)
 // =====================================================================
 
 @Composable
@@ -784,7 +800,6 @@ private fun EpgStrip(
     val focusIndex = if (currentIndex >= 0) currentIndex
     else programs.indexOfFirst { it.startMs > nowMs }.let { if (it == -1) 0 else it }
 
-    // ✅ Početni prikaz: trenutni program U SREDINI (prethodni levo, sledeći desno)
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = max(0, focusIndex - 1)
     )
@@ -795,18 +810,35 @@ private fun EpgStrip(
 
     val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
-    // ✅ FIX: align se prosleđuje sa poziva (BoxScope), ovde samo modifier
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.92f))))
             .padding(start = 48.dp, end = 48.dp, bottom = 24.dp, top = 48.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // ✅ Zaglavlje sa logoom kanala (Apple TV+ stil)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (!channel.logoUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(activity)
+                        .data(channel.logoUrl).crossfade(false)
+                        .bitmapConfig(Bitmap.Config.ARGB_8888).build(),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(alpha = 0.08f))
+                        .padding(5.dp),
+                    contentScale = ContentScale.Fit
+                )
+            }
             Text("TV vodič", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text("· ${channel.name}", color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp)
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(16.dp))
 
         LazyRow(state = listState, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             itemsIndexed(programs, key = { _, p -> "${p.channel}_${p.startMs}" }) { i, program ->
@@ -886,18 +918,19 @@ private fun EpgCard(
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))))
                 )
 
+                // ✅ Apple TV+ pill bedževi
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(8.dp)
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(if (isNow) Color(0xFFE50914) else Color.Black.copy(alpha = 0.6f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Text(
                         when {
                             isNow -> "SADA"
-                            isNext -> "SLEDI"
+                            isNext -> "SLEDEĆE"
                             else -> "PROŠLO"
                         },
                         color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold
@@ -1059,12 +1092,39 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             modifier = Modifier.fillMaxSize()
         )
 
-        Box(Modifier.fillMaxSize().pointerInput(Unit) {
-            detectTapGestures(
-                onTap = { activity.interact(); activity.controlsVisible = !activity.controlsVisible },
-                onDoubleTap = { activity.interact(); activity.togglePlayInternal() }
-            )
-        })
+        // ✅ TOUCH (tablet): tap = kontrole / zatvori traku; swipe gore/dole = traka
+        Box(
+            Modifier.fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = {
+                            activity.interact()
+                            if (activity.epgStripVisible) activity.epgStripVisible = false
+                            else activity.controlsVisible = !activity.controlsVisible
+                        },
+                        onDoubleTap = { activity.interact(); activity.togglePlayInternal() }
+                    )
+                }
+                .pointerInput(Unit) {
+                    var acc = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { acc = 0f },
+                        onVerticalDrag = { _, dragAmount ->
+                            acc += dragAmount
+                            if (acc < -120f) {
+                                if (!activity.epgStripVisible) {
+                                    activity.epgStripVisible = true
+                                    activity.interact()
+                                }
+                                acc = 0f
+                            } else if (acc > 120f) {
+                                if (activity.epgStripVisible) activity.epgStripVisible = false
+                                acc = 0f
+                            }
+                        }
+                    )
+                }
+        )
 
         if (isBuffering) {
             CircularProgressIndicator(
@@ -1089,6 +1149,25 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             }
         }
 
+        // ✅ "VODIČ" pill dugme (touch affordance za tablet + miš)
+        if (isLive && !epgStripVisible && (controlsVisible || showPausedInfo)) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 40.dp, bottom = 110.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
+                    .clickable { activity.interact(); activity.epgStripVisible = true }
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                GuideIcon(Modifier.size(14.dp))
+                Text("Vodič", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
         if (controlsVisible || showPausedInfo) {
             Column(Modifier.align(Alignment.TopEnd).padding(end = 28.dp, top = 28.dp), horizontalAlignment = Alignment.End) {
                 Text(clockText, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
@@ -1107,7 +1186,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 if (!isPlaying && !isBuffering && isReady)
                     PauseBars(Modifier.align(Alignment.BottomCenter).padding(bottom = 128.dp))
 
-                // ✅ EPG traka ZAMENJUJE donju info traku kad je otvorena
                 if (isLive && epgStripVisible && liveChannel != null) {
                     EpgStrip(
                         activity = activity,
