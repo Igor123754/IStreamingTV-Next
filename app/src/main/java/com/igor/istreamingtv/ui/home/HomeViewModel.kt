@@ -6,15 +6,16 @@ import androidx.lifecycle.viewModelScope
 import com.igor.istreamingtv.BuildConfig
 import com.igor.istreamingtv.data.ContinueEntry
 import com.igor.istreamingtv.data.ContinueWatchingStore
-import com.igor.istreamingtv.data.livetv.EpgProgram
 import com.igor.istreamingtv.data.livetv.LiveChannel
 import com.igor.istreamingtv.data.livetv.LiveTvRepository
+import com.igor.istreamingtv.data.livetv.LiveTvSession
 import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.data.remote.pickCertification
 import com.igor.istreamingtv.data.remote.pickClearLogoUrl
 import com.igor.istreamingtv.data.remote.pickSerbianOverview
 import com.igor.istreamingtv.data.repository.ContentRepository
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,8 +42,8 @@ data class HomeUiState(
     val catalogs: List<Catalog> = emptyList(),
     val continueWatching: List<ContinueEntry> = emptyList(),
     val heroExtras: Map<String, HeroExtras> = emptyMap(),
-    val liveChannels: List<LiveChannel> = emptyList(),          // ✅ NOVO
-    val liveEpg: Map<String, List<EpgProgram>> = emptyMap(),   // ✅ NOVO
+    val liveChannels: List<LiveChannel> = emptyList(),
+    val liveEpg: Map<String, List<com.igor.istreamingtv.data.livetv.EpgProgram>> = emptyMap(),
     val error: String? = null
 )
 
@@ -71,12 +72,38 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         loadContent()
+        startLiveRefreshLoop()
     }
 
     fun refreshContinueWatching() {
         val entries = ContinueWatchingStore.load(getApplication())
         if (entries != _uiState.value.continueWatching) {
             _uiState.value = _uiState.value.copy(continueWatching = entries)
+        }
+    }
+
+    // ✅ AUTO OSVEŽAVANJE EPG-a na 15 min — budući programi se pojavljuju
+    //    čim ih provider objavi, bez restarta aplikacije
+    private fun startLiveRefreshLoop() {
+        viewModelScope.launch {
+            while (true) {
+                delay(15 * 60_000L)
+                refreshLive()
+            }
+        }
+    }
+
+    fun refreshLive() {
+        viewModelScope.launch {
+            val data = liveRepository.load()
+            if (data != null && data.channels.isNotEmpty()) {
+                LiveTvSession.channels = data.channels
+                LiveTvSession.epg = data.epg
+                _uiState.value = _uiState.value.copy(
+                    liveChannels = data.channels,
+                    liveEpg = data.epg
+                )
+            }
         }
     }
 
@@ -104,10 +131,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 launch { addCatalog("top-movies", "Najbolje ocenjeni filmovi", repository.getTopRatedMovies()) }
                 launch { addCatalog("top-series", "Najbolje ocenjene serije", repository.getTopRatedSeries()) }
 
-                // ✅ LIVE TV — učitava se u pozadini, ne blokira ostalo
+                // ✅ LIVE TV — odmah + sesija za player
                 launch {
                     val data = liveRepository.load()
                     if (data != null && data.channels.isNotEmpty()) {
+                        LiveTvSession.channels = data.channels
+                        LiveTvSession.epg = data.epg
                         _uiState.value = _uiState.value.copy(
                             liveChannels = data.channels,
                             liveEpg = data.epg
