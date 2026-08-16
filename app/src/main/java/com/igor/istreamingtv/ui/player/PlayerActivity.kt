@@ -17,6 +17,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,8 +30,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -105,6 +111,9 @@ class PlayerActivity : ComponentActivity() {
     internal var liveProgramTitle by mutableStateOf("")
     internal var liveStartMs by mutableStateOf(0L)
     internal var liveEndMs by mutableStateOf(0L)
+
+    // ✅ EPG traka (YouTube stil) — otvara se na ↓
+    internal var epgStripVisible by mutableStateOf(false)
 
     internal var isSeriesPlay: Boolean = false
     internal var introStartMs: Long = -1
@@ -223,18 +232,41 @@ class PlayerActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
 
+        // BACK / ESCAPE: panel → EPG traka → izlaz
         when (event.keyCode) {
             KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
                 if (menuKind != TrackMenuKind.NONE) { menuKind = TrackMenuKind.NONE; return true }
+                if (isLive && epgStripVisible) { epgStripVisible = false; return true }
                 finish(); return true
             }
         }
 
-        // ✅ CH+ / CH- — instant zapping (radi i kad su kontrole skrivene)
+        // ✅ LIVE: CH+/CH- zapping + ↓ EPG traka + ↑ zatvori
         if (isLive) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_CHANNEL_UP -> { zapLive(+1); return true }
                 KeyEvent.KEYCODE_CHANNEL_DOWN -> { zapLive(-1); return true }
+                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    if (!epgStripVisible) {
+                        epgStripVisible = true
+                        interact()
+                    }
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_UP -> {
+                    if (epgStripVisible) { epgStripVisible = false; return true }
+                }
+            }
+            // ✅ Dok je EPG traka otvorena: ←/→ idaju Compose fokusu (listanje vodiča),
+            //    OK zatvara traku
+            if (epgStripVisible) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT ->
+                        return super.dispatchKeyEvent(event)
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                        epgStripVisible = false; return true
+                    }
+                }
             }
         }
 
@@ -340,7 +372,6 @@ class PlayerActivity : ComponentActivity() {
         val ch = channels[newIndex]
         val program = liveProgramFor(ch)
 
-        // ✅ Sve informacije se odmah osveže (State varijable → UI recompose)
         playerTitle = ch.name
         playerPoster = ch.logoUrl ?: ""
         liveProgramTitle = program?.title ?: ""
@@ -350,7 +381,8 @@ class PlayerActivity : ComponentActivity() {
         candidateUrls.clear(); candidateUrls.add(ch.streamUrl); candidateIndex = 0
         currentUrl = ch.streamUrl
 
-        // ✅ Instant: isti ExoPlayer prima novi stream (stop + setMediaItem + prepare)
+        epgStripVisible = false
+
         player?.let { exo ->
             exo.stop()
             exo.setMediaItem(MediaItem.fromUri(ch.streamUrl))
@@ -472,7 +504,6 @@ class PlayerActivity : ComponentActivity() {
         if (tracks.isNotEmpty()) pb.setPreferredTextLanguage(tracks.first().lang)
         trackSelector.parameters = pb.build()
 
-        // ✅ 2GB RAM: mali bufferi za live (start 250ms), umereni za VOD
         val loadControl = if (isLive) {
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(2_500, 10_000, 250, 1_000)
@@ -602,7 +633,7 @@ class PlayerActivity : ComponentActivity() {
 }
 
 // =====================================================================
-// APPLE TV+ STIL UI — DVE RAVNI + LIVE sa TV LOGO-om i EPG TRAKOM
+// APPLE TV+ STIL UI — DVE RAVNI + LIVE + EPG TRAKA (YouTube stil)
 // =====================================================================
 
 private data class TrackOption(val label: String, val groupIndex: Int, val trackIndex: Int, val selected: Boolean, val type: Int)
@@ -740,6 +771,175 @@ private fun SettingsPanel(activity: PlayerActivity) {
     }
 }
 
+// =====================================================================
+// ✅ EPG TRAKA (YouTube stil) — 3 sličice: PROŠLO | SADA | SLEDI
+// =====================================================================
+
+@Composable
+private fun EpgStrip(
+    activity: PlayerActivity,
+    channel: LiveChannel,
+    programs: List<EpgProgram>,
+    nowMs: Long
+) {
+    val currentIndex = programs.indexOfFirst { nowMs >= it.startMs && nowMs < it.endMs }
+    val focusIndex = if (currentIndex >= 0) currentIndex
+    else programs.indexOfFirst { it.startMs > nowMs }.let { if (it == -1) 0 else it }
+
+    // ✅ Početni prikaz: trenutni program U SREDINI (prethodni levo, sledeći desno)
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = max(0, focusIndex - 1)
+    )
+    val currentFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        try { currentFocus.requestFocus() } catch (_: Exception) {}
+    }
+
+    val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
+    Column(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
+            .padding(start = 48.dp, end = 48.dp, bottom = 24.dp, top = 48.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("TV vodič", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("· ${channel.name}", color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp)
+        }
+        Spacer(Modifier.height(14.dp))
+
+        LazyRow(state = listState, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            itemsIndexed(programs, key = { _, p -> "${p.channel}_${p.startMs}" }) { i, program ->
+                val status = when {
+                    nowMs >= program.endMs -> -1
+                    nowMs >= program.startMs -> 0
+                    else -> 1
+                }
+                val isNext = status == 1 && i == (if (currentIndex >= 0) currentIndex + 1 else focusIndex)
+                EpgCard(
+                    program = program,
+                    channel = channel,
+                    status = status,
+                    isNext = isNext,
+                    nowMs = nowMs,
+                    timeFmt = timeFmt,
+                    focusRequester = if (i == focusIndex) currentFocus else null,
+                    onDismiss = { activity.epgStripVisible = false }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpgCard(
+    program: EpgProgram,
+    channel: LiveChannel,
+    status: Int,
+    isNext: Boolean,
+    nowMs: Long,
+    timeFmt: SimpleDateFormat,
+    focusRequester: FocusRequester?,
+    onDismiss: () -> Unit
+) {
+    val isNow = status == 0
+    val isPast = status == -1
+    val progress = if (isNow && program.endMs > program.startMs)
+        ((nowMs - program.startMs).toFloat() / (program.endMs - program.startMs)).coerceIn(0f, 1f) else 0f
+
+    val baseModifier = Modifier.width(270.dp).height(152.dp)
+    val mod = if (focusRequester != null) baseModifier.focusRequester(focusRequester) else baseModifier
+
+    Column(modifier = Modifier.alpha(if (isPast) 0.45f else 1f)) {
+        TvFocusableButton(onClick = onDismiss, modifier = mod) { focused ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .scale(if (focused) 1.05f else 1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF141416))
+                    .then(if (isNow || focused) Modifier.border(3.dp, Color.White, RoundedCornerShape(12.dp)) else Modifier)
+            ) {
+                // Slika emisije (fallback logo kanala)
+                if (!program.iconUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                            .data(program.iconUrl).crossfade(false)
+                            .bitmapConfig(Bitmap.Config.RGB_565).build(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (!channel.logoUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                            .data(channel.logoUrl).crossfade(false)
+                            .bitmapConfig(Bitmap.Config.ARGB_8888).build(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize().padding(28.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+
+                // Gradient dole
+                Box(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(64.dp)
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))))
+                )
+
+                // ✅ Bedž: SADA / SLEDI / PROŠLO
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                            if (isNow) Color(0xFFE50914)
+                            else Color.Black.copy(alpha = 0.6f)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        when {
+                            isNow -> "SADA"
+                            isNext -> "SLEDI"
+                            else -> "PROŠLO"
+                        },
+                        color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // Naslov + vreme
+                Column(
+                    modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                        .padding(start = 10.dp, end = 10.dp, bottom = if (isNow) 14.dp else 8.dp)
+                ) {
+                    Text(program.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "${timeFmt.format(Date(program.startMs))} – ${timeFmt.format(Date(program.endMs))}",
+                        color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp
+                    )
+                }
+
+                // ✅ Progress bar za trenutni program
+                if (isNow) {
+                    Box(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp).height(3.dp)
+                            .clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.3f))
+                    ) {
+                        Box(Modifier.fillMaxWidth(progress).height(3.dp)
+                            .clip(RoundedCornerShape(2.dp)).background(Color.White))
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun AppleSeekBar(
     activity: PlayerActivity,
@@ -794,6 +994,7 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     val controlsVisible = activity.controlsVisible
     val focusIndex = activity.controlsFocusIndex
     val isLive = activity.isLive
+    val epgStripVisible = activity.epgStripVisible
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -811,8 +1012,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     LaunchedEffect(isPlaying, isReady) {
         if (!isPlaying && isReady) { delay(5000); showPausedInfo = true } else showPausedInfo = false
     }
-    LaunchedEffect(controlsVisible, showPausedInfo) {
-        while (controlsVisible || showPausedInfo) { nowMillis = System.currentTimeMillis(); delay(1000) }
+    // ✅ Sat/EPG vreme se osvežava i dok je EPG traka otvorena
+    LaunchedEffect(controlsVisible, showPausedInfo, epgStripVisible) {
+        while (controlsVisible || showPausedInfo || epgStripVisible) {
+            nowMillis = System.currentTimeMillis(); delay(1000)
+        }
     }
     LaunchedEffect(activity.lastInteraction, menuKind, showPausedInfo) {
         activity.controlsVisible = true
@@ -830,6 +1034,11 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
     val liveProgress = if (isLive && activity.liveEndMs > activity.liveStartMs) {
         ((nowMillis - activity.liveStartMs).toFloat() / (activity.liveEndMs - activity.liveStartMs)).coerceIn(0f, 1f)
     } else 0f
+
+    val liveChannel = if (isLive) LiveTvSession.channels.getOrNull(LiveTvSession.currentIndex) else null
+    val livePrograms = liveChannel?.let { ch ->
+        LiveTvSession.epg[ch.epgId ?: ch.name] ?: emptyList()
+    } ?: emptyList()
 
     val showSkipIntro = !isLive && activity.isSeriesPlay && isPlaying &&
         activity.introStartMs >= 0 && activity.introEndMs > 0 &&
@@ -908,138 +1117,148 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                 if (!isPlaying && !isBuffering && isReady)
                     PauseBars(Modifier.align(Alignment.BottomCenter).padding(bottom = 128.dp))
 
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 40.dp, end = 40.dp, bottom = 24.dp)) {
-                    if (showPausedInfo && !isLive) {
-                        Row(Modifier.fillMaxWidth().padding(bottom = 18.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (activity.playerPoster.isNotBlank())
-                                AsyncImage(activity.playerPoster, null, Modifier.width(90.dp).height(135.dp)
-                                    .clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop)
-                            Column(Modifier.weight(1f)) {
-                                if (activity.playerTitle.isNotBlank()) {
-                                    Text(activity.playerTitle, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                                    Spacer(Modifier.height(6.dp))
+                // ✅ EPG traka ZAMENJUJE donju info traku kad je otvorena
+                if (isLive && epgStripVisible && liveChannel != null) {
+                    EpgStrip(
+                        activity = activity,
+                        channel = liveChannel,
+                        programs = livePrograms,
+                        nowMs = nowMillis
+                    )
+                } else {
+                    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 40.dp, end = 40.dp, bottom = 24.dp)) {
+                        if (showPausedInfo && !isLive) {
+                            Row(Modifier.fillMaxWidth().padding(bottom = 18.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                if (activity.playerPoster.isNotBlank())
+                                    AsyncImage(activity.playerPoster, null, Modifier.width(90.dp).height(135.dp)
+                                        .clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop)
+                                Column(Modifier.weight(1f)) {
+                                    if (activity.playerTitle.isNotBlank()) {
+                                        Text(activity.playerTitle, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                        Spacer(Modifier.height(6.dp))
+                                    }
+                                    if (activity.playerOverview.isNotBlank())
+                                        Text(activity.playerOverview, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp,
+                                            lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                                 }
-                                if (activity.playerOverview.isNotBlank())
-                                    Text(activity.playerOverview, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp,
-                                        lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                             }
                         }
-                    }
 
-                    if (isLive) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                if (activity.playerPoster.isNotBlank()) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(activity)
-                                            .data(activity.playerPoster)
-                                            .crossfade(false)
-                                            .bitmapConfig(Bitmap.Config.ARGB_8888)
-                                            .build(),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(40.dp),
-                                        contentScale = ContentScale.Fit
-                                    )
-                                }
-                                Text(activity.playerTitle, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                                if (activity.liveProgramTitle.isNotBlank()) {
-                                    Text("· ${activity.liveProgramTitle}", color = Color.White.copy(alpha = 0.8f),
-                                        fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f))
-                                }
-                            }
-
-                            if (activity.liveEndMs > activity.liveStartMs) {
+                        if (isLive) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    Box(
-                                        Modifier
-                                            .weight(1f)
-                                            .height(4.dp)
-                                            .clip(RoundedCornerShape(2.dp))
-                                            .background(Color.White.copy(alpha = 0.3f))
+                                    if (activity.playerPoster.isNotBlank()) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(activity)
+                                                .data(activity.playerPoster)
+                                                .crossfade(false)
+                                                .bitmapConfig(Bitmap.Config.ARGB_8888)
+                                                .build(),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(40.dp),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+                                    Text(activity.playerTitle, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                                    if (activity.liveProgramTitle.isNotBlank()) {
+                                        Text("· ${activity.liveProgramTitle}", color = Color.White.copy(alpha = 0.8f),
+                                            fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f))
+                                    }
+                                }
+
+                                if (activity.liveEndMs > activity.liveStartMs) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                                     ) {
                                         Box(
                                             Modifier
-                                                .fillMaxWidth(liveProgress)
+                                                .weight(1f)
                                                 .height(4.dp)
                                                 .clip(RoundedCornerShape(2.dp))
-                                                .background(Color.White)
+                                                .background(Color.White.copy(alpha = 0.3f))
+                                        ) {
+                                            Box(
+                                                Modifier
+                                                    .fillMaxWidth(liveProgress)
+                                                    .height(4.dp)
+                                                    .clip(RoundedCornerShape(2.dp))
+                                                    .background(Color.White)
+                                            )
+                                        }
+                                        Text(
+                                            remainingText(activity.liveEndMs, nowMillis),
+                                            color = Color.White.copy(alpha = 0.85f),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium
                                         )
                                     }
-                                    Text(
-                                        remainingText(activity.liveEndMs, nowMillis),
-                                        color = Color.White.copy(alpha = 0.85f),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
                                 }
                             }
-                        }
-                    } else {
-                        if (activity.playerSeason >= 0) {
-                            Text("S${activity.playerSeason}, E${activity.playerEpisode}", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
-                            Spacer(Modifier.height(4.dp))
-                        }
-                        if (activity.playerTitle.isNotBlank()) {
-                            Text(activity.playerTitle, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                            Spacer(Modifier.height(10.dp))
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                            AppleSeekBar(
-                                activity = activity,
-                                fraction = sliderFraction,
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            val playFocused = focusIndex == 0
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = if (playFocused) 0.3f else 0.15f))
-                                    .then(if (playFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
-                                    .size(44.dp)
-                                    .clickable { activity.interact(); activity.togglePlayInternal() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isPlaying) PauseBars()
-                                else Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                        } else {
+                            if (activity.playerSeason >= 0) {
+                                Text("S${activity.playerSeason}, E${activity.playerEpisode}", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
+                                Spacer(Modifier.height(4.dp))
+                            }
+                            if (activity.playerTitle.isNotBlank()) {
+                                Text(activity.playerTitle, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                Spacer(Modifier.height(10.dp))
                             }
 
-                            val ccFocused = focusIndex == 1
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = if (ccFocused) 0.3f else 0.15f))
-                                    .then(if (ccFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
-                                    .size(44.dp)
-                                    .clickable { activity.interact(); activity.openSubtitlesPanel() },
-                                contentAlignment = Alignment.Center
-                            ) { SubtitlesIcon(Modifier.size(22.dp)) }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                                AppleSeekBar(
+                                    activity = activity,
+                                    fraction = sliderFraction,
+                                    modifier = Modifier.weight(1f)
+                                )
 
-                            val audioFocused = focusIndex == 2
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = if (audioFocused) 0.3f else 0.15f))
-                                    .then(if (audioFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
-                                    .size(44.dp)
-                                    .clickable { activity.interact(); activity.openAudioPanel() },
-                                contentAlignment = Alignment.Center
-                            ) { AudioIcon(Modifier.size(22.dp)) }
-                        }
+                                val playFocused = focusIndex == 0
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = if (playFocused) 0.3f else 0.15f))
+                                        .then(if (playFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
+                                        .size(44.dp)
+                                        .clickable { activity.interact(); activity.togglePlayInternal() },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isPlaying) PauseBars()
+                                    else Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                                }
 
-                        Spacer(Modifier.height(8.dp))
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(formatTime(position), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
-                            Text("-" + formatTime((duration - position).coerceAtLeast(0)), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                                val ccFocused = focusIndex == 1
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = if (ccFocused) 0.3f else 0.15f))
+                                        .then(if (ccFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
+                                        .size(44.dp)
+                                        .clickable { activity.interact(); activity.openSubtitlesPanel() },
+                                    contentAlignment = Alignment.Center
+                                ) { SubtitlesIcon(Modifier.size(22.dp)) }
+
+                                val audioFocused = focusIndex == 2
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = if (audioFocused) 0.3f else 0.15f))
+                                        .then(if (audioFocused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
+                                        .size(44.dp)
+                                        .clickable { activity.interact(); activity.openAudioPanel() },
+                                    contentAlignment = Alignment.Center
+                                ) { AudioIcon(Modifier.size(22.dp)) }
+                            }
+
+                            Spacer(Modifier.height(8.dp))
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(formatTime(position), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                                Text("-" + formatTime((duration - position).coerceAtLeast(0)), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                            }
                         }
                     }
                 }
