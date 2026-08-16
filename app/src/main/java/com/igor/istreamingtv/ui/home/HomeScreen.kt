@@ -52,6 +52,7 @@ import com.igor.istreamingtv.data.ContinueEntry
 import com.igor.istreamingtv.data.ContinueWatchingStore
 import com.igor.istreamingtv.data.livetv.EpgProgram
 import com.igor.istreamingtv.data.livetv.LiveChannel
+import com.igor.istreamingtv.data.livetv.LiveTvSession
 import com.igor.istreamingtv.data.remote.*
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import com.igor.istreamingtv.ui.player.PlayerActivity
@@ -165,8 +166,12 @@ fun HomeScreen(
         viewModel.refreshContinueWatching()
     }
 
-    // ✅ OTVORI LIVE PLAYER — sa EPG vremenom za progress traku
+    // ✅ OTVORI LIVE PLAYER — popuni SESIJU za CH+/CH- zapping + EPG vreme
     val onWatchLive: (LiveChannel, EpgProgram?) -> Unit = { channel, program ->
+        LiveTvSession.channels = state.liveChannels
+        LiveTvSession.epg = state.liveEpg
+        LiveTvSession.currentIndex = state.liveChannels.indexOf(channel).coerceAtLeast(0)
+
         val intent = Intent(context, PlayerActivity::class.java).apply {
             putExtra("candidates", TmdbClient.json.encodeToString(listOf(channel.streamUrl)))
             putExtra("live", true)
