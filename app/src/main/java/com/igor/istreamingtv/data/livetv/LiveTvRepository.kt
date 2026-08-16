@@ -32,15 +32,29 @@ class LiveTvRepository {
                     val parsed = EpgParser.parse(input)
                     resp.close()
 
-                    // ✅ ZADRŽI EPG SAMO ZA KANALE IZ TVOJE LISTE
-                    //    (drastično manje RAM-a — bitno za 2GB TV i sprečava OOM crash)
-                    val wantedKeys = buildSet {
+                    // ✅ Re-map keys: XML "B92.(RS).rs (src05)" is also accessible as "B92.(RS).rs"
+                    val result = mutableMapOf<String, List<EpgProgram>>()
+                    parsed.forEach { (k, v) ->
+                        result[k] = v
+                        val stripped = k.substringBefore(" (").trim()
+                        if (stripped != k && !result.containsKey(stripped)) result[stripped] = v
+                    }
+
+                    // Keep only channels from your list (RAM savings on 2GB)
+                    val wanted = buildSet {
                         channels.forEach { ch ->
-                            ch.epgId?.let { add(it) }
-                            add(ch.name)
+                            listOfNotNull(ch.epgId, ch.name).forEach { k ->
+                                add(k)
+                                add(k.substringBefore(" (").trim())
+                                add(k.lowercase())
+                            }
                         }
                     }
-                    parsed.filterKeys { wantedKeys.contains(it) }
+                    result.filterKeys { k ->
+                        k in wanted ||
+                            k.substringBefore(" (").trim() in wanted ||
+                            k.lowercase() in wanted
+                    }
                 }
             } catch (_: Exception) { emptyMap() }
 
