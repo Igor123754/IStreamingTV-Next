@@ -317,6 +317,10 @@ private fun AppleTvHomeContent(
     }
 }
 
+// =====================================================================
+// UŽIVO TV — RED KANALA + EPG HERO
+// =====================================================================
+
 @Composable
 private fun LiveRowSection(
     channels: List<LiveChannel>,
@@ -349,6 +353,10 @@ private fun LiveRowSection(
     }
 }
 
+/**
+ * ✅ KARTICA KANALA — pozadina = EPG SLIKA PROGRAMA (kao Apple TV+ "Up Next"),
+ *    mali logo kanala gore levo; fallback = logo kanala u sredini.
+ */
 @Composable
 private fun LiveChannelCard(
     channel: LiveChannel,
@@ -361,6 +369,8 @@ private fun LiveChannelCard(
     val now = System.currentTimeMillis()
     val progress = if (program != null && program.endMs > program.startMs)
         ((now - program.startMs).toFloat() / (program.endMs - program.startMs)).coerceIn(0f, 1f) else 0f
+
+    val programImage = program?.iconUrl
 
     Column(modifier = Modifier.width(240.dp)) {
         TvFocusableButton(
@@ -381,14 +391,50 @@ private fun LiveChannelCard(
                     .background(SurfaceBackground)
                     .then(if (f) Modifier.border(3.dp, Color.White, CardShape) else Modifier)
             ) {
-                if (!channel.logoUrl.isNullOrBlank()) {
-                    FastImage(channel.logoUrl, Modifier.fillMaxSize().padding(24.dp),
-                        contentScale = ContentScale.Fit, transparent = true)
-                } else {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                when {
+                    // ✅ 1) EPG SLIKA PROGRAMA kao pozadina kartice
+                    !programImage.isNullOrBlank() -> {
+                        FastImage(programImage, Modifier.fillMaxSize())
+                        // Mali logo kanala gore levo (prepoznatljivost)
+                        if (!channel.logoUrl.isNullOrBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(6.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color.Black.copy(alpha = 0.55f))
+                                    .padding(4.dp)
+                            ) {
+                                FastImage(channel.logoUrl, Modifier.size(34.dp),
+                                    contentScale = ContentScale.Fit, transparent = true)
+                            }
+                        }
+                    }
+                    // 2) Fallback: logo kanala u sredini
+                    !channel.logoUrl.isNullOrBlank() -> {
+                        FastImage(channel.logoUrl, Modifier.fillMaxSize().padding(24.dp),
+                            contentScale = ContentScale.Fit, transparent = true)
+                    }
+                    // 3) Nema ničega: naziv kanala
+                    else -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
+
+                // Blagi gradient dole zbog progress bara
+                if (!programImage.isNullOrBlank()) {
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(36.dp)
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
+                    )
+                }
+
+                // Progress trenutne emisije
                 if (program != null) {
                     Box(
                         Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -410,10 +456,6 @@ private fun LiveChannelCard(
     }
 }
 
-/**
- * ✅ EPG HERO — sada koristi EPG sliku (icon) + channel logo kao fallback
- *    + TMDB search za slike ako EPG nema icon
- */
 @Composable
 private fun LiveHero(
     channel: LiveChannel,
@@ -421,8 +463,7 @@ private fun LiveHero(
     onWatch: () -> Unit
 ) {
     val timeFmt = remember { SimpleDateFormat("EEE · HH:mm", Locale.getDefault()) }
-    
-    // ✅ PRIORITET: 1) EPG icon, 2) Channel logo
+
     val bg = program?.iconUrl ?: channel.logoUrl ?: ""
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -437,7 +478,6 @@ private fun LiveHero(
         Box(Modifier.fillMaxSize().background(
             Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)), startY = 700f)))
 
-        // Bedž sa vremenom
         if (program != null) {
             Box(
                 modifier = Modifier
@@ -453,7 +493,6 @@ private fun LiveHero(
             }
         }
 
-        // Logo kanala (gore desno)
         if (!channel.logoUrl.isNullOrBlank()) {
             FastImage(channel.logoUrl,
                 Modifier.align(Alignment.TopEnd).padding(end = 48.dp, top = 40.dp)
@@ -495,6 +534,10 @@ private fun LiveHero(
         }
     }
 }
+
+// =====================================================================
+// OSTALI REDOVI
+// =====================================================================
 
 @Composable
 private fun ContinueRowSection(
