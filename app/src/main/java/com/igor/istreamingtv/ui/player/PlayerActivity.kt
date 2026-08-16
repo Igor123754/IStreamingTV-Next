@@ -1,5 +1,6 @@
 package com.igor.istreamingtv.ui.player
 
+import android.graphics.Bitmap
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -60,6 +61,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.igor.istreamingtv.data.ContinueEntry
 import com.igor.istreamingtv.data.ContinueWatchingStore
 import com.igor.istreamingtv.data.remote.StreamPicker
@@ -95,7 +97,6 @@ class PlayerActivity : ComponentActivity() {
     internal var playerBackdrop: String = ""
     internal var playerOverview: String = ""
 
-    // ✅ LIVE TV režim
     internal var isLive: Boolean = false
     internal var liveProgramTitle: String = ""
 
@@ -103,14 +104,13 @@ class PlayerActivity : ComponentActivity() {
     internal var introStartMs: Long = -1
     internal var introEndMs: Long = -1
 
-    // ✅ Sva kontrola na Activity nivou (radi na SVIM daljinskim)
     internal var menuKind by mutableStateOf(TrackMenuKind.NONE)
     internal var panelOptions by mutableStateOf<List<String>>(emptyList())
     internal var panelSelected by mutableStateOf(0)
     internal var panelOnSelect: ((Int) -> Unit)? = null
 
     internal var controlsVisible by mutableStateOf(true)
-    internal var controlsFocusIndex by mutableStateOf(0) // 0 = traka, 1 = titlovi, 2 = audio
+    internal var controlsFocusIndex by mutableStateOf(0)
     internal var lastInteraction by mutableStateOf(System.currentTimeMillis())
 
     private val candidateUrls = mutableListOf<String>()
@@ -122,6 +122,23 @@ class PlayerActivity : ComponentActivity() {
     private var seasonNumber: Int = -1
     private var episodeNumber: Int = -1
     private var runtimeSec: Int = -1
+
+    companion object {
+        /**
+         * ✅ DELJENI HTTP KLIENT — connection pooling između sesija/kanala.
+         *    Nije keš sadržaja: veze se REKORISTE pa je zapping i start
+         *    stream-a drastično brži (bez ponovnog rukovanja/DSN-a).
+         */
+        private val sharedHttp: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(6, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .retryOnConnectionFailure(true)
+                .build()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -135,7 +152,6 @@ class PlayerActivity : ComponentActivity() {
             return
         }
 
-        // ✅ LIVE extras
         isLive = intent.getBooleanExtra("live", false)
         liveProgramTitle = intent.getStringExtra("live_program") ?: ""
 
@@ -162,7 +178,7 @@ class PlayerActivity : ComponentActivity() {
         }
 
         if (isLive) {
-            // ✅ LIVE: odmah pusti stream — bez titlova/intro/continue logike
+            // ✅ LIVE: odmah pusti — bez ikakvog čekanja
             playCandidate(0)
         } else {
             if (!imdbId.isNullOrBlank() && seasonNumber >= 0 && episodeNumber >= 0) {
@@ -199,12 +215,11 @@ class PlayerActivity : ComponentActivity() {
     }
 
     // =====================================================================
-    // ✅ KOMPLETNA KONTROLA NA ACTIVITY NIVOU — radi na SVIM TV daljinskim
+    // KONTROLA NA ACTIVITY NIVOU — radi na SVIM TV daljinskim
     // =====================================================================
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
 
-        // BACK / ESCAPE
         when (event.keyCode) {
             KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
                 if (menuKind != TrackMenuKind.NONE) { menuKind = TrackMenuKind.NONE; return true }
@@ -212,7 +227,6 @@ class PlayerActivity : ComponentActivity() {
             }
         }
 
-        // REŽIM PANELA (titlovi / audio lista)
         if (menuKind != TrackMenuKind.NONE) {
             if (panelOptions.isEmpty()) return true
             when (event.keyCode) {
@@ -226,7 +240,6 @@ class PlayerActivity : ComponentActivity() {
             return super.dispatchKeyEvent(event)
         }
 
-        // GLAVNE KONTROLE
         when (event.keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
                 interact(); togglePlayInternal(); return true
@@ -235,7 +248,6 @@ class PlayerActivity : ComponentActivity() {
             KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
 
-                // Kontrole skrivene → prvi pritisak ih SAMO budi
                 if (!controlsVisible) {
                     controlsVisible = true
                     controlsFocusIndex = 0
@@ -246,7 +258,6 @@ class PlayerActivity : ComponentActivity() {
                 interact()
                 when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT -> {
-                        // ✅ LIVE: nema premotavanja
                         if (!isLive) {
                             if (controlsFocusIndex == 0) seekBy(-10_000)
                             else if (controlsFocusIndex == 2) controlsFocusIndex = 1
@@ -405,21 +416,23 @@ class PlayerActivity : ComponentActivity() {
         if (tracks.isNotEmpty()) pb.setPreferredTextLanguage(tracks.first().lang)
         trackSelector.parameters = pb.build()
 
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(5_000, 20_000, 500, 1_500)
-            .setTargetBufferBytes(16 * 1024 * 1024)
-            .setBackBuffer(10_000, false)
-            .build()
+        // ✅ LIVE = EKSTREMNO BRZ START (250ms buffer), VOD = stabilno
+        val loadControl = if (isLive) {
+            DefaultLoadControl.Builder()
+                .setBufferDurationsMs(2_500, 10_000, 250, 1_000)
+                .setTargetBufferBytes(8 * 1024 * 1024)
+                .setBackBuffer(5_000, false)
+                .build()
+        } else {
+            DefaultLoadControl.Builder()
+                .setBufferDurationsMs(5_000, 20_000, 500, 1_500)
+                .setTargetBufferBytes(16 * 1024 * 1024)
+                .setBackBuffer(10_000, false)
+                .build()
+        }
 
-        val okHttp = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .retryOnConnectionFailure(true)
-            .build()
-
-        val dsFactory = OkHttpDataSource.Factory(okHttp)
+        // ✅ DELJENI KLIENT — connection pooling (brži zapping, bez keša sadržaja)
+        val dsFactory = OkHttpDataSource.Factory(sharedHttp)
             .setDefaultRequestProperties(mapOf("User-Agent" to "IStreamingTV/1.0 (Android; Media3)"))
 
         player?.release()
@@ -455,7 +468,6 @@ class PlayerActivity : ComponentActivity() {
 
         exo.setMediaItem(mib.build())
         exo.prepare()
-        // ✅ LIVE: bez resume pozicije
         if (saved > 0 && !isLive) exo.seekTo(saved)
         exo.playWhenReady = true
 
@@ -512,7 +524,6 @@ class PlayerActivity : ComponentActivity() {
         super.onStop()
         val p = player ?: return
         val url = currentUrl ?: return
-        // ✅ LIVE: bez čuvanja pozicije i Continue Watching
         if (!isLive) {
             try {
                 val pos = p.currentPosition; val dur = p.duration
@@ -536,7 +547,7 @@ class PlayerActivity : ComponentActivity() {
 }
 
 // =====================================================================
-// APPLE TV+ STIL UI — DVE RAVNI (plejer + panel) + LIVE režim
+// APPLE TV+ STIL UI — DVE RAVNI (plejer + panel) + LIVE sa TV LOGO-om
 // =====================================================================
 
 private data class TrackOption(val label: String, val groupIndex: Int, val trackIndex: Int, val selected: Boolean, val type: Int)
@@ -785,7 +796,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
             modifier = Modifier.fillMaxSize()
         )
 
-        // Touch: tap = kontrole, double-tap = play/pauza
         Box(Modifier.fillMaxSize().pointerInput(Unit) {
             detectTapGestures(
                 onTap = { activity.interact(); activity.controlsVisible = !activity.controlsVisible },
@@ -854,21 +864,31 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                     }
 
                     if (isLive) {
-                        // ✅ LIVE: bedž "UŽIVO" + kanal + trenutna emisija (bez trake)
+                        // ✅ APPLE TV+ STIL: KOMPAKTAN TV LOGO + naziv kanala + emisija
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFFE50914))
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(Modifier.size(8.dp).clip(CircleShape).background(Color.White))
-                                Text("UŽIVO", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            if (activity.playerPoster.isNotBlank()) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color.Black.copy(alpha = 0.5f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(activity)
+                                            .data(activity.playerPoster)
+                                            .crossfade(false)
+                                            .bitmapConfig(Bitmap.Config.ARGB_8888)
+                                            .build(),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(34.dp),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
                             }
                             Text(activity.playerTitle, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                             if (activity.liveProgramTitle.isNotBlank()) {
@@ -878,7 +898,6 @@ private fun AppleTvPlayerScreen(activity: PlayerActivity) {
                             }
                         }
                     } else {
-                        // VOD: traka + play/pauza + CC + audio
                         if (activity.playerSeason >= 0) {
                             Text("S${activity.playerSeason}, E${activity.playerEpisode}", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
                             Spacer(Modifier.height(4.dp))
