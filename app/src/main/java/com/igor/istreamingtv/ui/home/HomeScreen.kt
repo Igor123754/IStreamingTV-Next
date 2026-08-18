@@ -358,9 +358,9 @@ private fun LiveRowSection(
 }
 
 /**
- * ✅ FIX: koristimo it.hasFocus (ne isFocused) — modifier je VAN fokusnog
- *    čvora u TvFocusableButton, pa isFocused nikad nije true.
- *    Sada hero PRIMA svaki novi fokusirani kanal (bez starih podataka).
+ * ✅ FIX: fokus hvatamo PREKO SOPSTVENOG Box wrapper-a (pravi predak fokusnog
+ *    čvora) — hasFocus je POUZDANO true kad je kartica fokusirana,
+ *    bez obzira na interni raspored modifikera u TvFocusableButton.
  */
 @Composable
 private fun LiveChannelCard(
@@ -369,8 +369,6 @@ private fun LiveChannelCard(
     onFocus: () -> Unit,
     onWatch: () -> Unit
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(220), label = "")
     val now = System.currentTimeMillis()
     val progress = if (program != null && program.endMs > program.startMs)
         ((now - program.startMs).toFloat() / (program.endMs - program.startMs)).coerceIn(0f, 1f) else 0f
@@ -378,70 +376,69 @@ private fun LiveChannelCard(
     val programImage = program?.iconUrl
 
     Column(modifier = Modifier.width(240.dp)) {
-        TvFocusableButton(
-            onClick = onWatch,
-            modifier = Modifier
-                .width(240.dp)
-                .height(135.dp)
-                .onFocusChanged {
-                    focused = it.hasFocus
-                    if (it.hasFocus) onFocus()
-                }
-        ) { f ->
-            Box(
+        // ✅ Wrapper Box — garantovano hvata fokus cele kartice
+        Box(modifier = Modifier.onFocusChanged { if (it.hasFocus) onFocus() }) {
+            TvFocusableButton(
+                onClick = onWatch,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .scale(if (f) 1.06f else 1f)
-                    .clip(CardShape)
-                    .background(SurfaceBackground)
-                    .then(if (f) Modifier.border(3.dp, Color.White, CardShape) else Modifier)
-            ) {
-                when {
-                    !programImage.isNullOrBlank() -> {
-                        FastImage(programImage, Modifier.fillMaxSize())
-                        if (!channel.logoUrl.isNullOrBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopStart)
-                                    .padding(6.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color.Black.copy(alpha = 0.55f))
-                                    .padding(4.dp)
-                            ) {
-                                FastImage(channel.logoUrl, Modifier.size(34.dp),
-                                    contentScale = ContentScale.Fit, transparent = true)
+                    .width(240.dp)
+                    .height(135.dp)
+            ) { f ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .scale(if (f) 1.06f else 1f)
+                        .clip(CardShape)
+                        .background(SurfaceBackground)
+                        .then(if (f) Modifier.border(3.dp, Color.White, CardShape) else Modifier)
+                ) {
+                    when {
+                        !programImage.isNullOrBlank() -> {
+                            FastImage(programImage, Modifier.fillMaxSize())
+                            if (!channel.logoUrl.isNullOrBlank()) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .padding(6.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color.Black.copy(alpha = 0.55f))
+                                        .padding(4.dp)
+                                ) {
+                                    FastImage(channel.logoUrl, Modifier.size(34.dp),
+                                        contentScale = ContentScale.Fit, transparent = true)
+                                }
+                            }
+                        }
+                        !channel.logoUrl.isNullOrBlank() -> {
+                            FastImage(channel.logoUrl, Modifier.fillMaxSize().padding(24.dp),
+                                contentScale = ContentScale.Fit, transparent = true)
+                        }
+                        else -> {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
-                    !channel.logoUrl.isNullOrBlank() -> {
-                        FastImage(channel.logoUrl, Modifier.fillMaxSize().padding(24.dp),
-                            contentScale = ContentScale.Fit, transparent = true)
+
+                    if (!programImage.isNullOrBlank()) {
+                        Box(
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .height(36.dp)
+                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
+                        )
                     }
-                    else -> {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
+                    if (program != null) {
+                        Box(
+                            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 8.dp).height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.3f))
+                        ) {
+                            Box(Modifier.fillMaxWidth(progress).height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)).background(Color.White))
                         }
-                    }
-                }
-
-                if (!programImage.isNullOrBlank()) {
-                    Box(
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(36.dp)
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
-                    )
-                }
-
-                if (program != null) {
-                    Box(
-                        Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 8.dp).height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.3f))
-                    ) {
-                        Box(Modifier.fillMaxWidth(progress).height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)).background(Color.White))
                     }
                 }
             }
