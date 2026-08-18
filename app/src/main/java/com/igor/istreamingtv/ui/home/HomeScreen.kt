@@ -233,9 +233,6 @@ private fun AppleTvHomeContent(
     var heroIndex by remember { mutableIntStateOf(0) }
     val featured = heroItems.getOrNull(heroIndex)
 
-    // ✅ Kanal pod fokusom u live redu → hero prikazuje njegov EPG
-    var liveFocused by remember { mutableStateOf<LiveChannel?>(null) }
-
     LaunchedEffect(heroItems.size) {
         if (heroItems.size < 2) return@LaunchedEffect
         while (true) {
@@ -263,16 +260,11 @@ private fun AppleTvHomeContent(
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
 
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+        // ✅ HERO = SAMO filmovi i serije (bez mešanja sa live EPG)
         item(key = "hero") {
             Box(modifier = Modifier.fillMaxWidth().height(screenHeightDp)) {
-                val liveCh = liveFocused
-                when {
-                    liveCh != null -> LiveHero(
-                        channel = liveCh,
-                        program = nowProgram(liveEpg, liveCh),
-                        onWatch = { onWatchLive(liveCh, nowProgram(liveEpg, liveCh)) }
-                    )
-                    featured != null -> AppleTvHero(
+                if (featured != null) {
+                    AppleTvHero(
                         item = featured,
                         heroExtras = heroExtras,
                         currentIndex = heroIndex,
@@ -290,13 +282,12 @@ private fun AppleTvHomeContent(
             }
         }
 
+        // ✅ UŽIVO TV — PRVI RED ispod hero-a (kao i do sada)
         if (liveChannels.isNotEmpty()) {
             item(key = "live") {
                 LiveRowSection(
                     channels = liveChannels,
                     epg = liveEpg,
-                    onChannelFocus = { liveFocused = it },
-                    onRowLeft = { liveFocused = null },
                     onWatch = onWatchLive
                 )
             }
@@ -322,22 +313,16 @@ private fun AppleTvHomeContent(
 }
 
 // =====================================================================
-// UŽIVO TV — RED KANALA + EPG HERO
+// UŽIVO TV — RED KANALA (ispod hero-a)
 // =====================================================================
 
 @Composable
 private fun LiveRowSection(
     channels: List<LiveChannel>,
     epg: Map<String, List<EpgProgram>>,
-    onChannelFocus: (LiveChannel) -> Unit,
-    onRowLeft: () -> Unit,
     onWatch: (LiveChannel, EpgProgram?) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .padding(top = 40.dp)
-            .onFocusChanged { if (!it.hasFocus) onRowLeft() }
-    ) {
+    Column(modifier = Modifier.padding(top = 40.dp)) {
         Text("Uživo TV", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = 48.dp, bottom = 16.dp))
 
@@ -349,7 +334,6 @@ private fun LiveRowSection(
                 LiveChannelCard(
                     channel = channel,
                     program = nowProgram(epg, channel),
-                    onFocus = { onChannelFocus(channel) },
                     onWatch = { onWatch(channel, nowProgram(epg, channel)) }
                 )
             }
@@ -357,16 +341,10 @@ private fun LiveRowSection(
     }
 }
 
-/**
- * ✅ FIX: fokus hvatamo PREKO SOPSTVENOG Box wrapper-a (pravi predak fokusnog
- *    čvora) — hasFocus je POUZDANO true kad je kartica fokusirana,
- *    bez obzira na interni raspored modifikera u TvFocusableButton.
- */
 @Composable
 private fun LiveChannelCard(
     channel: LiveChannel,
     program: EpgProgram?,
-    onFocus: () -> Unit,
     onWatch: () -> Unit
 ) {
     val now = System.currentTimeMillis()
@@ -376,69 +354,66 @@ private fun LiveChannelCard(
     val programImage = program?.iconUrl
 
     Column(modifier = Modifier.width(240.dp)) {
-        // ✅ Wrapper Box — garantovano hvata fokus cele kartice
-        Box(modifier = Modifier.onFocusChanged { if (it.hasFocus) onFocus() }) {
-            TvFocusableButton(
-                onClick = onWatch,
+        TvFocusableButton(
+            onClick = onWatch,
+            modifier = Modifier
+                .width(240.dp)
+                .height(135.dp)
+        ) { f ->
+            Box(
                 modifier = Modifier
-                    .width(240.dp)
-                    .height(135.dp)
-            ) { f ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .scale(if (f) 1.06f else 1f)
-                        .clip(CardShape)
-                        .background(SurfaceBackground)
-                        .then(if (f) Modifier.border(3.dp, Color.White, CardShape) else Modifier)
-                ) {
-                    when {
-                        !programImage.isNullOrBlank() -> {
-                            FastImage(programImage, Modifier.fillMaxSize())
-                            if (!channel.logoUrl.isNullOrBlank()) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopStart)
-                                        .padding(6.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color.Black.copy(alpha = 0.55f))
-                                        .padding(4.dp)
-                                ) {
-                                    FastImage(channel.logoUrl, Modifier.size(34.dp),
-                                        contentScale = ContentScale.Fit, transparent = true)
-                                }
-                            }
-                        }
-                        !channel.logoUrl.isNullOrBlank() -> {
-                            FastImage(channel.logoUrl, Modifier.fillMaxSize().padding(24.dp),
-                                contentScale = ContentScale.Fit, transparent = true)
-                        }
-                        else -> {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    .fillMaxSize()
+                    .scale(if (f) 1.06f else 1f)
+                    .clip(CardShape)
+                    .background(SurfaceBackground)
+                    .then(if (f) Modifier.border(3.dp, Color.White, CardShape) else Modifier)
+            ) {
+                when {
+                    !programImage.isNullOrBlank() -> {
+                        FastImage(programImage, Modifier.fillMaxSize())
+                        if (!channel.logoUrl.isNullOrBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(6.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color.Black.copy(alpha = 0.55f))
+                                    .padding(4.dp)
+                            ) {
+                                FastImage(channel.logoUrl, Modifier.size(34.dp),
+                                    contentScale = ContentScale.Fit, transparent = true)
                             }
                         }
                     }
-
-                    if (!programImage.isNullOrBlank()) {
-                        Box(
-                            Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .height(36.dp)
-                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
-                        )
+                    !channel.logoUrl.isNullOrBlank() -> {
+                        FastImage(channel.logoUrl, Modifier.fillMaxSize().padding(24.dp),
+                            contentScale = ContentScale.Fit, transparent = true)
                     }
-
-                    if (program != null) {
-                        Box(
-                            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 8.dp).height(4.dp)
-                                .clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.3f))
-                        ) {
-                            Box(Modifier.fillMaxWidth(progress).height(4.dp)
-                                .clip(RoundedCornerShape(2.dp)).background(Color.White))
+                    else -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         }
+                    }
+                }
+
+                if (!programImage.isNullOrBlank()) {
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(36.dp)
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
+                    )
+                }
+
+                if (program != null) {
+                    Box(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp).height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.3f))
+                    ) {
+                        Box(Modifier.fillMaxWidth(progress).height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)).background(Color.White))
                     }
                 }
             }
@@ -449,85 +424,6 @@ private fun LiveChannelCard(
             maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(program?.title ?: channel.group ?: "Uživo", color = TextSecondary, fontSize = 12.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun LiveHero(
-    channel: LiveChannel,
-    program: EpgProgram?,
-    onWatch: () -> Unit
-) {
-    val timeFmt = remember { SimpleDateFormat("EEE · HH:mm", Locale.getDefault()) }
-
-    val bg = program?.iconUrl ?: channel.logoUrl ?: ""
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        if (bg.isNotBlank()) {
-            FastImage(bg, Modifier.fillMaxSize())
-        } else {
-            Box(Modifier.fillMaxSize().background(SurfaceBackground))
-        }
-
-        Box(Modifier.fillMaxSize().background(
-            Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent), endX = 1100f)))
-        Box(Modifier.fillMaxSize().background(
-            Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)), startY = 700f)))
-
-        if (program != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 48.dp, top = 40.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(24.dp))
-                    .padding(horizontal = 20.dp, vertical = 10.dp)
-            ) {
-                Text(timeFmt.format(Date(program.startMs)), color = Color.White,
-                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-
-        if (!channel.logoUrl.isNullOrBlank()) {
-            FastImage(channel.logoUrl,
-                Modifier.align(Alignment.TopEnd).padding(end = 48.dp, top = 40.dp)
-                    .width(140.dp).height(90.dp),
-                contentScale = ContentScale.Fit, transparent = true)
-        }
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(start = 48.dp, end = 48.dp, bottom = 40.dp)
-        ) {
-            Text(channel.group ?: program?.category ?: "TV uživo", color = TextSecondary,
-                fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(program?.title ?: channel.name, color = Color.White, fontSize = 44.sp,
-                fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(0.6f))
-            Spacer(modifier = Modifier.height(12.dp))
-            program?.description?.let {
-                Text(it, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp, maxLines = 2,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(0.45f))
-                Spacer(modifier = Modifier.height(20.dp))
-            }
-
-            TvFocusableButton(onClick = onWatch) { focused ->
-                val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
-                Row(
-                    modifier = Modifier.scale(scale).clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFE9E9F2)).padding(horizontal = 36.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(20.dp))
-                    Text("Gledaj uživo", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
     }
 }
 
