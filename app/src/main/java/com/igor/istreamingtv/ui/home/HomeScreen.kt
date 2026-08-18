@@ -6,11 +6,16 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
@@ -23,6 +28,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -30,9 +38,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -92,7 +103,7 @@ private fun TmdbMovie.displayGenre(): String =
 
 private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
 
-/** ✅ Fuzzy EPG lookup — radi sa sufiksima " (src05)" i različitom kapitalizacijom */
+/** ✅ Fuzzy EPG lookup */
 private fun nowProgram(epg: Map<String, List<EpgProgram>>, ch: LiveChannel): EpgProgram? {
     val now = System.currentTimeMillis()
     return epgListFor(epg, ch)?.firstOrNull { now >= it.startMs && now < it.endMs }
@@ -120,6 +131,163 @@ private fun FastImage(
     )
 }
 
+// =====================================================================
+// ✅ NAVIGACIONA TRAKA (drawer) — placeholder stavke, akcije dolaze kasnije
+// =====================================================================
+
+private data class NavItem(val title: String, val icon: ImageVector)
+
+private val navItems = listOf(
+    NavItem("Početna", Icons.Default.Home),
+    NavItem("Uživo TV", Icons.Default.PlayArrow),
+    NavItem("Moja lista", Icons.Default.Star),
+    NavItem("Pretraga", Icons.Default.Search),
+    NavItem("Podešavanja", Icons.Default.Settings)
+)
+
+@Composable
+private fun NavBarDrawer(
+    open: Boolean,
+    onDismiss: () -> Unit
+) {
+    val firstFocus = remember { FocusRequester() }
+
+    LaunchedEffect(open) {
+        if (open) {
+            try { firstFocus.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
+    AnimatedVisibility(
+        visible = open,
+        enter = slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(260)),
+        exit = slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(220))
+    ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            // ✅ Panel navigacije
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(290.dp)
+                    .background(Color(0xFF101014).copy(alpha = 0.97f))
+                    .padding(top = 48.dp, start = 20.dp, end = 20.dp, bottom = 24.dp)
+            ) {
+                Text(
+                    "IStreamingTV",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.padding(start = 12.dp, bottom = 28.dp)
+                )
+
+                navItems.forEachIndexed { i, item ->
+                    NavRow(
+                        title = item.title,
+                        icon = item.icon,
+                        selected = i == 0,
+                        modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier,
+                        onClick = {
+                            // 🔜 Placeholder — akcije dolaze kasnije
+                            onDismiss()
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+
+            // ✅ Scrim — klik van panela zatvara
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable(onClick = onDismiss)
+            )
+        }
+    }
+}
+
+@Composable
+private fun NavRow(
+    title: String,
+    icon: ImageVector,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .clickable(onClick = onClick)
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                when {
+                    focused -> Color.White.copy(alpha = 0.18f)
+                    selected -> Color.White.copy(alpha = 0.10f)
+                    else -> Color.Transparent
+                }
+            )
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Icon(icon, null, tint = Color.White, modifier = Modifier.size(20.dp))
+        Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        if (selected) {
+            Spacer(modifier = Modifier.weight(1f))
+            Text("●", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+        }
+    }
+}
+
+// =====================================================================
+// ✅ HOME PILL (Apple TV+ stil) — beli krug sa ikonicom + natpis
+// =====================================================================
+
+@Composable
+private fun HomePill(
+    pillFocus: FocusRequester,
+    onOpenNav: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(180), label = "")
+
+    Row(
+        modifier = Modifier
+            .focusRequester(pillFocus)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .clickable(onClick = onOpenNav)
+            .scale(scale)
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color(0xFF48484A).copy(alpha = if (focused) 0.95f else 0.75f))
+            .then(if (focused) Modifier.border(2.dp, Color.White, RoundedCornerShape(22.dp)) else Modifier)
+            .padding(start = 6.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // ✅ Beli krug sa tamnom ikonicom kuće (kao na slici)
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(Color.White),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Home,
+                null,
+                tint = Color(0xFF1C1C1E),
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        Text("Početna", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
 @Composable
 fun HomeScreen(
     onMovieClick: (TmdbMovie) -> Unit,
@@ -129,6 +297,19 @@ fun HomeScreen(
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // ✅ Navigaciona traka
+    var navOpen by remember { mutableStateOf(false) }
+    val pillFocus = remember { FocusRequester() }
+
+    val closeNav: () -> Unit = {
+        navOpen = false
+        scope.launch {
+            try { pillFocus.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
+    BackHandler(enabled = navOpen) { closeNav() }
 
     LaunchedEffect(Unit) { viewModel.refreshContinueWatching() }
 
@@ -201,9 +382,14 @@ fun HomeScreen(
                 onResume = onResume,
                 onRemoveContinue = onRemoveContinue,
                 onWatchLive = onWatchLive,
-                onLoadHeroExtras = viewModel::loadHeroExtras
+                onLoadHeroExtras = viewModel::loadHeroExtras,
+                pillFocus = pillFocus,
+                onOpenNav = { navOpen = true }
             )
         }
+
+        // ✅ Navigaciona traka preko svega
+        NavBarDrawer(open = navOpen, onDismiss = closeNav)
     }
 }
 
@@ -224,7 +410,9 @@ private fun AppleTvHomeContent(
     onResume: (ContinueEntry) -> Unit,
     onRemoveContinue: (ContinueEntry) -> Unit,
     onWatchLive: (LiveChannel, EpgProgram?) -> Unit,
-    onLoadHeroExtras: (TmdbMovie, Boolean) -> Unit
+    onLoadHeroExtras: (TmdbMovie, Boolean) -> Unit,
+    pillFocus: FocusRequester,
+    onOpenNav: () -> Unit
 ) {
     val heroItems = remember(movies, series) {
         movies.take(5).map { HeroItem(it, isTv = false) } +
@@ -260,7 +448,6 @@ private fun AppleTvHomeContent(
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
 
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-        // ✅ HERO = SAMO filmovi i serije (bez mešanja sa live EPG)
         item(key = "hero") {
             Box(modifier = Modifier.fillMaxWidth().height(screenHeightDp)) {
                 if (featured != null) {
@@ -270,6 +457,8 @@ private fun AppleTvHomeContent(
                         currentIndex = heroIndex,
                         totalCount = heroItems.size,
                         onMovieClick = openMovie,
+                        pillFocus = pillFocus,
+                        onOpenNav = onOpenNav,
                         onHeroGainedFocus = {
                             if (listState.firstVisibleItemIndex != 0 ||
                                 listState.firstVisibleItemScrollOffset != 0
@@ -282,7 +471,6 @@ private fun AppleTvHomeContent(
             }
         }
 
-        // ✅ UŽIVO TV — PRVI RED ispod hero-a (kao i do sada)
         if (liveChannels.isNotEmpty()) {
             item(key = "live") {
                 LiveRowSection(
@@ -313,7 +501,7 @@ private fun AppleTvHomeContent(
 }
 
 // =====================================================================
-// UŽIVO TV — RED KANALA (ispod hero-a)
+// UŽIVO TV — RED KANALA
 // =====================================================================
 
 @Composable
@@ -521,6 +709,8 @@ private fun AppleTvHero(
     currentIndex: Int,
     totalCount: Int,
     onMovieClick: (TmdbMovie) -> Unit,
+    pillFocus: FocusRequester,
+    onOpenNav: () -> Unit,
     onHeroGainedFocus: () -> Unit
 ) {
     val movie = item.movie
@@ -546,15 +736,9 @@ private fun AppleTvHero(
             Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)), startY = 700f)))
 
         Box(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.align(Alignment.TopStart).padding(start = 48.dp, top = 40.dp)
-                    .clip(CircleShape).background(Color.White.copy(alpha = 0.22f))
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.Home, null, tint = Color.White, modifier = Modifier.size(16.dp))
-                Text("Početna", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            // ✅ HOME PILL — gore levo, fokusabilan, otvara navigaciju
+            Box(modifier = Modifier.align(Alignment.TopStart).padding(start = 48.dp, top = 40.dp)) {
+                HomePill(pillFocus = pillFocus, onOpenNav = onOpenNav)
             }
 
             Column(
