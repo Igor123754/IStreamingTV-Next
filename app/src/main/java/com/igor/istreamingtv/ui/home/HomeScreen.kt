@@ -27,10 +27,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -43,6 +42,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -132,87 +133,89 @@ private fun FastImage(
 }
 
 // =====================================================================
-// ✅ NAVIGACIONA TRAKA (drawer) — placeholder stavke, akcije dolaze kasnije
+// ✅ NAVIGACIONA TRAKA — Apple TV+ stil (profil + vreme + stavke)
 // =====================================================================
 
-private data class NavItem(val title: String, val icon: ImageVector)
+enum class NavDestination { SEARCH, HOME, LIVE, MOVIES, SERIES, LIBRARY, SETTINGS }
 
-private val navItems = listOf(
-    NavItem("Početna", Icons.Default.Home),
-    NavItem("Uživo TV", Icons.Default.PlayArrow),
-    NavItem("Moja lista", Icons.Default.Star),
-    NavItem("Pretraga", Icons.Default.Search),
-    NavItem("Podešavanja", Icons.Default.Settings)
-)
-
+/** ✅ Ikona: Uživo TV (televizor sa antenom) */
 @Composable
-private fun NavBarDrawer(
-    open: Boolean,
-    onDismiss: () -> Unit
-) {
-    val firstFocus = remember { FocusRequester() }
-
-    LaunchedEffect(open) {
-        if (open) {
-            try { firstFocus.requestFocus() } catch (_: Exception) {}
-        }
+private fun LiveIcon(modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width; val h = size.height
+        val s = w * 0.09f
+        drawRoundRect(
+            Color.White,
+            androidx.compose.ui.geometry.Offset(w * 0.10f, h * 0.30f),
+            androidx.compose.ui.geometry.Size(w * 0.80f, h * 0.50f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f),
+            style = Stroke(s)
+        )
+        drawLine(Color.White, androidx.compose.ui.geometry.Offset(w * 0.50f, h * 0.30f), androidx.compose.ui.geometry.Offset(w * 0.32f, h * 0.10f), strokeWidth = s)
+        drawLine(Color.White, androidx.compose.ui.geometry.Offset(w * 0.50f, h * 0.30f), androidx.compose.ui.geometry.Offset(w * 0.68f, h * 0.10f), strokeWidth = s)
+        drawLine(Color.White, androidx.compose.ui.geometry.Offset(w * 0.36f, h * 0.92f), androidx.compose.ui.geometry.Offset(w * 0.64f, h * 0.92f), strokeWidth = s)
     }
+}
 
-    AnimatedVisibility(
-        visible = open,
-        enter = slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(260)),
-        exit = slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(220))
-    ) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            // ✅ Panel navigacije
-            Column(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(290.dp)
-                    .background(Color(0xFF101014).copy(alpha = 0.97f))
-                    .padding(top = 48.dp, start = 20.dp, end = 20.dp, bottom = 24.dp)
-            ) {
-                Text(
-                    "IStreamingTV",
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    modifier = Modifier.padding(start = 12.dp, bottom = 28.dp)
-                )
+/** ✅ Ikona: Filmovi (filmski okvir sa play) */
+@Composable
+private fun MoviesIcon(modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width; val h = size.height
+        val s = w * 0.09f
+        drawRoundRect(
+            Color.White,
+            androidx.compose.ui.geometry.Offset(w * 0.10f, h * 0.14f),
+            androidx.compose.ui.geometry.Size(w * 0.80f, h * 0.72f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f),
+            style = Stroke(s)
+        )
+        drawPath(Path().apply {
+            moveTo(w * 0.42f, h * 0.34f); lineTo(w * 0.68f, h * 0.50f); lineTo(w * 0.42f, h * 0.66f); close()
+        }, Color.White)
+    }
+}
 
-                navItems.forEachIndexed { i, item ->
-                    NavRow(
-                        title = item.title,
-                        icon = item.icon,
-                        selected = i == 0,
-                        modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier,
-                        onClick = {
-                            // 🔜 Placeholder — akcije dolaze kasnije
-                            onDismiss()
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                }
-            }
+/** ✅ Ikona: Serije (dva ekrana) */
+@Composable
+private fun SeriesIcon(modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width; val h = size.height
+        val s = w * 0.09f
+        drawRoundRect(
+            Color.White,
+            androidx.compose.ui.geometry.Offset(w * 0.24f, h * 0.12f),
+            androidx.compose.ui.geometry.Size(w * 0.64f, h * 0.40f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.06f),
+            style = Stroke(s)
+        )
+        drawRoundRect(
+            Color.White,
+            androidx.compose.ui.geometry.Offset(w * 0.12f, h * 0.48f),
+            androidx.compose.ui.geometry.Size(w * 0.76f, h * 0.40f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.06f),
+            style = Stroke(s)
+        )
+    }
+}
 
-            // ✅ Scrim — klik van panela zatvara
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .clickable(onClick = onDismiss)
-            )
-        }
+/** ✅ Ikona: Biblioteka (police) */
+@Composable
+private fun LibraryIcon(modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width; val h = size.height
+        drawRoundRect(Color.White, androidx.compose.ui.geometry.Offset(w * 0.14f, h * 0.18f), androidx.compose.ui.geometry.Size(w * 0.16f, h * 0.64f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f))
+        drawRoundRect(Color.White, androidx.compose.ui.geometry.Offset(w * 0.42f, h * 0.18f), androidx.compose.ui.geometry.Size(w * 0.16f, h * 0.64f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f))
+        drawRoundRect(Color.White, androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.18f), androidx.compose.ui.geometry.Size(w * 0.16f, h * 0.64f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f))
     }
 }
 
 @Composable
 private fun NavRow(
     title: String,
-    icon: ImageVector,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    icon: @Composable (Modifier) -> Unit,
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -222,29 +225,170 @@ private fun NavRow(
             .onFocusChanged { focused = it.isFocused }
             .focusable()
             .clickable(onClick = onClick)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(
                 when {
-                    focused -> Color.White.copy(alpha = 0.18f)
-                    selected -> Color.White.copy(alpha = 0.10f)
+                    selected -> Color.White
+                    focused -> Color.White.copy(alpha = 0.16f)
                     else -> Color.Transparent
                 }
             )
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Icon(icon, null, tint = Color.White, modifier = Modifier.size(20.dp))
-        Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-        if (selected) {
-            Spacer(modifier = Modifier.weight(1f))
-            Text("●", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(if (selected) Color(0xFF1C1C1E) else Color.White.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            icon(Modifier.size(17.dp))
+        }
+        Text(
+            title,
+            color = if (selected) Color(0xFF1C1C1E) else Color.White,
+            fontSize = 15.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun NavBarDrawer(
+    open: Boolean,
+    onDismiss: () -> Unit,
+    onNavigate: (NavDestination) -> Unit
+) {
+    val homeFocus = remember { FocusRequester() }
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    LaunchedEffect(open) {
+        if (open) {
+            try { homeFocus.requestFocus() } catch (_: Exception) {}
+            while (open) {
+                nowMs = System.currentTimeMillis()
+                delay(10_000)
+            }
+        }
+    }
+
+    val timeText = remember(nowMs) {
+        SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(nowMs))
+    }
+
+    AnimatedVisibility(
+        visible = open,
+        enter = slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(260)),
+        exit = slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(220))
+    ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            // ✅ Plutajući sidebar (kao na slici)
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .padding(vertical = 24.dp)
+                    .padding(start = 24.dp)
+                    .width(300.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color(0xFF161B26).copy(alpha = 0.96f))
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
+                    .padding(18.dp)
+            ) {
+                // ✅ Profil + vreme
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp)
+                        .padding(bottom = 22.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF3B4252)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Person, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
+                    Text(
+                        "Profil",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(timeText, color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
+                }
+
+                NavRow(
+                    title = "Pretraga",
+                    selected = false,
+                    icon = { mod -> Icon(Icons.Default.Search, null, tint = Color.White, modifier = mod) },
+                    onClick = { onNavigate(NavDestination.SEARCH) }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                NavRow(
+                    title = "Početna",
+                    selected = true,
+                    modifier = Modifier.focusRequester(homeFocus),
+                    icon = { mod -> Icon(Icons.Default.Home, null, tint = Color.White, modifier = mod) },
+                    onClick = { onNavigate(NavDestination.HOME) }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                NavRow(
+                    title = "Uživo TV",
+                    selected = false,
+                    icon = { mod -> LiveIcon(mod) },
+                    onClick = { onNavigate(NavDestination.LIVE) }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                NavRow(
+                    title = "Filmovi",
+                    selected = false,
+                    icon = { mod -> MoviesIcon(mod) },
+                    onClick = { onNavigate(NavDestination.MOVIES) }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                NavRow(
+                    title = "Serije",
+                    selected = false,
+                    icon = { mod -> SeriesIcon(mod) },
+                    onClick = { onNavigate(NavDestination.SERIES) }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                NavRow(
+                    title = "Biblioteka",
+                    selected = false,
+                    icon = { mod -> LibraryIcon(mod) },
+                    onClick = { onNavigate(NavDestination.LIBRARY) }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                NavRow(
+                    title = "Podešavanja",
+                    selected = false,
+                    icon = { mod -> Icon(Icons.Default.Settings, null, tint = Color.White, modifier = mod) },
+                    onClick = { onNavigate(NavDestination.SETTINGS) }
+                )
+            }
+
+            // ✅ Scrim — klik van trake zatvara
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .clickable(onClick = onDismiss)
+            )
         }
     }
 }
 
 // =====================================================================
-// ✅ HOME PILL (Apple TV+ stil) — beli krug sa ikonicom + natpis
+// ✅ HOME PILL (Apple TV+ stil)
 // =====================================================================
 
 @Composable
@@ -269,7 +413,6 @@ private fun HomePill(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // ✅ Beli krug sa tamnom ikonicom kuće (kao na slici)
         Box(
             modifier = Modifier
                 .size(28.dp)
@@ -277,12 +420,7 @@ private fun HomePill(
                 .background(Color.White),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.Home,
-                null,
-                tint = Color(0xFF1C1C1E),
-                modifier = Modifier.size(16.dp)
-            )
+            Icon(Icons.Default.Home, null, tint = Color(0xFF1C1C1E), modifier = Modifier.size(16.dp))
         }
         Text("Početna", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
     }
@@ -298,7 +436,6 @@ fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // ✅ Navigaciona traka
     var navOpen by remember { mutableStateOf(false) }
     val pillFocus = remember { FocusRequester() }
 
@@ -384,12 +521,11 @@ fun HomeScreen(
                 onWatchLive = onWatchLive,
                 onLoadHeroExtras = viewModel::loadHeroExtras,
                 pillFocus = pillFocus,
-                onOpenNav = { navOpen = true }
+                navOpen = navOpen,
+                onOpenNav = { navOpen = true },
+                onCloseNav = closeNav
             )
         }
-
-        // ✅ Navigaciona traka preko svega
-        NavBarDrawer(open = navOpen, onDismiss = closeNav)
     }
 }
 
@@ -412,7 +548,9 @@ private fun AppleTvHomeContent(
     onWatchLive: (LiveChannel, EpgProgram?) -> Unit,
     onLoadHeroExtras: (TmdbMovie, Boolean) -> Unit,
     pillFocus: FocusRequester,
-    onOpenNav: () -> Unit
+    navOpen: Boolean,
+    onOpenNav: () -> Unit,
+    onCloseNav: () -> Unit
 ) {
     val heroItems = remember(movies, series) {
         movies.take(5).map { HeroItem(it, isTv = false) } +
@@ -447,56 +585,75 @@ private fun AppleTvHomeContent(
 
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
 
-    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-        item(key = "hero") {
-            Box(modifier = Modifier.fillMaxWidth().height(screenHeightDp)) {
-                if (featured != null) {
-                    AppleTvHero(
-                        item = featured,
-                        heroExtras = heroExtras,
-                        currentIndex = heroIndex,
-                        totalCount = heroItems.size,
-                        onMovieClick = openMovie,
-                        pillFocus = pillFocus,
-                        onOpenNav = onOpenNav,
-                        onHeroGainedFocus = {
-                            if (listState.firstVisibleItemIndex != 0 ||
-                                listState.firstVisibleItemScrollOffset != 0
-                            ) {
-                                scope.launch { listState.animateScrollToItem(0) }
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            item(key = "hero") {
+                Box(modifier = Modifier.fillMaxWidth().height(screenHeightDp)) {
+                    if (featured != null) {
+                        AppleTvHero(
+                            item = featured,
+                            heroExtras = heroExtras,
+                            currentIndex = heroIndex,
+                            totalCount = heroItems.size,
+                            onMovieClick = openMovie,
+                            pillFocus = pillFocus,
+                            onOpenNav = onOpenNav,
+                            onHeroGainedFocus = {
+                                if (listState.firstVisibleItemIndex != 0 ||
+                                    listState.firstVisibleItemScrollOffset != 0
+                                ) {
+                                    scope.launch { listState.animateScrollToItem(0) }
+                                }
                             }
-                        }
+                        )
+                    }
+                }
+            }
+
+            if (liveChannels.isNotEmpty()) {
+                item(key = "live") {
+                    LiveRowSection(
+                        channels = liveChannels,
+                        epg = liveEpg,
+                        onWatch = onWatchLive
                     )
                 }
             }
-        }
 
-        if (liveChannels.isNotEmpty()) {
-            item(key = "live") {
-                LiveRowSection(
-                    channels = liveChannels,
-                    epg = liveEpg,
-                    onWatch = onWatchLive
+            if (continueWatching.isNotEmpty()) {
+                item(key = "continue") {
+                    ContinueRowSection(entries = continueWatching, onResume = onResume, onRemove = onRemoveContinue)
+                }
+            }
+
+            items(catalogs, key = { it.id }) { catalog ->
+                CatalogRowSection(
+                    catalog = catalog,
+                    initialPosition = getCatalogPosition(catalog.id),
+                    onSavePosition = { index, offset -> onSaveCatalogPosition(catalog.id, index, offset) },
+                    onMovieClick = openMovie
                 )
             }
+
+            item(key = "bottom-spacer") { Spacer(modifier = Modifier.height(60.dp)) }
         }
 
-        if (continueWatching.isNotEmpty()) {
-            item(key = "continue") {
-                ContinueRowSection(entries = continueWatching, onResume = onResume, onRemove = onRemoveContinue)
+        // ✅ NAVIGACIONA TRAKA preko svega
+        NavBarDrawer(
+            open = navOpen,
+            onDismiss = onCloseNav,
+            onNavigate = { dest ->
+                onCloseNav()
+                scope.launch {
+                    when (dest) {
+                        NavDestination.HOME -> listState.animateScrollToItem(0)
+                        NavDestination.LIVE -> if (liveChannels.isNotEmpty()) listState.animateScrollToItem(1)
+                        // 🔜 Ostale stranice dolaze kasnije — jedna po jedna
+                        else -> {}
+                    }
+                }
             }
-        }
-
-        items(catalogs, key = { it.id }) { catalog ->
-            CatalogRowSection(
-                catalog = catalog,
-                initialPosition = getCatalogPosition(catalog.id),
-                onSavePosition = { index, offset -> onSaveCatalogPosition(catalog.id, index, offset) },
-                onMovieClick = openMovie
-            )
-        }
-
-        item(key = "bottom-spacer") { Spacer(modifier = Modifier.height(60.dp)) }
+        )
     }
 }
 
@@ -736,7 +893,6 @@ private fun AppleTvHero(
             Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)), startY = 700f)))
 
         Box(modifier = Modifier.fillMaxSize()) {
-            // ✅ HOME PILL — gore levo, fokusabilan, otvara navigaciju
             Box(modifier = Modifier.align(Alignment.TopStart).padding(start = 48.dp, top = 40.dp)) {
                 HomePill(pillFocus = pillFocus, onOpenNav = onOpenNav)
             }
