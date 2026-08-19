@@ -64,10 +64,16 @@ interface TmdbApi {
         @Path("tv_id") tvId: Int
     ): MovieResponse
 
-    // ✅ NOVO — nalaženje TMDB id-a preko IMDb id-a (za Cinemeta stavke)
     @GET("find/{external_id}")
     suspend fun findByImdbId(
         @Path("external_id") externalId: String,
         @Query("external_source") externalSource: String = "imdb_id"
     ): TmdbFindResponse
+
+    // ✅ NOVO — objedinjena pretraga (filmovi + serije), Apple TV+ stil
+    @GET("search/multi?language=sr-RS&include_adult=false")
+    suspend fun searchMulti(
+        @Query("query") query: String,
+        @Query("page") page: Int = 1
+    ): MovieResponse
 }
