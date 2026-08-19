@@ -3,6 +3,7 @@
 package com.igor.istreamingtv.ui.search
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -40,18 +41,23 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.igor.istreamingtv.data.remote.TmdbMovie
+import com.igor.istreamingtv.ui.components.NavBarDrawer
+import com.igor.istreamingtv.ui.components.NavDestination
+import com.igor.istreamingtv.ui.components.NavPill
 import com.igor.istreamingtv.ui.components.TvFocusableButton
+import kotlinx.coroutines.launch
 
 private val SearchBg = Color(0xFF020204)
 
 /**
- * ✅ PRETRAGA — Apple TV+ stil: polje gore, grid postera dole.
- *    Prazno polje → "Popularno"; kucaš → rezultati uživo.
+ * ✅ PRETRAGA — Apple TV+ stil: pill gore levo (otvara nav bar),
+ *    polje za pretragu, grid postera dole.
  */
 @Composable
 fun SearchScreen(
     onMovieClick: (TmdbMovie) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenHome: () -> Unit
 ) {
     val viewModel: SearchViewModel = viewModel()
     val query by viewModel.query.collectAsState()
@@ -59,65 +65,100 @@ fun SearchScreen(
     val suggestions by viewModel.suggestions.collectAsState()
     val searching by viewModel.searching.collectAsState()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SearchBg)
-            .padding(start = 48.dp, end = 48.dp, top = 40.dp)
-    ) {
-        Text("Pretraga", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+    var navOpen by remember { mutableStateOf(false) }
+    val pillFocus = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
 
-        Spacer(modifier = Modifier.height(24.dp))
+    val closeNav: () -> Unit = {
+        navOpen = false
+        scope.launch {
+            try { pillFocus.requestFocus() } catch (_: Exception) {}
+        }
+    }
 
-        SearchField(query = query, onQueryChange = viewModel::setQuery)
+    BackHandler(enabled = navOpen) { closeNav() }
 
-        Spacer(modifier = Modifier.height(32.dp))
+    Box(modifier = Modifier.fillMaxSize().background(SearchBg)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 48.dp, end = 48.dp, top = 40.dp)
+        ) {
+            // ✅ PILL sa ikonicom + naslovom (kao na početnoj) — otvara nav bar
+            NavPill(
+                icon = Icons.Default.Search,
+                label = "Pretraga",
+                onClick = { navOpen = true },
+                pillFocus = pillFocus
+            )
 
-        when {
-            query.isBlank() -> {
-                Text(
-                    "Popularno",
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-                ResultsGrid(items = suggestions, onMovieClick = onMovieClick)
-            }
+            Spacer(modifier = Modifier.height(28.dp))
 
-            searching -> {
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(48.dp))
-                }
-            }
+            SearchField(query = query, onQueryChange = viewModel::setQuery)
 
-            results.isEmpty() -> {
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
-                    contentAlignment = Alignment.Center
-                ) {
+            Spacer(modifier = Modifier.height(32.dp))
+
+            when {
+                query.isBlank() -> {
                     Text(
-                        "Nema rezultata za \"$query\"",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 18.sp
+                        "Popularno",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 16.dp)
                     )
+                    ResultsGrid(items = suggestions, onMovieClick = onMovieClick)
                 }
-            }
 
-            else -> {
-                Text(
-                    "Rezultati",
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-                ResultsGrid(items = results, onMovieClick = onMovieClick)
+                searching -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(48.dp))
+                    }
+                }
+
+                results.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "Nema rezultata za \"$query\"",
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 18.sp
+                        )
+                    }
+                }
+
+                else -> {
+                    Text(
+                        "Rezultati",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    ResultsGrid(items = results, onMovieClick = onMovieClick)
+                }
             }
         }
+
+        // ✅ NAV BAR — "Pretraga" selektovana (beli pill)
+        NavBarDrawer(
+            open = navOpen,
+            current = NavDestination.SEARCH,
+            onDismiss = closeNav,
+            onNavigate = { dest ->
+                closeNav()
+                when (dest) {
+                    NavDestination.HOME -> onOpenHome()
+                    NavDestination.SEARCH -> {} // već smo tu
+                    else -> {} // 🔜 kasnije
+                }
+            }
+        )
     }
 }
 
