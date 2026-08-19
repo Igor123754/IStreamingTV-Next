@@ -2,6 +2,9 @@
 
 package com.igor.istreamingtv.ui.search
 
+import android.graphics.Bitmap
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,12 +23,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -191,7 +196,7 @@ private fun SearchPosterCard(
                 .width(150.dp)
                 .height(225.dp)
         ) { focused ->
-            val scale by androidx.compose.animation.core.animateFloatAsState(
+            val scale by animateFloatAsState(
                 if (focused) 1.08f else 1f,
                 tween(220), label = ""
             )
@@ -207,10 +212,10 @@ private fun SearchPosterCard(
                     )
             ) {
                 AsyncImage(
-                    model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                    model = ImageRequest.Builder(LocalContext.current)
                         .data("https://image.tmdb.org/t/p/w342" + (movie.posterPath ?: movie.backdropPath ?: ""))
                         .crossfade(false)
-                        .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+                        .bitmapConfig(Bitmap.Config.RGB_565)
                         .build(),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
@@ -231,6 +236,3 @@ private fun SearchPosterCard(
         )
     }
 }
-
-private fun tween(durationMillis: Int) =
-    androidx.compose.animation.core.tween<Float>(durationMillis)
