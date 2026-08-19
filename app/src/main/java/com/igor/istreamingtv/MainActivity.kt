@@ -10,6 +10,7 @@ import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.ui.details.MovieDetailsScreen
 import com.igor.istreamingtv.ui.home.HomeScreen
 import com.igor.istreamingtv.ui.movies.MoviesScreen
+import com.igor.istreamingtv.ui.search.SearchScreen
 import com.igor.istreamingtv.ui.theme.IStreamingTheme
 
 class MainActivity : ComponentActivity() {
@@ -32,9 +33,27 @@ class MainActivity : ComponentActivity() {
                             },
                             onAddToLibrary = {
                                 // TODO: implement add to library action
+                            },
+                            onOpenSearch = {
+                                currentScreen = Screen.SEARCH
                             }
                         )
                     }
+
+                    // ✅ NOVO — Pretraga
+                    Screen.SEARCH -> {
+                        SearchScreen(
+                            onMovieClick = { movie ->
+                                selectedMovie = movie
+                                detailsReturnScreen = Screen.SEARCH
+                                currentScreen = Screen.DETAILS
+                            },
+                            onBack = {
+                                currentScreen = Screen.HOME
+                            }
+                        )
+                    }
+
                     Screen.MOVIES -> {
                         MoviesScreen(
                             onMovieClick = { movie ->
@@ -47,6 +66,7 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
+
                     Screen.DETAILS -> {
                         val movie = selectedMovie
                         if (movie != null) {
@@ -56,7 +76,6 @@ class MainActivity : ComponentActivity() {
                                     currentScreen = detailsReturnScreen
                                 },
                                 onMovieClick = { part ->
-                                    // Klik na nastavak ostaje u detaljima, menja naslov
                                     selectedMovie = part
                                 }
                             )
@@ -74,6 +93,7 @@ class MainActivity : ComponentActivity() {
         when (currentScreen) {
             Screen.DETAILS -> currentScreen = detailsReturnScreen
             Screen.MOVIES -> currentScreen = Screen.HOME
+            Screen.SEARCH -> currentScreen = Screen.HOME
             Screen.HOME -> super.onBackPressed()
         }
     }
@@ -81,6 +101,7 @@ class MainActivity : ComponentActivity() {
     private enum class Screen {
         HOME,
         MOVIES,
-        DETAILS
+        DETAILS,
+        SEARCH
     }
 }
