@@ -296,7 +296,6 @@ private fun NavBarDrawer(
                     .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
                     .padding(18.dp)
             ) {
-                // ✅ Samo vreme (profil uklonjen)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -414,6 +413,7 @@ private fun HomePill(
 fun HomeScreen(
     onMovieClick: (TmdbMovie) -> Unit,
     onAddToLibrary: () -> Unit = {},
+    onOpenSearch: () -> Unit = {},
     viewModel: HomeViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -507,7 +507,8 @@ fun HomeScreen(
                 pillFocus = pillFocus,
                 navOpen = navOpen,
                 onOpenNav = { navOpen = true },
-                onCloseNav = closeNav
+                onCloseNav = closeNav,
+                onOpenSearch = onOpenSearch
             )
         }
     }
@@ -534,7 +535,8 @@ private fun AppleTvHomeContent(
     pillFocus: FocusRequester,
     navOpen: Boolean,
     onOpenNav: () -> Unit,
-    onCloseNav: () -> Unit
+    onCloseNav: () -> Unit,
+    onOpenSearch: () -> Unit
 ) {
     val heroItems = remember(movies, series) {
         movies.take(5).map { HeroItem(it, isTv = false) } +
@@ -628,12 +630,14 @@ private fun AppleTvHomeContent(
             onDismiss = onCloseNav,
             onNavigate = { dest ->
                 onCloseNav()
-                scope.launch {
-                    when (dest) {
-                        NavDestination.HOME -> listState.animateScrollToItem(0)
-                        NavDestination.LIVE -> if (liveChannels.isNotEmpty()) listState.animateScrollToItem(1)
-                        // 🔜 Ostale stranice dolaze kasnije — jedna po jedna
-                        else -> {}
+                when (dest) {
+                    NavDestination.SEARCH -> onOpenSearch()
+                    else -> scope.launch {
+                        when (dest) {
+                            NavDestination.HOME -> listState.animateScrollToItem(0)
+                            NavDestination.LIVE -> if (liveChannels.isNotEmpty()) listState.animateScrollToItem(1)
+                            else -> {}
+                        }
                     }
                 }
             }
