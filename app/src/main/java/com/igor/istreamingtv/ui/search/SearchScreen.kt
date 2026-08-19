@@ -2,9 +2,20 @@
 
 package com.igor.istreamingtv.ui.search
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.repeatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -13,9 +24,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -37,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -46,12 +60,12 @@ import com.igor.istreamingtv.ui.components.NavDestination
 import com.igor.istreamingtv.ui.components.NavPill
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 private val SearchBg = Color(0xFF020204)
 
 /**
- * ✅ PRETRAGA — Apple TV+ stil: pill gore levo (otvara nav bar),
- *    polje za pretragu, grid postera dole.
+ * ✅ PRETRAGA — Apple TV+ stil + GLASOVNA PRETRAGA 🎤
  */
 @Composable
 fun SearchScreen(
@@ -65,6 +79,7 @@ fun SearchScreen(
     val suggestions by viewModel.suggestions.collectAsState()
     val searching by viewModel.searching.collectAsState()
 
+    val context = LocalContext.current
     var navOpen by remember { mutableStateOf(false) }
     val pillFocus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
@@ -78,13 +93,87 @@ fun SearchScreen(
 
     BackHandler(enabled = navOpen) { closeNav() }
 
+    // =====================================================================
+    // ✅ GLASOVNA PRETRAGA
+    // =====================================================================
+    var listening by remember { mutableStateOf(false) }
+    var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
+
+    var hasPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    fun startListening() {
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            Toast.makeText(context, "Glasovna pretraga nije dostupna na ovom uređaju", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val sr = SpeechRecognizer.createSpeechRecognizer(context)
+        speechRecognizer = sr
+        sr.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) { listening = true }
+            override fun onBeginningOfSpeech() { }
+            override fun onRmsChanged(rmsdB: Float) { }
+            override fun onBufferReceived(buffer: ByteArray?) { }
+            override fun onEndOfSpeech() { listening = false }
+            override fun onError(error: Int) {
+                listening = false
+                if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                    Toast.makeText(context, "Nismo ništa čuli — pokušaj ponovo", Toast.LENGTH_SHORT).show()
+                }
+            }
+            override fun onResults(results: Bundle?) {
+                listening = false
+                val text = results
+                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()
+                if (!text.isNullOrBlank()) viewModel.setQuery(text)
+            }
+            override fun onPartialResults(partialResults: Bundle?) { }
+            override fun onEvent(eventType: Int, params: Bundle?) { }
+        })
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toString())
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+        sr.startListening(intent)
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasPermission = granted
+        if (granted) startListening()
+        else Toast.makeText(context, "Dozvola za mikrofon je potrebna za glasovnu pretragu", Toast.LENGTH_SHORT).show()
+    }
+
+    fun onMicClick() {
+        if (listening) {
+            speechRecognizer?.stopListening()
+            listening = false
+        } else if (hasPermission) {
+            startListening()
+        } else {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { speechRecognizer?.destroy() }
+    }
+
+    // =====================================================================
+
     Box(modifier = Modifier.fillMaxSize().background(SearchBg)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(start = 48.dp, end = 48.dp, top = 40.dp)
         ) {
-            // ✅ PILL sa ikonicom + naslovom (kao na početnoj) — otvara nav bar
             NavPill(
                 icon = Icons.Default.Search,
                 label = "Pretraga",
@@ -94,11 +183,33 @@ fun SearchScreen(
 
             Spacer(modifier = Modifier.height(28.dp))
 
-            SearchField(query = query, onQueryChange = viewModel::setQuery)
+            SearchField(
+                query = query,
+                onQueryChange = viewModel::setQuery,
+                listening = listening,
+                onMicClick = ::onMicClick
+            )
 
             Spacer(modifier = Modifier.height(32.dp))
 
             when {
+                listening -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("🎤", fontSize = 44.sp)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "Slušam... reci naziv filma ili serije",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 18.sp
+                            )
+                        }
+                    }
+                }
+
                 query.isBlank() -> {
                     Text(
                         "Popularno",
@@ -145,7 +256,6 @@ fun SearchScreen(
             }
         }
 
-        // ✅ NAV BAR — "Pretraga" selektovana (beli pill)
         NavBarDrawer(
             open = navOpen,
             current = NavDestination.SEARCH,
@@ -154,19 +264,21 @@ fun SearchScreen(
                 closeNav()
                 when (dest) {
                     NavDestination.HOME -> onOpenHome()
-                    NavDestination.SEARCH -> {} // već smo tu
-                    else -> {} // 🔜 kasnije
+                    NavDestination.SEARCH -> {}
+                    else -> {}
                 }
             }
         )
     }
 }
 
-/** ✅ Polje za pretragu — fokus + tastatura (TV IME ili tablet) */
+/** ✅ Polje za pretragu + 🎤 mikrofon dugme */
 @Composable
 private fun SearchField(
     query: String,
-    onQueryChange: (String) -> Unit
+    onQueryChange: (String) -> Unit,
+    listening: Boolean,
+    onMicClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
     val fieldFocus = remember { FocusRequester() }
@@ -175,18 +287,32 @@ private fun SearchField(
         try { fieldFocus.requestFocus() } catch (_: Exception) {}
     }
 
+    val micPulse by animateFloatAsState(
+        if (listening) 1.15f else 1f,
+        tween(300), label = ""
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth(0.55f)
             .focusRequester(fieldFocus)
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(12.dp))
-            .background(if (focused) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.08f))
-            .then(
-                if (focused) Modifier.border(2.dp, Color.White, RoundedCornerShape(12.dp))
-                else Modifier
+            .background(
+                when {
+                    listening -> Color(0xFFE50914).copy(alpha = 0.18f)
+                    focused -> Color.White.copy(alpha = 0.16f)
+                    else -> Color.White.copy(alpha = 0.08f)
+                }
             )
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .then(
+                when {
+                    listening -> Modifier.border(2.dp, Color(0xFFE50914), RoundedCornerShape(12.dp))
+                    focused -> Modifier.border(2.dp, Color.White, RoundedCornerShape(12.dp))
+                    else -> Modifier
+                }
+            )
+            .padding(start = 16.dp, end = 8.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -202,9 +328,45 @@ private fun SearchField(
             singleLine = true,
             textStyle = TextStyle(color = Color.White, fontSize = 17.sp),
             cursorBrush = SolidColor(Color.White),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.weight(1f)
         )
+
+        // ✅ MIKROFON dugme
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .scale(if (listening) micPulse else 1f)
+                .clip(CircleShape)
+                .background(
+                    if (listening) Color(0xFFE50914)
+                    else Color.White.copy(alpha = 0.12f)
+                )
+                .border(
+                    1.dp,
+                    if (listening) Color(0xFFE50914) else Color.White.copy(alpha = 0.3f),
+                    CircleShape
+                )
+                .clickableForTv { onMicClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Mic,
+                null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
+}
+
+/** ✅ Fokusabilan click za TV + touch */
+@Composable
+private fun Modifier.clickableForTv(onClick: () -> Unit): Modifier {
+    var focused by remember { mutableStateOf(false) }
+    return this
+        .onFocusChanged { focused = it.isFocused }
+        .focusable()
+        .clickable(onClick = onClick)
 }
 
 /** ✅ Grid postera (kao Apple TV+ rezultati) */
