@@ -3,12 +3,9 @@ package com.igor.istreamingtv.data.profile
 import android.content.Context
 import com.igor.istreamingtv.data.remote.TmdbClient
 import kotlinx.serialization.encodeToString
+import java.security.MessageDigest
 import java.util.UUID
 
-/**
- * ✅ Lokalno čuvanje profila (SharedPreferences + JSON).
- *    Ukupno ~1-2 KB — bez mreže, bez pozadinskih procesa.
- */
 object ProfileStore {
 
     private const val PREFS = "istream_profiles"
@@ -32,12 +29,6 @@ object ProfileStore {
         val list = load(context) + profile
         save(context, list)
         setLastUsed(context, profile.id)
-        return sorted(list)
-    }
-
-    fun update(context: Context, profile: Profile): List<Profile> {
-        val list = load(context).map { if (it.id == profile.id) profile else it }
-        save(context, list)
         return sorted(list)
     }
 
@@ -68,11 +59,28 @@ object ProfileStore {
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun newProfile(name: String, colorHex: String, isKids: Boolean) = Profile(
+    // ✅ PIN — SHA-256 hash (ne čuva se običan tekst)
+    fun hashPin(pin: String): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        return md.digest(pin.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+
+    fun verifyPin(profile: Profile, input: String): Boolean =
+        profile.pinHash == hashPin(input)
+
+    fun newProfile(
+        name: String,
+        colorHex: String,
+        avatar: String,
+        isKids: Boolean,
+        pin: String?
+    ) = Profile(
         id = UUID.randomUUID().toString(),
         name = name.trim(),
         colorHex = colorHex,
+        avatar = avatar,
         isKids = isKids,
+        pinHash = pin?.takeIf { it.isNotBlank() }?.let { hashPin(it) },
         createdAt = System.currentTimeMillis(),
         lastUsedAt = System.currentTimeMillis()
     )
