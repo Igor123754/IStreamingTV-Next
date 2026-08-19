@@ -14,9 +14,10 @@ data class Profile(
     val lastUsedAt: Long = 0L
 ) {
     val hasPin: Boolean get() = !pinHash.isNullOrBlank()
+    val initial: String get() = name.trim().firstOrNull()?.uppercase() ?: "?"
 }
 
-/** ✅ Currently selected profile — RAM only */
+/** ✅ Trenutno izabran profil — samo u RAM-u */
 object AppSession {
     var currentProfile: Profile? = null
 }
@@ -27,7 +28,7 @@ object ProfilePresets {
         "#BF5AF2", "#64D2FF", "#FF375F", "#FFD60A"
     )
     val avatars = listOf(
-        "😀", "😎", "🦁", "", "", "⭐",
+        "😀", "😎", "🦁", "🐼", "", "⭐",
         "⚽", "", "", "🌈", "🐶", ""
     )
 }
