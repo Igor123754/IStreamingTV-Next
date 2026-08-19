@@ -40,7 +40,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // ✅ NOVO — Pretraga
                     Screen.SEARCH -> {
                         SearchScreen(
                             onMovieClick = { movie ->
@@ -49,6 +48,9 @@ class MainActivity : ComponentActivity() {
                                 currentScreen = Screen.DETAILS
                             },
                             onBack = {
+                                currentScreen = Screen.HOME
+                            },
+                            onOpenHome = {
                                 currentScreen = Screen.HOME
                             }
                         )
