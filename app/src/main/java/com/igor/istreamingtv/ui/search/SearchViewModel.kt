@@ -8,6 +8,7 @@ import com.igor.istreamingtv.data.repository.ContentRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
@@ -28,7 +29,7 @@ class SearchViewModel : ViewModel() {
     val searching: StateFlow<Boolean> = _searching.asStateFlow()
 
     init {
-        // ✅ Predlozi kad je polje prazno (Apple TV+ stil)
+        // ✅ Predlozi + "zagreje" konekciju (bez keša — samo TLS reuse)
         viewModelScope.launch {
             try {
                 _suggestions.value =
@@ -37,12 +38,14 @@ class SearchViewModel : ViewModel() {
             } catch (_: Exception) { }
         }
 
-        // ✅ Debounce 400ms — pretraga kucajući, bez spama
+        // ✅ BRŽE: debounce 250ms + collectLatest = stara pretraga se PONIŠTAVA
+        //    čim kucaš dalje → nema čekanja na zastarele zahteve
         viewModelScope.launch {
-            _query.debounce(400).collect { q ->
+            _query.debounce(250).collectLatest { q ->
                 if (q.isBlank()) {
                     _results.value = emptyList()
-                    return@collect
+                    _searching.value = false
+                    return@collectLatest
                 }
                 _searching.value = true
                 try {
