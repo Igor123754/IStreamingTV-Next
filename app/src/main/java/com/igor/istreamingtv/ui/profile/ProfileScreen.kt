@@ -1,7 +1,10 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.igor.istreamingtv.ui.profile
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -33,7 +36,6 @@ private val ProfileBg = Color(0xFF020204)
 
 /**
  * ✅ "KO GLEDA?" — biranje + pravljenje profila (avatar, boja, dečiji, PIN).
- *    Profil sa PIN-om traži šifru pri izboru.
  */
 @Composable
 fun ProfileScreen(
@@ -222,7 +224,6 @@ private fun ProfileForm(
         Text("Novi profil", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Preview
         Box(
             modifier = Modifier
                 .size(90.dp)
@@ -235,7 +236,6 @@ private fun ProfileForm(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Ime
         BasicTextField(
             value = name,
             onValueChange = { if (it.length <= 20) name = it },
@@ -251,7 +251,6 @@ private fun ProfileForm(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // Avatari
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ProfilePresets.avatars.take(6).forEach { a -> AvatarDot(a, a == avatar) { avatar = a } }
         }
@@ -262,7 +261,6 @@ private fun ProfileForm(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // Boje
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ProfilePresets.colors.forEach { hex ->
                 ColorDot(hex, hex == colorHex) { colorHex = hex }
@@ -271,7 +269,6 @@ private fun ProfileForm(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // Dečiji + PIN
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             TvFocusableButton(onClick = { isKids = !isKids }) { focused ->
                 ToggleChip(if (isKids) "✓ Dečiji" else "Dečiji", isKids, focused)
