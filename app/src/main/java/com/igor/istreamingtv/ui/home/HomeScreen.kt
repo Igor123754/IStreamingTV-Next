@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -134,7 +133,7 @@ private fun FastImage(
 }
 
 // =====================================================================
-// ✅ NAVIGACIONA TRAKA — Apple TV+ stil (profil + vreme + stavke)
+// ✅ NAVIGACIONA TRAKA — Apple TV+ stil (bez profila)
 // =====================================================================
 
 enum class NavDestination { SEARCH, HOME, LIVE, MOVIES, SERIES, LIBRARY, SETTINGS }
@@ -285,7 +284,7 @@ private fun NavBarDrawer(
         exit = slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(220))
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // ✅ Plutajući sidebar (kao na slici)
+            // ✅ Plutajući sidebar (bez profila — samo vreme gore)
             Column(
                 modifier = Modifier
                     .fillMaxHeight()
@@ -297,32 +296,16 @@ private fun NavBarDrawer(
                     .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
                     .padding(18.dp)
             ) {
-                // ✅ Profil + vreme
+                // ✅ Samo vreme (profil uklonjen)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 6.dp)
                         .padding(bottom = 22.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF3B4252)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Person, null, tint = Color.White, modifier = Modifier.size(22.dp))
-                    }
-                    Text(
-                        "Profil",
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(timeText, color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
+                    Text(timeText, color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
                 }
 
                 NavRow(
