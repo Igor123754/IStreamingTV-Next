@@ -20,6 +20,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,8 +36,7 @@ private fun digitFromKey(keyCode: Int): String? = when (keyCode) {
 }
 
 /**
- * ✅ Zajednički PIN UI — koristi ga i startup zaključavanje i biranje profila.
- *    Radi na daljinski (cifre) i na tablet (tasteri na ekranu).
+ * ✅ Zajednički PIN UI — startup zaključavanje + biranje zaključanog profila.
  */
 @Composable
 fun PinPadUI(
@@ -69,8 +69,9 @@ fun PinPadUI(
         modifier = Modifier
             .fillMaxSize()
             .onPreviewKeyEvent { e ->
+                // ✅ FIX: e.type (import) + e.nativeKeyEvent.keyCode
                 if (e.type == KeyEventType.KeyDown) {
-                    digitFromKey(e.keyCode)?.let { addDigit(it); true } ?: false
+                    digitFromKey(e.nativeKeyEvent.keyCode)?.let { addDigit(it); true } ?: false
                 } else false
             }
     ) {
@@ -79,7 +80,6 @@ fun PinPadUI(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Avatar + naslov
             Box(
                 modifier = Modifier
                     .size(80.dp)
@@ -102,7 +102,6 @@ fun PinPadUI(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Tačkice
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 repeat(4) { i ->
                     Box(
@@ -125,7 +124,6 @@ fun PinPadUI(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Mreža cifara 3x4
             val digits = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "✓")
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 for (row in 0 until 4) {
@@ -174,9 +172,7 @@ private fun DigitButton(label: String, onClick: () -> Unit) {
             .scale(scale)
             .clip(CircleShape)
             .background(if (focused) Color.White else Color.White.copy(alpha = 0.1f))
-            .then(
-                if (focused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier
-            )
+            .then(if (focused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
             .clickable(onClick = onClick)
             .focusable()
             .onFocusChanged { focused = it.isFocused },
