@@ -64,6 +64,7 @@ import com.igor.istreamingtv.ui.components.NavBarDrawer
 import com.igor.istreamingtv.ui.components.NavDestination
 import com.igor.istreamingtv.ui.components.NavPill
 import com.igor.istreamingtv.ui.components.TvFocusableButton
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 private val SearchBg = Color(0xFF020204)
@@ -350,7 +351,6 @@ private fun SearchField(
                     else -> Modifier
                 }
             )
-            // ✅ FIX: puna 4-strana padding varijanta
             .padding(start = 16.dp, top = 14.dp, end = 8.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
