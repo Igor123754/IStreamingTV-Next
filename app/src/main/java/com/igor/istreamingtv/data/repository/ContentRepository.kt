@@ -7,31 +7,12 @@ import com.igor.istreamingtv.data.remote.TmdbHeroDetails
 import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.data.remote.TmdbMovieDetails
 import com.igor.istreamingtv.data.remote.TmdbSeasonDetails
-import com.igor.istreamingtv.data.remote.stremio.StremioCatalogApi
-import com.igor.istreamingtv.data.remote.stremio.StremioMeta
-import java.util.concurrent.ConcurrentHashMap
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 
 class ContentRepository(
     private val accessToken: String
 ) {
-    companion object {
-        // ✅ DELJENI KEŠ IMDb→TMDB (svi ViewModel-i i ekrani vide isto)
-        //    Hero na početnoj rezolviše ID → detalji ga REKORISTE bez novog poziva
-        private val idCache = ConcurrentHashMap<String, Int>()
-    }
-
     private val api = TmdbClient.createRetrofit(accessToken).create(TmdbApi::class.java)
 
-    // ✅ Cinemeta za kataloge (brži, manji JSON)
-    private val cinemetaApi = Retrofit.Builder()
-        .baseUrl("https://v3-cinemeta.strem.io/")
-        .addConverterFactory(GsonConverterFactory.create())
-        .build()
-        .create(StremioCatalogApi::class.java)
-
-    // ===== TMDB (detalji) =====
     suspend fun getPopularMovies(): List<TmdbMovie> = api.getPopularMovies().results
     suspend fun getTopRatedMovies(): List<TmdbMovie> = api.getTopRatedMovies().results
     suspend fun getTrendingMovies(): List<TmdbMovie> = api.getTrendingMovies().results
@@ -46,37 +27,7 @@ class ContentRepository(
     suspend fun getSimilarMovies(movieId: Int): List<TmdbMovie> = api.getSimilarMovies(movieId).results
     suspend fun getSimilarSeries(tvId: Int): List<TmdbMovie> = api.getSimilarSeries(tvId).results
 
-    // ✅ IMDb → TMDB id SA KEŠOM (bez dupliranja poziva)
-    suspend fun resolveTmdbId(imdbId: String, isTv: Boolean): Int? {
-        val key = "$imdbId:${if (isTv) "tv" else "movie"}"
-        idCache[key]?.let { return it }
-        return try {
-            val r = api.findByImdbId(imdbId)
-            val id = if (isTv) r.tvResults.firstOrNull()?.id ?: r.movieResults.firstOrNull()?.id
-            else r.movieResults.firstOrNull()?.id ?: r.tvResults.firstOrNull()?.id
-            if (id != null) idCache[key] = id
-            id
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    // ✅ Cinemeta katalog
-    suspend fun getCinemetaCatalog(type: String, catalogId: String): List<TmdbMovie> = try {
-        cinemetaApi.getCatalog(type, catalogId).metas.map { it.toTmdbMovie() }
-    } catch (_: Exception) {
-        emptyList()
-    }
+    // ✅ Pretraga — samo filmovi i serije (bez osoba)
+    suspend fun searchMulti(query: String): List<TmdbMovie> =
+        api.searchMulti(query).results.filter { it.title != null || it.name != null }
 }
-
-private fun StremioMeta.toTmdbMovie(): TmdbMovie = TmdbMovie(
-    id = 0,
-    imdbId = this.id,
-    title = if (this.type == "movie") this.name else null,
-    name = if (this.type == "series") this.name else null,
-    overview = this.description,
-    posterPath = this.poster,
-    backdropPath = this.background ?: this.poster,
-    releaseDate = this.releaseInfo,
-    voteAverage = this.imdbRating?.toDoubleOrNull() ?: 0.0
-)
