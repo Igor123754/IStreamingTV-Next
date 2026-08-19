@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- ✅ Glasovna pretraga -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <uses-feature
         android:name="android.software.leanback"
@@ -9,6 +11,16 @@
     <uses-feature
         android:name="android.hardware.touchscreen"
         android:required="false" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
+    <!-- ✅ Vidljivost speech servisa (Android 11+) -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -16,9 +28,6 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.IStreamingTV">
-
-        <!-- ✅ usesCleartextTraffic="true" — OBAVEZNO jer su M3U/EPG na HTTP
-             (Android 9+ inače blokira cleartext saobraćaj) -->
 
         <!-- PlayerActivity - fullscreen reprodukcija streamova (VOD + LIVE) -->
         <activity
