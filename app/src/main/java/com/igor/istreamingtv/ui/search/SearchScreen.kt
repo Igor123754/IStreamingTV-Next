@@ -15,11 +15,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.repeatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -28,7 +30,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -41,8 +42,12 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -59,10 +64,43 @@ import com.igor.istreamingtv.ui.components.NavBarDrawer
 import com.igor.istreamingtv.ui.components.NavDestination
 import com.igor.istreamingtv.ui.components.NavPill
 import com.igor.istreamingtv.ui.components.TvFocusableButton
-import kotlinx.coroutines.launch
 import java.util.Locale
 
 private val SearchBg = Color(0xFF020204)
+
+/** ✅ Custom mikrofon ikonica (nema je u core Material icons) */
+@Composable
+private fun MicIcon(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val w = size.width; val h = size.height
+        val s = w * 0.11f
+        // Glava mikrofona (kapsula)
+        drawRoundRect(
+            Color.White,
+            Offset(w * 0.33f, h * 0.06f),
+            Size(w * 0.34f, h * 0.46f),
+            cornerRadius = CornerRadius(w * 0.17f),
+            style = Stroke(s)
+        )
+        // Držač (U oblik)
+        drawArc(
+            Color.White,
+            startAngle = 0f,
+            sweepAngle = 180f,
+            useCenter = false,
+            topLeft = Offset(w * 0.16f, h * 0.28f),
+            size = Size(w * 0.68f, h * 0.46f),
+            style = Stroke(s)
+        )
+        // Stub
+        drawLine(
+            Color.White,
+            Offset(w * 0.5f, h * 0.74f),
+            Offset(w * 0.5f, h * 0.94f),
+            strokeWidth = s
+        )
+    }
+}
 
 /**
  * ✅ PRETRAGA — Apple TV+ stil + GLASOVNA PRETRAGA 🎤
@@ -281,16 +319,16 @@ private fun SearchField(
     onMicClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
+    var micFocused by remember { mutableStateOf(false) }
     val fieldFocus = remember { FocusRequester() }
+    val micScale by animateFloatAsState(
+        if (listening) 1.15f else if (micFocused) 1.1f else 1f,
+        tween(300), label = ""
+    )
 
     LaunchedEffect(Unit) {
         try { fieldFocus.requestFocus() } catch (_: Exception) {}
     }
-
-    val micPulse by animateFloatAsState(
-        if (listening) 1.15f else 1f,
-        tween(300), label = ""
-    )
 
     Row(
         modifier = Modifier
@@ -312,7 +350,8 @@ private fun SearchField(
                     else -> Modifier
                 }
             )
-            .padding(start = 16.dp, end = 8.dp, vertical = 14.dp),
+            // ✅ FIX: puna 4-strana padding varijanta
+            .padding(start = 16.dp, top = 14.dp, end = 8.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -331,11 +370,14 @@ private fun SearchField(
             modifier = Modifier.weight(1f)
         )
 
-        // ✅ MIKROFON dugme
+        // ✅ MIKROFON dugme (custom ikonica, fokusabilno za TV)
         Box(
             modifier = Modifier
                 .size(40.dp)
-                .scale(if (listening) micPulse else 1f)
+                .scale(micScale)
+                .onFocusChanged { micFocused = it.isFocused }
+                .focusable()
+                .clickable(onClick = onMicClick)
                 .clip(CircleShape)
                 .background(
                     if (listening) Color(0xFFE50914)
@@ -343,30 +385,18 @@ private fun SearchField(
                 )
                 .border(
                     1.dp,
-                    if (listening) Color(0xFFE50914) else Color.White.copy(alpha = 0.3f),
+                    when {
+                        listening -> Color(0xFFE50914)
+                        micFocused -> Color.White
+                        else -> Color.White.copy(alpha = 0.3f)
+                    },
                     CircleShape
-                )
-                .clickableForTv { onMicClick() },
+                ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.Mic,
-                null,
-                tint = Color.White,
-                modifier = Modifier.size(20.dp)
-            )
+            MicIcon(Modifier.size(20.dp))
         }
     }
-}
-
-/** ✅ Fokusabilan click za TV + touch */
-@Composable
-private fun Modifier.clickableForTv(onClick: () -> Unit): Modifier {
-    var focused by remember { mutableStateOf(false) }
-    return this
-        .onFocusChanged { focused = it.isFocused }
-        .focusable()
-        .clickable(onClick = onClick)
 }
 
 /** ✅ Grid postera (kao Apple TV+ rezultati) */
