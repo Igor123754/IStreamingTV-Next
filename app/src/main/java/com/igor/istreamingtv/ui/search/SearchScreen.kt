@@ -69,13 +69,12 @@ import java.util.Locale
 
 private val SearchBg = Color(0xFF020204)
 
-/** ✅ Custom mikrofon ikonica (nema je u core Material icons) */
+/** ✅ Custom mikrofon ikonica */
 @Composable
 private fun MicIcon(modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val w = size.width; val h = size.height
         val s = w * 0.11f
-        // Glava mikrofona (kapsula)
         drawRoundRect(
             Color.White,
             Offset(w * 0.33f, h * 0.06f),
@@ -83,7 +82,6 @@ private fun MicIcon(modifier: Modifier = Modifier) {
             cornerRadius = CornerRadius(w * 0.17f),
             style = Stroke(s)
         )
-        // Držač (U oblik)
         drawArc(
             Color.White,
             startAngle = 0f,
@@ -93,7 +91,6 @@ private fun MicIcon(modifier: Modifier = Modifier) {
             size = Size(w * 0.68f, h * 0.46f),
             style = Stroke(s)
         )
-        // Stub
         drawLine(
             Color.White,
             Offset(w * 0.5f, h * 0.74f),
@@ -110,7 +107,8 @@ private fun MicIcon(modifier: Modifier = Modifier) {
 fun SearchScreen(
     onMovieClick: (TmdbMovie) -> Unit,
     onBack: () -> Unit,
-    onOpenHome: () -> Unit
+    onOpenHome: () -> Unit,
+    onOpenLiveTv: () -> Unit = {}
 ) {
     val viewModel: SearchViewModel = viewModel()
     val query by viewModel.query.collectAsState()
@@ -295,6 +293,7 @@ fun SearchScreen(
             }
         }
 
+        // ✅ NAV BAR — "Pretraga" selektovana
         NavBarDrawer(
             open = navOpen,
             current = NavDestination.SEARCH,
@@ -303,6 +302,7 @@ fun SearchScreen(
                 closeNav()
                 when (dest) {
                     NavDestination.HOME -> onOpenHome()
+                    NavDestination.LIVE -> onOpenLiveTv()
                     NavDestination.SEARCH -> {}
                     else -> {}
                 }
@@ -370,7 +370,7 @@ private fun SearchField(
             modifier = Modifier.weight(1f)
         )
 
-        // ✅ MIKROFON dugme (custom ikonica, fokusabilno za TV)
+        // ✅ MIKROFON dugme
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -399,7 +399,7 @@ private fun SearchField(
     }
 }
 
-/** ✅ Grid postera (kao Apple TV+ rezultati) */
+/** ✅ Grid postera */
 @Composable
 private fun ResultsGrid(
     items: List<TmdbMovie>,
