@@ -37,6 +37,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -86,10 +89,9 @@ private fun remainingMin(endMs: Long, nowMs: Long): Long =
     ((endMs - nowMs) / 60_000L).coerceAtLeast(0)
 
 /**
- * ✅ UŽIVO TV — Apple TV+ stil (kao početna):
- *    HERO = velika EPG slika fokusiranog kanala + podaci,
- *    nakon 3s fokus → LIVE PREVIEW u hero-u,
- *    dole redovi kataloga po M3U grupama (EPG slike).
+ * ✅ UŽIVO TV — Apple TV+ stil: hero 70% + katalog vidljiv dole,
+ *    play bedž na fokusiranoj kartici (jasno da OK otvara player),
+ *    preview se PAUZIRA kad se otvori pravi player (nema seckanja).
  */
 @Composable
 fun LiveTvScreen(
@@ -111,7 +113,7 @@ fun LiveTvScreen(
         scope.launch { try { pillFocus.requestFocus() } catch (_: Exception) {} }
     }
 
-    // ✅ Grupe iz M3U (redosled kao u listi)
+    // ✅ Grupe iz M3U
     val groups = remember(channels) {
         channels.groupBy { ch -> ch.group?.takeIf { it.isNotBlank() } ?: "Ostali kanali" }
     }
@@ -133,7 +135,7 @@ fun LiveTvScreen(
     val heroProgram = heroChannel?.let { nowProgram(epg, it) }
 
     // =====================================================================
-    // ✅ LIVE PREVIEW — kreće tek nakon 3s fokusa na kanal
+    // ✅ LIVE PREVIEW — kreće nakon 3s fokusa; PAUZA kad se otvori player
     // =====================================================================
     val previewPlayer = remember {
         ExoPlayer.Builder(context)
@@ -162,6 +164,21 @@ fun LiveTvScreen(
     var previewBuffering by remember { mutableStateOf(true) }
     var previewReady by remember { mutableStateOf(false) }
     var previewError by remember { mutableStateOf(false) }
+
+    // ✅ KLJUČNO: kad se otvori pravi player (activity onStop) → preview PAUZA
+    //    (dva video dekodera istovremeno = seckanje na 2GB uređajima)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> previewPlayer.pause()
+                Lifecycle.Event.ON_START -> if (previewActive && !previewError) previewPlayer.play()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     DisposableEffect(previewPlayer) {
         val listener = object : Player.Listener {
@@ -221,14 +238,14 @@ fun LiveTvScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(LiveBg)) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            // ✅ HERO — ceo ekran kao na početnoj
+            // ✅ HERO — 70% ekrana (katalog vidljiv dole, kao na slici)
             item(key = "hero") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(screenHeightDp)
+                        .height(screenHeightDp * 0.7f)
                 ) {
-                    // — Pozadina: live preview (nakon 3s) ILI EPG slika
+                    // — Pozadina: live preview ILI EPG slika
                     if (previewActive && !previewError) {
                         AndroidView(
                             factory = { ctx ->
@@ -258,20 +275,20 @@ fun LiveTvScreen(
                         }
                     }
 
-                    // — Gradient-i (Apple TV+ stil)
+                    // — Gradient-i
                     Box(
                         Modifier.fillMaxSize().background(
-                            Brush.horizontalGradient(
-                                listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent),
-                                endX = 1100f
+                            Brush.verticalGradient(
+                                0.45f to Color.Transparent,
+                                1f to LiveBg
                             )
                         )
                     )
                     Box(
                         Modifier.fillMaxSize().background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, LiveBg),
-                                startY = screenHeightDp.value * 0.55f
+                            Brush.horizontalGradient(
+                                listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent),
+                                endX = 1100f
                             )
                         )
                     )
@@ -321,7 +338,7 @@ fun LiveTvScreen(
                         Text(clockText, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // — Info (kao Apple TV+ hero)
+                    // — Info (Apple TV+ hero)
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -342,14 +359,14 @@ fun LiveTvScreen(
                         Text(
                             heroProgram?.title ?: heroChannel?.name ?: "Uživo TV",
                             color = Color.White,
-                            fontSize = 50.sp,
+                            fontSize = 44.sp,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.fillMaxWidth(0.6f)
                         )
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         if (heroChannel != null && heroProgram != null) {
                             val rem = remainingMin(heroProgram.endMs, nowMs)
@@ -361,7 +378,7 @@ fun LiveTvScreen(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         heroProgram?.description?.let { desc ->
                             Text(
@@ -375,9 +392,9 @@ fun LiveTvScreen(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.height(22.dp))
 
-                        // — "Gledaj" dugme (kao "Go to Show" na slici)
+                        // — "Gledaj" dugme
                         TvFocusableButton(
                             onClick = {
                                 heroChannel?.let { ch -> onWatch(ch, heroProgram) }
@@ -400,7 +417,7 @@ fun LiveTvScreen(
 
                         // — Progress emisije
                         if (heroProgram != null && heroProgram.endMs > heroProgram.startMs) {
-                            Spacer(modifier = Modifier.height(20.dp))
+                            Spacer(modifier = Modifier.height(18.dp))
                             val prog = ((nowMs - heroProgram.startMs).toFloat() /
                                 (heroProgram.endMs - heroProgram.startMs)).coerceIn(0f, 1f)
                             Box(
@@ -423,10 +440,10 @@ fun LiveTvScreen(
                 }
             }
 
-            // ✅ KATALOZI PO GRUPAMA (kao "Up Next" redovi — učitavaju se pri skrolu)
+            // ✅ KATALOZI PO GRUPAMA (vidljivi odmah ispod hero-a)
             groups.forEach { (group, groupChannels) ->
                 item(key = "group_$group") {
-                    Column(modifier = Modifier.padding(top = 40.dp)) {
+                    Column(modifier = Modifier.padding(top = 32.dp)) {
                         Text(
                             group,
                             color = Color.White,
@@ -517,7 +534,10 @@ private fun LivePill(
     }
 }
 
-/** ✅ Kartica kanala — EPG slika + logo u ćošku + progress */
+/**
+ * ✅ Kartica kanala — EPG slika + PLAY BEDŽ na fokusu
+ *    (jasno korisniku: OK = otvara live player)
+ */
 @Composable
 private fun LiveChannelCard(
     channel: LiveChannel,
@@ -583,6 +603,26 @@ private fun LiveChannelCard(
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         }
+                    }
+                }
+
+                // ✅ PLAY BEDŽ na fokusu — jasno da OK otvara player
+                if (f) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.6f))
+                            .border(2.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            null,
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
                 }
 
