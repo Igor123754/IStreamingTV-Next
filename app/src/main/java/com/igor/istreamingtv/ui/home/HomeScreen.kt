@@ -167,6 +167,7 @@ fun HomeScreen(
     onMovieClick: (TmdbMovie) -> Unit,
     onAddToLibrary: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
+    onOpenLiveTv: () -> Unit = {},
     viewModel: HomeViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -261,7 +262,8 @@ fun HomeScreen(
                 navOpen = navOpen,
                 onOpenNav = { navOpen = true },
                 onCloseNav = closeNav,
-                onOpenSearch = onOpenSearch
+                onOpenSearch = onOpenSearch,
+                onOpenLiveTv = onOpenLiveTv
             )
         }
     }
@@ -289,7 +291,8 @@ private fun AppleTvHomeContent(
     navOpen: Boolean,
     onOpenNav: () -> Unit,
     onCloseNav: () -> Unit,
-    onOpenSearch: () -> Unit
+    onOpenSearch: () -> Unit,
+    onOpenLiveTv: () -> Unit
 ) {
     val heroItems = remember(movies, series) {
         movies.take(5).map { HeroItem(it, isTv = false) } +
@@ -377,7 +380,7 @@ private fun AppleTvHomeContent(
             item(key = "bottom-spacer") { Spacer(modifier = Modifier.height(60.dp)) }
         }
 
-        // ✅ DELJENI NAV BAR — "Početna" selektovana (beli pill)
+        // ✅ DELJENI NAV BAR — "Početna" selektovana
         NavBarDrawer(
             open = navOpen,
             current = NavDestination.HOME,
@@ -386,10 +389,8 @@ private fun AppleTvHomeContent(
                 onCloseNav()
                 when (dest) {
                     NavDestination.SEARCH -> onOpenSearch()
+                    NavDestination.LIVE -> onOpenLiveTv()
                     NavDestination.HOME -> scope.launch { listState.animateScrollToItem(0) }
-                    NavDestination.LIVE -> scope.launch {
-                        if (liveChannels.isNotEmpty()) listState.animateScrollToItem(1)
-                    }
                     else -> {}
                 }
             }
