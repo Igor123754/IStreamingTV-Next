@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
@@ -554,7 +555,7 @@ class PlayerActivity : ComponentActivity() {
 
         exo.setMediaItem(mib.build())
         exo.prepare()
-        // ✅ LIVE: odmah na live ivicu (najnoviji frame); VOD: resume pozicija
+        // ✅ LIVE: odmah na live ivicu; VOD: resume pozicija
         if (isLive) exo.seekToDefaultPosition()
         if (saved > 0 && !isLive) exo.seekTo(saved)
         exo.playWhenReady = true
