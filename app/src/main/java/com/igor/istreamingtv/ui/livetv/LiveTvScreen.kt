@@ -1,6 +1,7 @@
 package com.igor.istreamingtv.ui.livetv
 
 import android.content.Intent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -84,6 +85,7 @@ private fun remainingMin(endMs: Long, nowMs: Long): Long =
 /**
  * ✅ UŽIVO TV — Apple TV+ stil: hero sa LIVE PREVIEW +
  *    KATALOZI PO GRUPAMA IZ M3U (kao filmski redovi na početnoj).
+ *    Bez "UŽIVO" bedževa — čist, elegantan dizajn.
  */
 @Composable
 fun LiveTvScreen(
@@ -215,33 +217,32 @@ fun LiveTvScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        // ✅ FIX: screenHeightDp je već Dp — bez .dp
                         .height(screenHeightDp * 0.55f)
                 ) {
-                    // Pozadina: fallback slika + gradient
-                    val bgUrl = heroProgram?.iconUrl ?: heroChannel?.logoUrl
-                    if (!bgUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(bgUrl).crossfade(false)
-                                .bitmapConfig(android.graphics.Bitmap.Config.RGB_565).build(),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                            alpha = 0.35f
-                        )
+                    // ✅ Pozadina: EPG slika emisije sa Crossfade + gradient-i
+                    val bgUrl = heroProgram?.iconUrl ?: heroChannel?.logoUrl ?: ""
+                    Crossfade(targetState = bgUrl, animationSpec = tween(600), label = "heroBg") { url ->
+                        if (url.isNotBlank()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(url).crossfade(false)
+                                    .bitmapConfig(android.graphics.Bitmap.Config.RGB_565).build(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                                alpha = 0.30f
+                            )
+                        }
                     }
                     Box(
                         Modifier.fillMaxSize().background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, LiveBg)
-                            )
+                            Brush.verticalGradient(listOf(Color.Transparent, LiveBg))
                         )
                     )
                     Box(
                         Modifier.fillMaxSize().background(
                             Brush.horizontalGradient(
-                                listOf(LiveBg.copy(alpha = 0.85f), Color.Transparent)
+                                listOf(LiveBg.copy(alpha = 0.9f), Color.Transparent, LiveBg.copy(alpha = 0.4f))
                             )
                         )
                     )
@@ -268,35 +269,28 @@ fun LiveTvScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1.05f)) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFFE50914))
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text("UŽIVO", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                                heroProgram?.category?.let { cat ->
-                                    Text(cat, color = Color.White.copy(alpha = 0.65f), fontSize = 13.sp)
-                                }
+                            // ✅ Kategorija — mala, siva, bez bedža
+                            heroProgram?.category?.let { cat ->
+                                Text(
+                                    cat.uppercase(),
+                                    color = Color.White.copy(alpha = 0.55f),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 1.5.sp
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
                             }
-
-                            Spacer(modifier = Modifier.height(12.dp))
 
                             Text(
                                 heroProgram?.title ?: heroChannel?.name ?: "Uživo TV",
                                 color = Color.White,
-                                fontSize = 38.sp,
+                                fontSize = 42.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
 
                             if (heroChannel != null && heroProgram != null) {
                                 val rem = remainingMin(heroProgram.endMs, nowMs)
@@ -308,7 +302,7 @@ fun LiveTvScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
                             heroProgram?.description?.let { desc ->
                                 Text(
@@ -321,7 +315,7 @@ fun LiveTvScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(14.dp))
+                            Spacer(modifier = Modifier.height(16.dp))
 
                             if (heroProgram != null && heroProgram.endMs > heroProgram.startMs) {
                                 val prog = ((nowMs - heroProgram.startMs).toFloat() /
@@ -422,7 +416,7 @@ fun LiveTvScreen(
                 }
             }
 
-            // ✅ KATALOZI PO GRUPAMA IZ M3U (kao filmski redovi)
+            // ✅ KATALOZI PO GRUPAMA IZ M3U
             groups.forEach { (group, groupChannels) ->
                 item(key = "group_$group") {
                     Column(modifier = Modifier.padding(top = 36.dp)) {
@@ -448,7 +442,6 @@ fun LiveTvScreen(
                                     initialFocus = if (needFirstFocus) firstCardFocus else null,
                                     onFirstFocused = { firstFocusUsed = true },
                                     onFocus = { focusedChannel = ch },
-                                    // ✅ FIX: kartica očekuje () -> Unit
                                     onWatch = { onWatch(ch, nowProgram(epg, ch)) }
                                 )
                             }
@@ -517,7 +510,11 @@ private fun LivePill(
     }
 }
 
-/** ✅ Kartica kanala (kao poster kartice na početnoj) */
+/**
+ * ✅ Kartica kanala — Apple TV+ stil:
+ *    pozadina = EPG SLIKA trenutne emisije, logo kanala u ćošku,
+ *    naziv emisije + progress dole u kartici.
+ */
 @Composable
 private fun LiveChannelCard(
     channel: LiveChannel,
@@ -530,6 +527,8 @@ private fun LiveChannelCard(
 ) {
     val progress = if (program != null && program.endMs > program.startMs)
         ((nowMs - program.startMs).toFloat() / (program.endMs - program.startMs)).coerceIn(0f, 1f) else 0f
+
+    val programImage = program?.iconUrl
 
     Column(modifier = Modifier.width(240.dp)) {
         TvFocusableButton(
@@ -556,45 +555,65 @@ private fun LiveChannelCard(
                         else Modifier.border(1.dp, CardBorder, RoundedCornerShape(12.dp))
                     )
             ) {
-                // Logo kanala
-                if (!channel.logoUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(channel.logoUrl).crossfade(false)
-                            .bitmapConfig(android.graphics.Bitmap.Config.ARGB_8888).build(),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                } else {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                // ✅ EPG SLIKA trenutne emisije (kao Apple TV+ kartice)
+                when {
+                    !programImage.isNullOrBlank() -> {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(programImage).crossfade(false)
+                                .bitmapConfig(android.graphics.Bitmap.Config.RGB_565).build(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    !channel.logoUrl.isNullOrBlank() -> {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(channel.logoUrl).crossfade(false)
+                                .bitmapConfig(android.graphics.Bitmap.Config.ARGB_8888).build(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().padding(24.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+                    else -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
 
-                // UŽIVO bedž
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFFE50914))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text("UŽIVO", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                // Logo kanala — mali, gore levo (samo kad je EPG slika)
+                if (!programImage.isNullOrBlank() && !channel.logoUrl.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.65f))
+                            .padding(5.dp)
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(channel.logoUrl).crossfade(false)
+                                .bitmapConfig(android.graphics.Bitmap.Config.ARGB_8888).build(),
+                            contentDescription = null,
+                            modifier = Modifier.size(height = 22.dp, width = 40.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
                 }
 
-                // Donji gradient + trenutna emisija
+                // Donji gradient + naziv emisije + progress
                 Box(
                     Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .height(44.dp)
+                        .height(52.dp)
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))
                             )
                         )
                 )
@@ -603,10 +622,10 @@ private fun LiveChannelCard(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .fillMaxWidth()
-                        .padding(start = 10.dp, end = 10.dp, bottom = 12.dp)
+                        .padding(start = 10.dp, end = 10.dp, bottom = 10.dp)
                 ) {
                     Text(
-                        program?.title ?: channel.group ?: "Uživo",
+                        program?.title ?: channel.name,
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -614,7 +633,7 @@ private fun LiveChannelCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     if (program != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(5.dp))
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
