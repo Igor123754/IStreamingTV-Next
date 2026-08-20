@@ -89,9 +89,9 @@ private fun remainingMin(endMs: Long, nowMs: Long): Long =
     ((endMs - nowMs) / 60_000L).coerceAtLeast(0)
 
 /**
- * ✅ UŽIVO TV — Apple TV+ stil: hero 70% + katalog vidljiv dole,
- *    play bedž na fokusiranoj kartici (jasno da OK otvara player),
- *    preview se PAUZIRA kad se otvori pravi player (nema seckanja).
+ * ✅ UŽIVO TV — Apple TV+ stil: hero (68%) + prvi katalog = 100% ekrana,
+ *    skrol → katalozi se učitavaju jedan po jedan. Bez play bedža.
+ *    Manja tipografija — bez preklapanja slova.
  */
 @Composable
 fun LiveTvScreen(
@@ -135,7 +135,7 @@ fun LiveTvScreen(
     val heroProgram = heroChannel?.let { nowProgram(epg, it) }
 
     // =====================================================================
-    // ✅ LIVE PREVIEW — kreće nakon 3s fokusa; PAUZA kad se otvori player
+    // ✅ LIVE PREVIEW — nakon 3s fokusa; PAUZA kad se otvori player
     // =====================================================================
     val previewPlayer = remember {
         ExoPlayer.Builder(context)
@@ -165,8 +165,6 @@ fun LiveTvScreen(
     var previewReady by remember { mutableStateOf(false) }
     var previewError by remember { mutableStateOf(false) }
 
-    // ✅ KLJUČNO: kad se otvori pravi player (activity onStop) → preview PAUZA
-    //    (dva video dekodera istovremeno = seckanje na 2GB uređajima)
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -199,7 +197,6 @@ fun LiveTvScreen(
         }
     }
 
-    // ✅ Prvo EPG slika + podaci → nakon 3s live preview
     LaunchedEffect(focusedChannel?.id) {
         previewActive = false
         previewError = false
@@ -238,12 +235,12 @@ fun LiveTvScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(LiveBg)) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            // ✅ HERO — 70% ekrana (katalog vidljiv dole, kao na slici)
+            // ✅ HERO — 68% ekrana (prvi katalog odmah vidljiv dole = 100% celina)
             item(key = "hero") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(screenHeightDp * 0.7f)
+                        .height(screenHeightDp * 0.68f)
                 ) {
                     // — Pozadina: live preview ILI EPG slika
                     if (previewActive && !previewError) {
@@ -299,7 +296,7 @@ fun LiveTvScreen(
                             color = Color.White,
                             strokeWidth = 3.dp,
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(40.dp)
                                 .align(Alignment.Center)
                         )
                     }
@@ -309,17 +306,17 @@ fun LiveTvScreen(
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(end = 48.dp, top = 40.dp)
-                                .clip(RoundedCornerShape(12.dp))
+                                .padding(end = 48.dp, top = 36.dp)
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(Color.Black.copy(alpha = 0.6f))
-                                .padding(8.dp)
+                                .padding(6.dp)
                         ) {
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
                                     .data(heroChannel!!.logoUrl!!).crossfade(false)
                                     .bitmapConfig(android.graphics.Bitmap.Config.ARGB_8888).build(),
                                 contentDescription = null,
-                                modifier = Modifier.size(height = 36.dp, width = 70.dp),
+                                modifier = Modifier.size(height = 30.dp, width = 60.dp),
                                 contentScale = ContentScale.Fit
                             )
                         }
@@ -330,15 +327,15 @@ fun LiveTvScreen(
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .fillMaxWidth()
-                            .padding(start = 48.dp, end = 48.dp, top = 28.dp),
+                            .padding(start = 48.dp, end = 48.dp, top = 24.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         LivePill(pillFocus = pillFocus, onOpenNav = { navOpen = true })
                         Spacer(modifier = Modifier.weight(1f))
-                        Text(clockText, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        Text(clockText, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // — Info (Apple TV+ hero)
+                    // — Info (kompaktna tipografija — bez preklapanja)
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -348,25 +345,25 @@ fun LiveTvScreen(
                         heroProgram?.category?.let { cat ->
                             Text(
                                 cat.uppercase(),
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.55f),
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 1.5.sp
+                                letterSpacing = 1.2.sp
                             )
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
 
                         Text(
                             heroProgram?.title ?: heroChannel?.name ?: "Uživo TV",
                             color = Color.White,
-                            fontSize = 44.sp,
+                            fontSize = 36.sp,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.fillMaxWidth(0.6f)
                         )
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         if (heroChannel != null && heroProgram != null) {
                             val rem = remainingMin(heroProgram.endMs, nowMs)
@@ -374,27 +371,29 @@ fun LiveTvScreen(
                                 "${heroChannel.name} · ${fmtTime(heroProgram.startMs)} – ${fmtTime(heroProgram.endMs)} · " +
                                     if (rem > 0) "$rem min preostalo" else "kraj uskoro",
                                 color = Color.White.copy(alpha = 0.75f),
-                                fontSize = 15.sp
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         heroProgram?.description?.let { desc ->
                             Text(
                                 desc,
                                 color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 14.sp,
-                                lineHeight = 20.sp,
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.fillMaxWidth(0.45f)
+                                modifier = Modifier.fillMaxWidth(0.5f)
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(22.dp))
+                        Spacer(modifier = Modifier.height(18.dp))
 
-                        // — "Gledaj" dugme
+                        // — "Gledaj" dugme (kompaktno)
                         TvFocusableButton(
                             onClick = {
                                 heroChannel?.let { ch -> onWatch(ch, heroProgram) }
@@ -404,33 +403,33 @@ fun LiveTvScreen(
                             Row(
                                 modifier = Modifier
                                     .scale(scale)
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(RoundedCornerShape(10.dp))
                                     .background(Color(0xFFE9E9F2))
-                                    .padding(horizontal = 36.dp, vertical = 14.dp),
+                                    .padding(horizontal = 28.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(20.dp))
-                                Text("Gledaj", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                                Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                                Text("Gledaj", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
 
                         // — Progress emisije
                         if (heroProgram != null && heroProgram.endMs > heroProgram.startMs) {
-                            Spacer(modifier = Modifier.height(18.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
                             val prog = ((nowMs - heroProgram.startMs).toFloat() /
                                 (heroProgram.endMs - heroProgram.startMs)).coerceIn(0f, 1f)
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(0.4f)
-                                    .height(4.dp)
+                                    .fillMaxWidth(0.5f)
+                                    .height(3.dp)
                                     .clip(RoundedCornerShape(2.dp))
                                     .background(Color.White.copy(alpha = 0.25f))
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth(prog)
-                                        .height(4.dp)
+                                        .height(3.dp)
                                         .clip(RoundedCornerShape(2.dp))
                                         .background(Color.White)
                                 )
@@ -440,16 +439,16 @@ fun LiveTvScreen(
                 }
             }
 
-            // ✅ KATALOZI PO GRUPAMA (vidljivi odmah ispod hero-a)
+            // ✅ KATALOZI PO GRUPAMA — učitavaju se jedan po jedan pri skrolu
             groups.forEach { (group, groupChannels) ->
                 item(key = "group_$group") {
-                    Column(modifier = Modifier.padding(top = 32.dp)) {
+                    Column(modifier = Modifier.padding(top = 28.dp)) {
                         Text(
                             group,
                             color = Color.White,
-                            fontSize = 22.sp,
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(start = 48.dp, bottom = 16.dp)
+                            modifier = Modifier.padding(start = 48.dp, bottom = 14.dp)
                         )
 
                         LazyRow(
@@ -535,8 +534,8 @@ private fun LivePill(
 }
 
 /**
- * ✅ Kartica kanala — EPG slika + PLAY BEDŽ na fokusu
- *    (jasno korisniku: OK = otvara live player)
+ * ✅ Kartica kanala — EPG slika + logo u ćošku + progress.
+ *    BEZ play bedža — samo beli okvir + uvećanje na fokusu.
  */
 @Composable
 private fun LiveChannelCard(
@@ -603,26 +602,6 @@ private fun LiveChannelCard(
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(channel.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         }
-                    }
-                }
-
-                // ✅ PLAY BEDŽ na fokusu — jasno da OK otvara player
-                if (f) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.6f))
-                            .border(2.dp, Color.White, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            null,
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
                     }
                 }
 
