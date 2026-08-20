@@ -10,7 +10,6 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -216,7 +215,8 @@ fun LiveTvScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height((screenHeightDp * 0.55f).dp)
+                        // ✅ FIX: screenHeightDp je već Dp — bez .dp
+                        .height(screenHeightDp * 0.55f)
                 ) {
                     // Pozadina: fallback slika + gradient
                     val bgUrl = heroProgram?.iconUrl ?: heroChannel?.logoUrl
@@ -448,7 +448,8 @@ fun LiveTvScreen(
                                     initialFocus = if (needFirstFocus) firstCardFocus else null,
                                     onFirstFocused = { firstFocusUsed = true },
                                     onFocus = { focusedChannel = ch },
-                                    onWatch = onWatch
+                                    // ✅ FIX: kartica očekuje () -> Unit
+                                    onWatch = { onWatch(ch, nowProgram(epg, ch)) }
                                 )
                             }
                         }
