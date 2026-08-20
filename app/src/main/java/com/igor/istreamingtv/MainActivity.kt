@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import com.igor.istreamingtv.data.remote.TmdbMovie
 import com.igor.istreamingtv.ui.details.MovieDetailsScreen
 import com.igor.istreamingtv.ui.home.HomeScreen
+import com.igor.istreamingtv.ui.livetv.LiveTvScreen
 import com.igor.istreamingtv.ui.movies.MoviesScreen
 import com.igor.istreamingtv.ui.search.SearchScreen
 import com.igor.istreamingtv.ui.theme.IStreamingTheme
@@ -34,9 +35,8 @@ class MainActivity : ComponentActivity() {
                             onAddToLibrary = {
                                 // TODO: implement add to library action
                             },
-                            onOpenSearch = {
-                                currentScreen = Screen.SEARCH
-                            }
+                            onOpenSearch = { currentScreen = Screen.SEARCH },
+                            onOpenLiveTv = { currentScreen = Screen.LIVE_TV }
                         )
                     }
 
@@ -47,12 +47,16 @@ class MainActivity : ComponentActivity() {
                                 detailsReturnScreen = Screen.SEARCH
                                 currentScreen = Screen.DETAILS
                             },
-                            onBack = {
-                                currentScreen = Screen.HOME
-                            },
-                            onOpenHome = {
-                                currentScreen = Screen.HOME
-                            }
+                            onBack = { currentScreen = Screen.HOME },
+                            onOpenHome = { currentScreen = Screen.HOME },
+                            onOpenLiveTv = { currentScreen = Screen.LIVE_TV }
+                        )
+                    }
+
+                    Screen.LIVE_TV -> {
+                        LiveTvScreen(
+                            onOpenHome = { currentScreen = Screen.HOME },
+                            onOpenSearch = { currentScreen = Screen.SEARCH }
                         )
                     }
 
@@ -63,9 +67,7 @@ class MainActivity : ComponentActivity() {
                                 detailsReturnScreen = Screen.MOVIES
                                 currentScreen = Screen.DETAILS
                             },
-                            onBack = {
-                                currentScreen = Screen.HOME
-                            }
+                            onBack = { currentScreen = Screen.HOME }
                         )
                     }
 
@@ -74,12 +76,8 @@ class MainActivity : ComponentActivity() {
                         if (movie != null) {
                             MovieDetailsScreen(
                                 movie = movie,
-                                onBack = {
-                                    currentScreen = detailsReturnScreen
-                                },
-                                onMovieClick = { part ->
-                                    selectedMovie = part
-                                }
+                                onBack = { currentScreen = detailsReturnScreen },
+                                onMovieClick = { part -> selectedMovie = part }
                             )
                         } else {
                             currentScreen = Screen.HOME
@@ -96,6 +94,7 @@ class MainActivity : ComponentActivity() {
             Screen.DETAILS -> currentScreen = detailsReturnScreen
             Screen.MOVIES -> currentScreen = Screen.HOME
             Screen.SEARCH -> currentScreen = Screen.HOME
+            Screen.LIVE_TV -> currentScreen = Screen.HOME
             Screen.HOME -> super.onBackPressed()
         }
     }
@@ -104,6 +103,7 @@ class MainActivity : ComponentActivity() {
         HOME,
         MOVIES,
         DETAILS,
-        SEARCH
+        SEARCH,
+        LIVE_TV
     }
 }
