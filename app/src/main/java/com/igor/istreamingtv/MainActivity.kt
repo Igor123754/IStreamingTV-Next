@@ -36,7 +36,8 @@ class MainActivity : ComponentActivity() {
                                 // TODO: implement add to library action
                             },
                             onOpenSearch = { currentScreen = Screen.SEARCH },
-                            onOpenLiveTv = { currentScreen = Screen.LIVE_TV }
+                            onOpenLiveTv = { currentScreen = Screen.LIVE_TV },
+                            onOpenMovies = { currentScreen = Screen.MOVIES }
                         )
                     }
 
@@ -49,14 +50,16 @@ class MainActivity : ComponentActivity() {
                             },
                             onBack = { currentScreen = Screen.HOME },
                             onOpenHome = { currentScreen = Screen.HOME },
-                            onOpenLiveTv = { currentScreen = Screen.LIVE_TV }
+                            onOpenLiveTv = { currentScreen = Screen.LIVE_TV },
+                            onOpenMovies = { currentScreen = Screen.MOVIES }
                         )
                     }
 
                     Screen.LIVE_TV -> {
                         LiveTvScreen(
                             onOpenHome = { currentScreen = Screen.HOME },
-                            onOpenSearch = { currentScreen = Screen.SEARCH }
+                            onOpenSearch = { currentScreen = Screen.SEARCH },
+                            onOpenMovies = { currentScreen = Screen.MOVIES }
                         )
                     }
 
@@ -67,7 +70,10 @@ class MainActivity : ComponentActivity() {
                                 detailsReturnScreen = Screen.MOVIES
                                 currentScreen = Screen.DETAILS
                             },
-                            onBack = { currentScreen = Screen.HOME }
+                            onBack = { currentScreen = Screen.HOME },
+                            onOpenHome = { currentScreen = Screen.HOME },
+                            onOpenSearch = { currentScreen = Screen.SEARCH },
+                            onOpenLiveTv = { currentScreen = Screen.LIVE_TV }
                         )
                     }
 
