@@ -1,137 +1,208 @@
 package com.igor.istreamingtv.ui.movies
 
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.igor.istreamingtv.BuildConfig
+import coil.request.ImageRequest
 import com.igor.istreamingtv.data.remote.TmdbMovie
-import com.igor.istreamingtv.data.remote.displayTitle
-import com.igor.istreamingtv.data.repository.ContentRepository
+import com.igor.istreamingtv.ui.components.MoviesIcon
+import com.igor.istreamingtv.ui.components.NavBarDrawer
+import com.igor.istreamingtv.ui.components.NavDestination
 import com.igor.istreamingtv.ui.components.TvFocusableButton
 import kotlinx.coroutines.launch
 
-private val MoviesBackground = Color(0xFF020204)
-private val SurfaceBackground = Color(0xFF0C0D12)
-private val CardShape = RoundedCornerShape(12.dp)
+private val MoviesBg = Color(0xFF05070B)
+private val CardBg = Color(0xFF151A21)
+private val CardBorder = Color.White.copy(alpha = 0.06f)
 
+/**
+ * ✅ FILMOVI — Apple TV+ stil: pill + naslov gore,
+ *    19 žanr kataloga (redovi postera), bez dupliranja, progresivno učitavanje.
+ */
 @Composable
 fun MoviesScreen(
     onMovieClick: (TmdbMovie) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenHome: () -> Unit = {},
+    onOpenSearch: () -> Unit = {},
+    onOpenLiveTv: () -> Unit = {}
 ) {
-    val repository = remember { ContentRepository(BuildConfig.TMDB_API_KEY) }
-    var movies by remember { mutableStateOf<List<TmdbMovie>>(emptyList()) }
-    var series by remember { mutableStateOf<List<TmdbMovie>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    val viewModel: MoviesViewModel = viewModel()
+    val catalogs by viewModel.catalogs.collectAsState()
+    val loading by viewModel.loading.collectAsState()
 
-    LaunchedEffect(Unit) {
-        launch {
-            try {
-                movies = repository.getPopularMovies()
-                series = repository.getPopularSeries()
-            } catch (_: Exception) {
-            }
-            loading = false
-        }
+    val scope = rememberCoroutineScope()
+    var navOpen by remember { mutableStateOf(false) }
+    val pillFocus = remember { FocusRequester() }
+
+    val closeNav: () -> Unit = {
+        navOpen = false
+        scope.launch { try { pillFocus.requestFocus() } catch (_: Exception) {} }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MoviesBackground)
-    ) {
-        Text(
-            text = "Filmovi i serije",
-            color = Color.White,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 48.dp, top = 32.dp, bottom = 8.dp)
+    Box(modifier = Modifier.fillMaxSize().background(MoviesBg)) {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            // ✅ VRH: pill + naslov
+            item(key = "top") {
+                Column(modifier = Modifier.padding(top = 24.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 48.dp, end = 48.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        MoviesPill(pillFocus = pillFocus, onOpenNav = { navOpen = true })
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Text(
+                        "Filmovi",
+                        color = Color.White,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(start = 48.dp)
+                    )
+                }
+            }
+
+            // ✅ Spinner dok nema nijednog reda
+            if (loading && catalogs.isEmpty()) {
+                item(key = "loading") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 120.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
+                    }
+                }
+            }
+
+            // ✅ ŽANR KATALOZI — stižu jedan po jedan
+            catalogs.forEach { catalog ->
+                item(key = "genre_${catalog.id}") {
+                    Column(modifier = Modifier.padding(top = 32.dp)) {
+                        Text(
+                            catalog.title,
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
+                        )
+
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
+                        ) {
+                            items(catalog.items, key = { it.id }) { movie ->
+                                MovieCard(movie = movie, onClick = { onMovieClick(movie) })
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ✅ Spinner na dnu dok se učitavaju ostali redovi
+            if (loading && catalogs.isNotEmpty()) {
+                item(key = "loading-more") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 40.dp, bottom = 20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = Color.White.copy(alpha = 0.5f), strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
+                    }
+                }
+            }
+
+            item(key = "bottom-spacer") { Spacer(modifier = Modifier.height(60.dp)) }
+        }
+
+        // ✅ Navigaciona traka — "Filmovi" selektovani
+        NavBarDrawer(
+            open = navOpen,
+            current = NavDestination.MOVIES,
+            onDismiss = closeNav,
+            onNavigate = { dest ->
+                closeNav()
+                when (dest) {
+                    NavDestination.HOME -> onOpenHome()
+                    NavDestination.SEARCH -> onOpenSearch()
+                    NavDestination.LIVE -> onOpenLiveTv()
+                    else -> {}
+                }
+            }
         )
-
-        if (loading) {
-            Box(modifier = Modifier.fillMaxSize().background(MoviesBackground))
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                if (movies.isNotEmpty()) {
-                    item(key = "movies-header") {
-                        RowHeader("Popularni filmovi")
-                    }
-                    item(key = "movies-row") {
-                        MoviesRow(movies = movies, onMovieClick = onMovieClick)
-                    }
-                }
-                if (series.isNotEmpty()) {
-                    item(key = "series-header") {
-                        RowHeader("Popularne serije")
-                    }
-                    item(key = "series-row") {
-                        MoviesRow(movies = series, onMovieClick = onMovieClick)
-                    }
-                }
-                item(key = "bottom-spacer") {
-                    Spacer(modifier = Modifier.height(60.dp))
-                }
-            }
-        }
     }
 }
 
+/** ✅ Pill "Filmovi" */
 @Composable
-private fun RowHeader(title: String) {
-    Text(
-        text = title,
-        color = Color.White,
-        fontSize = 22.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 48.dp, top = 24.dp, bottom = 16.dp)
-    )
-}
-
-@Composable
-private fun MoviesRow(
-    movies: List<TmdbMovie>,
-    onMovieClick: (TmdbMovie) -> Unit
+private fun MoviesPill(
+    pillFocus: FocusRequester,
+    onOpenNav: () -> Unit
 ) {
-    var entered by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { entered = true }
-    val rowAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(600), label = "row-alpha")
-    val rowOffsetY by animateFloatAsState(if (entered) 0f else 80f, tween(600), label = "row-offset")
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(180), label = "")
 
-    LazyRow(
+    Row(
         modifier = Modifier
-            .graphicsLayer {
-                alpha = rowAlpha
-                translationY = rowOffsetY
-            },
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
+            .focusRequester(pillFocus)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .clickable(onClick = onOpenNav)
+            .scale(scale)
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color(0xFF48484A).copy(alpha = if (focused) 0.95f else 0.75f))
+            .then(if (focused) Modifier.border(2.dp, Color.White, RoundedCornerShape(22.dp)) else Modifier)
+            .padding(start = 6.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(movies, key = { it.id }) { movie ->
-            MoviePosterCard(movie = movie, onClick = { onMovieClick(movie) })
+        Box(
+            modifier = Modifier.size(26.dp).clip(CircleShape).background(Color.White),
+            contentAlignment = Alignment.Center
+        ) {
+            MoviesIcon(Modifier.size(15.dp))
         }
+        Text("Filmovi", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
+/** ✅ Poster kartica (kao na početnoj) */
 @Composable
-private fun MoviePosterCard(
+private fun MovieCard(
     movie: TmdbMovie,
     onClick: () -> Unit
 ) {
@@ -147,17 +218,22 @@ private fun MoviePosterCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .scale(scale)
-                    .clip(CardShape)
-                    .background(SurfaceBackground)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(CardBg)
                     .then(
-                        if (focused) Modifier.border(3.dp, Color.White, CardShape)
-                        else Modifier
+                        if (focused) Modifier.border(3.dp, Color.White, RoundedCornerShape(12.dp))
+                        else Modifier.border(1.dp, CardBorder, RoundedCornerShape(12.dp))
                     )
             ) {
                 AsyncImage(
-                    // ✅ posterPath je sada MEMBER property — bez importa
-                    model = "https://image.tmdb.org/t/p/w185" + movie.posterPath,
-                    contentDescription = movie.displayTitle,
+                    model = androidx.compose.ui.platform.LocalContext.current.let { ctx ->
+                        ImageRequest.Builder(ctx)
+                            .data("https://image.tmdb.org/t/p/w342${movie.posterPath}")
+                            .crossfade(false)
+                            .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+                            .build()
+                    },
+                    contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
@@ -167,11 +243,11 @@ private fun MoviePosterCard(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = movie.displayTitle,
+            movie.title ?: movie.name ?: "",
             color = Color.White,
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
-            lineHeight = 18.sp,
+            lineHeight = 17.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
