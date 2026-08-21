@@ -91,7 +91,8 @@ private fun remainingMin(endMs: Long, nowMs: Long): Long =
 
 /**
  * ✅ UŽIVO TV — Apple TV+ stil:
- *    HERO FIKSIRAN GORE (70%) + KATALOZI DOLE (30%), TAČNO 5 KANALA PO REDU.
+ *    HERO FIKSIRAN GORE (68%) + KATALOZI DOLE (32%) — ime kanala i vreme VIDLJIVI.
+ *    TAČNO 5 KANALA PO REDU.
  */
 @Composable
 fun LiveTvScreen(
@@ -228,10 +229,10 @@ fun LiveTvScreen(
         context.startActivity(intent)
     }
 
-    // ✅ PROPORCIJE: hero 70% fiksno + TAČNO 5 KANALA PO REDU
+    // ✅ PROPORCIJE: hero 68% fiksno + TAČNO 5 KANALA PO REDU
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
     val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
-    val heroH = screenHeightDp * 0.70f
+    val heroH = screenHeightDp * 0.68f
     // širina ekrana - padding (48+48) - 4 razmaka (12dp) podeljeno sa 5 kartica
     val cardW = (screenWidthDp - 96.dp - 48.dp) / 5f
     val cardH = cardW / 1.7f
@@ -241,11 +242,11 @@ fun LiveTvScreen(
     var firstFocusUsed by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize().background(LiveBg)) {
-        // ✅ FIX: Column — hero FIKSIRAN, samo redovi skroluju
+        // ✅ Column — hero FIKSIRAN, samo redovi skroluju
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =============================================================
-            // ✅ HERO — FIKSIRAN GORE (70%)
+            // ✅ HERO — FIKSIRAN GORE (68%)
             // =============================================================
             Box(
                 modifier = Modifier
@@ -447,7 +448,7 @@ fun LiveTvScreen(
             }
 
             // =============================================================
-            // ✅ KATALOZI — SAMO OVO SKROLUJE (5 kanala po redu)
+            // ✅ KATALOZI — SAMO OVO SKROLUJE (5 kanala po redu, tekst vidljiv)
             // =============================================================
             LazyColumn(modifier = Modifier.weight(1f)) {
                 groups.forEach { (group, groupChannels) ->
