@@ -90,9 +90,9 @@ private fun remainingMin(endMs: Long, nowMs: Long): Long =
     ((endMs - nowMs) / 60_000L).coerceAtLeast(0)
 
 /**
- * ✅ UŽIVO TV — Apple TV+ stil:
- *    HERO (62%) + PRVI RED KATALOGA (38%) = 100% ekrana (kao na slici).
- *    Sve veličine PROPORCIONALNE ekranu → nema sečenja hero-a.
+ * ✅ UŽIVO TV — Apple TV+ stil (kao referentna slika):
+ *    HERO 64% + PRVI RED KATALOGA 36% = 100% ekrana, bez sečenja.
+ *    Kartice Male (15% visine), sitan tekst — kao "Up Next" na slici.
  */
 @Composable
 fun LiveTvScreen(
@@ -229,11 +229,11 @@ fun LiveTvScreen(
         context.startActivity(intent)
     }
 
-    // ✅ PROPORCIONALNE VELIČINE — hero + 1 red = 100% ekrana
+    // ✅ PROPORCIJE KAO NA SLICI: hero 64% + kartice 15% visine
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
-    val heroH = screenHeightDp * 0.62f
-    val cardH = screenHeightDp * 0.19f
-    val cardW = cardH * 1.75f
+    val heroH = screenHeightDp * 0.64f
+    val cardH = screenHeightDp * 0.15f
+    val cardW = cardH * 1.7f
 
     val clockText = remember(nowMs) { fmtTime(nowMs) }
     val firstCardFocus = remember { FocusRequester() }
@@ -241,7 +241,7 @@ fun LiveTvScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(LiveBg)) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            // ✅ HERO — 62% ekrana
+            // ✅ HERO — 64% ekrana
             item(key = "hero") {
                 Box(
                     modifier = Modifier
@@ -302,7 +302,7 @@ fun LiveTvScreen(
                             color = Color.White,
                             strokeWidth = 3.dp,
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(36.dp)
                                 .align(Alignment.Center)
                         )
                     }
@@ -312,7 +312,7 @@ fun LiveTvScreen(
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(end = 48.dp, top = 32.dp)
+                                .padding(end = 48.dp, top = 30.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(Color.Black.copy(alpha = 0.6f))
                                 .padding(6.dp)
@@ -322,7 +322,7 @@ fun LiveTvScreen(
                                     .data(heroChannel!!.logoUrl!!).crossfade(false)
                                     .bitmapConfig(android.graphics.Bitmap.Config.ARGB_8888).build(),
                                 contentDescription = null,
-                                modifier = Modifier.size(height = 28.dp, width = 56.dp),
+                                modifier = Modifier.size(height = 26.dp, width = 52.dp),
                                 contentScale = ContentScale.Fit
                             )
                         }
@@ -341,7 +341,7 @@ fun LiveTvScreen(
                         Text(clockText, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // — Info (kompaktno — bez preklapanja)
+                    // — Info (kompaktno)
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -362,7 +362,7 @@ fun LiveTvScreen(
                         Text(
                             heroProgram?.title ?: heroChannel?.name ?: "Uživo TV",
                             color = Color.White,
-                            fontSize = 32.sp,
+                            fontSize = 30.sp,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -443,20 +443,20 @@ fun LiveTvScreen(
                 }
             }
 
-            // ✅ KATALOZI — kompaktni redovi (prvi red = ostatak ekrana)
+            // ✅ KATALOZI — mali redovi kao "Up Next" na slici
             groups.forEach { (group, groupChannels) ->
                 item(key = "group_$group") {
-                    Column(modifier = Modifier.padding(top = 14.dp)) {
+                    Column(modifier = Modifier.padding(top = 12.dp)) {
                         Text(
                             group,
                             color = Color.White,
-                            fontSize = 16.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(start = 48.dp, bottom = 10.dp)
+                            modifier = Modifier.padding(start = 48.dp, bottom = 8.dp)
                         )
 
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
                         ) {
                             itemsIndexed(groupChannels, key = { _, ch -> ch.id }) { index, ch ->
@@ -540,8 +540,8 @@ private fun LivePill(
 }
 
 /**
- * ✅ Kompaktna kartica kanala — veličina PROPORCIONALNA ekranu (cardW × cardH),
- *    EPG slika + logo u ćošku + progress. Bez play bedža.
+ * ✅ MALA kartica kanala (kao "Up Next" na slici):
+ *    15% visine ekrana, EPG slika + logo u ćošku + progress + sitan tekst ispod.
  */
 @Composable
 private fun LiveChannelCard(
@@ -602,13 +602,13 @@ private fun LiveChannelCard(
                                 .data(channel.logoUrl).crossfade(false)
                                 .bitmapConfig(android.graphics.Bitmap.Config.ARGB_8888).build(),
                             contentDescription = null,
-                            modifier = Modifier.fillMaxSize().padding(18.dp),
+                            modifier = Modifier.fillMaxSize().padding(16.dp),
                             contentScale = ContentScale.Fit
                         )
                     }
                     else -> {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(channel.name, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -617,17 +617,17 @@ private fun LiveChannelCard(
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .padding(6.dp)
+                            .padding(5.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .background(Color.Black.copy(alpha = 0.65f))
-                            .padding(4.dp)
+                            .padding(3.dp)
                     ) {
                         AsyncImage(
                             model = ImageRequest.Builder(LocalContext.current)
                                 .data(channel.logoUrl).crossfade(false)
                                 .bitmapConfig(android.graphics.Bitmap.Config.ARGB_8888).build(),
                             contentDescription = null,
-                            modifier = Modifier.size(height = 16.dp, width = 30.dp),
+                            modifier = Modifier.size(height = 14.dp, width = 26.dp),
                             contentScale = ContentScale.Fit
                         )
                     }
@@ -637,7 +637,7 @@ private fun LiveChannelCard(
                     Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .height(cardH * 0.42f)
+                        .height(cardH * 0.45f)
                         .background(
                             Brush.verticalGradient(
                                 listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))
@@ -649,18 +649,18 @@ private fun LiveChannelCard(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .fillMaxWidth()
-                        .padding(start = 8.dp, end = 8.dp, bottom = 7.dp)
+                        .padding(start = 7.dp, end = 7.dp, bottom = 6.dp)
                 ) {
                     Text(
                         program?.title ?: channel.name,
                         color = Color.White,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     if (program != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(3.dp))
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -681,12 +681,12 @@ private fun LiveChannelCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(5.dp))
 
         Text(
             channel.name,
             color = Color.White,
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
