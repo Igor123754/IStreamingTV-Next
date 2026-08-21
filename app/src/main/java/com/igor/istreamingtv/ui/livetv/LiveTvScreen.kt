@@ -92,7 +92,7 @@ private fun remainingMin(endMs: Long, nowMs: Long): Long =
 /**
  * ✅ UŽIVO TV — Apple TV+ stil:
  *    HERO FIKSIRAN GORE (70%) + KATALOZI DOLE (30%),
- *    TAČNO 5 KANALA PO REDU, logo kanala ISPOD sata (bez preklapanja).
+ *    TAČNO 5 KANALA PO REDU — bez loga u hero-u (čist izgled).
  */
 @Composable
 fun LiveTvScreen(
@@ -246,7 +246,7 @@ fun LiveTvScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =============================================================
-            // ✅ HERO — FIKSIRAN GORE (70%)
+            // ✅ HERO — FIKSIRAN GORE (70%) — BEZ loga kanala (čist izgled)
             // =============================================================
             Box(
                 modifier = Modifier
@@ -323,27 +323,6 @@ fun LiveTvScreen(
                     LivePill(pillFocus = pillFocus, onOpenNav = { navOpen = true })
                     Spacer(modifier = Modifier.weight(1f))
                     Text(clockText, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                }
-
-                // ✅ Logo kanala — ISPOD sata (više se ne preklapa)
-                if (!heroChannel?.logoUrl.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(end = 48.dp, top = 58.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.Black.copy(alpha = 0.6f))
-                            .padding(6.dp)
-                    ) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(heroChannel!!.logoUrl!!).crossfade(false)
-                                .bitmapConfig(android.graphics.Bitmap.Config.ARGB_8888).build(),
-                            contentDescription = null,
-                            modifier = Modifier.size(height = 26.dp, width = 52.dp),
-                            contentScale = ContentScale.Fit
-                        )
-                    }
                 }
 
                 // — Info (kompaktno)
@@ -549,7 +528,7 @@ private fun LivePill(
 
 /**
  * ✅ Kartica kanala — TAČNO 5 po redu.
- *    DOLE SAMO IME KANALA (vreme izbačeno — nije se videlo).
+ *    DOLE SAMO IME KANALA.
  */
 @Composable
 private fun LiveChannelCard(
@@ -689,7 +668,7 @@ private fun LiveChannelCard(
             }
         }
 
-        // ✅ SAMO IME KANALA (vreme izbačeno)
+        // ✅ SAMO IME KANALA
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
