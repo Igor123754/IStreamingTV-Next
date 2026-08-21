@@ -90,9 +90,9 @@ private fun remainingMin(endMs: Long, nowMs: Long): Long =
     ((endMs - nowMs) / 60_000L).coerceAtLeast(0)
 
 /**
- * ✅ UŽIVO TV — Apple TV+ stil (kao referentna slika):
- *    HERO 64% + PRVI RED KATALOGA 36% = 100% ekrana, bez sečenja.
- *    Kartice Male (15% visine), sitan tekst — kao "Up Next" na slici.
+ * ✅ UŽIVO TV — Apple TV+ stil:
+ *    HERO FIKSIRAN GORE (64%) — NE skroluje se!
+ *    Samo KATALOZI skroluju ispod (36%).
  */
 @Composable
 fun LiveTvScreen(
@@ -229,7 +229,7 @@ fun LiveTvScreen(
         context.startActivity(intent)
     }
 
-    // ✅ PROPORCIJE KAO NA SLICI: hero 64% + kartice 15% visine
+    // ✅ PROPORCIJE: hero 64% fiksno + katalog 36% (skroluje)
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
     val heroH = screenHeightDp * 0.64f
     val cardH = screenHeightDp * 0.15f
@@ -240,246 +240,252 @@ fun LiveTvScreen(
     var firstFocusUsed by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize().background(LiveBg)) {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            // ✅ HERO — 64% ekrana
-            item(key = "hero") {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(heroH)
-                ) {
-                    // — Pozadina: live preview ILI EPG slika
-                    if (previewActive && !previewError) {
-                        AndroidView(
-                            factory = { ctx ->
-                                PlayerView(ctx).apply {
-                                    useController = false
-                                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                    player = previewPlayer
-                                }
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        val bgUrl = heroProgram?.iconUrl ?: heroChannel?.logoUrl ?: ""
-                        Crossfade(targetState = bgUrl, animationSpec = tween(700), label = "heroBg") { url ->
-                            if (url.isNotBlank()) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(url).crossfade(false)
-                                        .bitmapConfig(android.graphics.Bitmap.Config.RGB_565).build(),
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Box(Modifier.fillMaxSize().background(CardBg))
+        // ✅ FIX: Column umesto LazyColumn — hero FIKSIRAN, samo redovi skroluju
+        Column(modifier = Modifier.fillMaxSize()) {
+
+            // =============================================================
+            // ✅ HERO — FIKSIRAN GORE (ne skroluje se nikad)
+            // =============================================================
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(heroH)
+            ) {
+                // — Pozadina: live preview ILI EPG slika
+                if (previewActive && !previewError) {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                useController = false
+                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                player = previewPlayer
                             }
-                        }
-                    }
-
-                    // — Gradient-i
-                    Box(
-                        Modifier.fillMaxSize().background(
-                            Brush.verticalGradient(
-                                0.45f to Color.Transparent,
-                                1f to LiveBg
-                            )
-                        )
+                        },
+                        modifier = Modifier.fillMaxSize()
                     )
-                    Box(
-                        Modifier.fillMaxSize().background(
-                            Brush.horizontalGradient(
-                                listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent),
-                                endX = 1100f
-                            )
-                        )
-                    )
-
-                    // — Spinner dok preview učitava
-                    if (previewActive && previewBuffering && !previewReady && !previewError) {
-                        CircularProgressIndicator(
-                            color = Color.White,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .align(Alignment.Center)
-                        )
-                    }
-
-                    // — Logo kanala gore desno
-                    if (!heroChannel?.logoUrl.isNullOrBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(end = 48.dp, top = 30.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color.Black.copy(alpha = 0.6f))
-                                .padding(6.dp)
-                        ) {
+                } else {
+                    val bgUrl = heroProgram?.iconUrl ?: heroChannel?.logoUrl ?: ""
+                    Crossfade(targetState = bgUrl, animationSpec = tween(700), label = "heroBg") { url ->
+                        if (url.isNotBlank()) {
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
-                                    .data(heroChannel!!.logoUrl!!).crossfade(false)
-                                    .bitmapConfig(android.graphics.Bitmap.Config.ARGB_8888).build(),
+                                    .data(url).crossfade(false)
+                                    .bitmapConfig(android.graphics.Bitmap.Config.RGB_565).build(),
                                 contentDescription = null,
-                                modifier = Modifier.size(height = 26.dp, width = 52.dp),
-                                contentScale = ContentScale.Fit
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
                             )
+                        } else {
+                            Box(Modifier.fillMaxSize().background(CardBg))
                         }
                     }
+                }
 
-                    // — Pill + sat
-                    Row(
+                // — Gradient-i
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(
+                            0.45f to Color.Transparent,
+                            1f to LiveBg
+                        )
+                    )
+                )
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.horizontalGradient(
+                            listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent),
+                            endX = 1100f
+                        )
+                    )
+                )
+
+                // — Spinner dok preview učitava
+                if (previewActive && previewBuffering && !previewReady && !previewError) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 3.dp,
                         modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .fillMaxWidth()
-                            .padding(start = 48.dp, end = 48.dp, top = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .size(36.dp)
+                            .align(Alignment.Center)
+                    )
+                }
+
+                // — Logo kanala gore desno
+                if (!heroChannel?.logoUrl.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(end = 48.dp, top = 30.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.Black.copy(alpha = 0.6f))
+                            .padding(6.dp)
                     ) {
-                        LivePill(pillFocus = pillFocus, onOpenNav = { navOpen = true })
-                        Spacer(modifier = Modifier.weight(1f))
-                        Text(clockText, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(heroChannel!!.logoUrl!!).crossfade(false)
+                                .bitmapConfig(android.graphics.Bitmap.Config.ARGB_8888).build(),
+                            contentDescription = null,
+                            modifier = Modifier.size(height = 26.dp, width = 52.dp),
+                            contentScale = ContentScale.Fit
+                        )
                     }
+                }
 
-                    // — Info (kompaktno)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(start = 48.dp, end = 48.dp),
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        heroProgram?.category?.let { cat ->
-                            Text(
-                                cat.uppercase(),
-                                color = Color.White.copy(alpha = 0.55f),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 1.2.sp
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                        }
+                // — Pill + sat
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .padding(start = 48.dp, end = 48.dp, top = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LivePill(pillFocus = pillFocus, onOpenNav = { navOpen = true })
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(clockText, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
 
+                // — Info (kompaktno)
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = 48.dp, end = 48.dp),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    heroProgram?.category?.let { cat ->
                         Text(
-                            heroProgram?.title ?: heroChannel?.name ?: "Uživo TV",
-                            color = Color.White,
-                            fontSize = 30.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                            cat.uppercase(),
+                            color = Color.White.copy(alpha = 0.55f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.2.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+
+                    Text(
+                        heroProgram?.title ?: heroChannel?.name ?: "Uživo TV",
+                        color = Color.White,
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(0.6f)
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    if (heroChannel != null && heroProgram != null) {
+                        val rem = remainingMin(heroProgram.endMs, nowMs)
+                        Text(
+                            "${heroChannel.name} · ${fmtTime(heroProgram.startMs)} – ${fmtTime(heroProgram.endMs)} · " +
+                                if (rem > 0) "$rem min preostalo" else "kraj uskoro",
+                            color = Color.White.copy(alpha = 0.75f),
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    heroProgram?.description?.let { desc ->
+                        Text(
+                            desc,
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.fillMaxWidth(0.6f)
+                            modifier = Modifier.fillMaxWidth(0.5f)
                         )
+                    }
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                        if (heroChannel != null && heroProgram != null) {
-                            val rem = remainingMin(heroProgram.endMs, nowMs)
-                            Text(
-                                "${heroChannel.name} · ${fmtTime(heroProgram.startMs)} – ${fmtTime(heroProgram.endMs)} · " +
-                                    if (rem > 0) "$rem min preostalo" else "kraj uskoro",
-                                color = Color.White.copy(alpha = 0.75f),
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                    TvFocusableButton(
+                        onClick = {
+                            heroChannel?.let { ch -> onWatch(ch, heroProgram) }
                         }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        heroProgram?.description?.let { desc ->
-                            Text(
-                                desc,
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 11.sp,
-                                lineHeight = 16.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.fillMaxWidth(0.5f)
-                            )
+                    ) { focused ->
+                        val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
+                        Row(
+                            modifier = Modifier
+                                .scale(scale)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFE9E9F2))
+                                .padding(horizontal = 26.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(15.dp))
+                            Text("Gledaj", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        TvFocusableButton(
-                            onClick = {
-                                heroChannel?.let { ch -> onWatch(ch, heroProgram) }
-                            }
-                        ) { focused ->
-                            val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(160), label = "")
-                            Row(
-                                modifier = Modifier
-                                    .scale(scale)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color(0xFFE9E9F2))
-                                    .padding(horizontal = 26.dp, vertical = 9.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(15.dp))
-                                Text("Gledaj", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-
-                        if (heroProgram != null && heroProgram.endMs > heroProgram.startMs) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            val prog = ((nowMs - heroProgram.startMs).toFloat() /
-                                (heroProgram.endMs - heroProgram.startMs)).coerceIn(0f, 1f)
+                    if (heroProgram != null && heroProgram.endMs > heroProgram.startMs) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        val prog = ((nowMs - heroProgram.startMs).toFloat() /
+                            (heroProgram.endMs - heroProgram.startMs)).coerceIn(0f, 1f)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.5f)
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(Color.White.copy(alpha = 0.25f))
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(0.5f)
+                                    .fillMaxWidth(prog)
                                     .height(3.dp)
                                     .clip(RoundedCornerShape(2.dp))
-                                    .background(Color.White.copy(alpha = 0.25f))
+                                    .background(Color.White)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // =============================================================
+            // ✅ KATALOZI — SAMO OVO SKROLUJE (hero ostaje gore)
+            // =============================================================
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                groups.forEach { (group, groupChannels) ->
+                    item(key = "group_$group") {
+                        Column(modifier = Modifier.padding(top = 12.dp)) {
+                            Text(
+                                group,
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 48.dp, bottom = 8.dp)
+                            )
+
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(prog)
-                                        .height(3.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(Color.White)
-                                )
+                                itemsIndexed(groupChannels, key = { _, ch -> ch.id }) { index, ch ->
+                                    val needFirstFocus = !firstFocusUsed &&
+                                        groups.keys.firstOrNull() == group && index == 0
+                                    LiveChannelCard(
+                                        channel = ch,
+                                        program = nowProgram(epg, ch),
+                                        nowMs = nowMs,
+                                        cardW = cardW,
+                                        cardH = cardH,
+                                        initialFocus = if (needFirstFocus) firstCardFocus else null,
+                                        onFirstFocused = { firstFocusUsed = true },
+                                        onFocus = { focusedChannel = ch },
+                                        onWatch = { onWatch(ch, nowProgram(epg, ch)) }
+                                    )
+                                }
                             }
                         }
                     }
                 }
+
+                item(key = "bottom-spacer") { Spacer(modifier = Modifier.height(40.dp)) }
             }
-
-            // ✅ KATALOZI — mali redovi kao "Up Next" na slici
-            groups.forEach { (group, groupChannels) ->
-                item(key = "group_$group") {
-                    Column(modifier = Modifier.padding(top = 12.dp)) {
-                        Text(
-                            group,
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(start = 48.dp, bottom = 8.dp)
-                        )
-
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
-                        ) {
-                            itemsIndexed(groupChannels, key = { _, ch -> ch.id }) { index, ch ->
-                                val needFirstFocus = !firstFocusUsed &&
-                                    groups.keys.firstOrNull() == group && index == 0
-                                LiveChannelCard(
-                                    channel = ch,
-                                    program = nowProgram(epg, ch),
-                                    nowMs = nowMs,
-                                    cardW = cardW,
-                                    cardH = cardH,
-                                    initialFocus = if (needFirstFocus) firstCardFocus else null,
-                                    onFirstFocused = { firstFocusUsed = true },
-                                    onFocus = { focusedChannel = ch },
-                                    onWatch = { onWatch(ch, nowProgram(epg, ch)) }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            item(key = "bottom-spacer") { Spacer(modifier = Modifier.height(40.dp)) }
         }
 
         LaunchedEffect(channels.isNotEmpty()) {
@@ -539,10 +545,7 @@ private fun LivePill(
     }
 }
 
-/**
- * ✅ MALA kartica kanala (kao "Up Next" na slici):
- *    15% visine ekrana, EPG slika + logo u ćošku + progress + sitan tekst ispod.
- */
+/** ✅ MALA kartica kanala (kao "Up Next") */
 @Composable
 private fun LiveChannelCard(
     channel: LiveChannel,
