@@ -91,8 +91,7 @@ private fun remainingMin(endMs: Long, nowMs: Long): Long =
 
 /**
  * ✅ UŽIVO TV — Apple TV+ stil:
- *    HERO FIKSIRAN GORE (64%) — NE skroluje se!
- *    Samo KATALOZI skroluju ispod (36%).
+ *    HERO FIKSIRAN GORE (70%) + KATALOZI DOLE (30%), TAČNO 5 KANALA PO REDU.
  */
 @Composable
 fun LiveTvScreen(
@@ -229,22 +228,24 @@ fun LiveTvScreen(
         context.startActivity(intent)
     }
 
-    // ✅ PROPORCIJE: hero 64% fiksno + katalog 36% (skroluje)
+    // ✅ PROPORCIJE: hero 70% fiksno + TAČNO 5 KANALA PO REDU
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
-    val heroH = screenHeightDp * 0.64f
-    val cardH = screenHeightDp * 0.15f
-    val cardW = cardH * 1.7f
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
+    val heroH = screenHeightDp * 0.70f
+    // širina ekrana - padding (48+48) - 4 razmaka (12dp) podeljeno sa 5 kartica
+    val cardW = (screenWidthDp - 96.dp - 48.dp) / 5f
+    val cardH = cardW / 1.7f
 
     val clockText = remember(nowMs) { fmtTime(nowMs) }
     val firstCardFocus = remember { FocusRequester() }
     var firstFocusUsed by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize().background(LiveBg)) {
-        // ✅ FIX: Column umesto LazyColumn — hero FIKSIRAN, samo redovi skroluju
+        // ✅ FIX: Column — hero FIKSIRAN, samo redovi skroluju
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =============================================================
-            // ✅ HERO — FIKSIRAN GORE (ne skroluje se nikad)
+            // ✅ HERO — FIKSIRAN GORE (70%)
             // =============================================================
             Box(
                 modifier = Modifier
@@ -446,7 +447,7 @@ fun LiveTvScreen(
             }
 
             // =============================================================
-            // ✅ KATALOZI — SAMO OVO SKROLUJE (hero ostaje gore)
+            // ✅ KATALOZI — SAMO OVO SKROLUJE (5 kanala po redu)
             // =============================================================
             LazyColumn(modifier = Modifier.weight(1f)) {
                 groups.forEach { (group, groupChannels) ->
@@ -545,7 +546,7 @@ private fun LivePill(
     }
 }
 
-/** ✅ MALA kartica kanala (kao "Up Next") */
+/** ✅ Kartica kanala — veličina izračunata da TAČNO 5 stane u red */
 @Composable
 private fun LiveChannelCard(
     channel: LiveChannel,
