@@ -91,8 +91,8 @@ private fun remainingMin(endMs: Long, nowMs: Long): Long =
 
 /**
  * ✅ UŽIVO TV — Apple TV+ stil:
- *    HERO FIKSIRAN GORE (70%) + KATALOZI DOLE (30%) — bez praznog prostora,
- *    ime kanala I vreme emisije VIDLJIVI, TAČNO 5 KANALA PO REDU.
+ *    HERO FIKSIRAN GORE (70%) + KATALOZI DOLE (30%),
+ *    TAČNO 5 KANALA PO REDU, logo kanala ISPOD sata (bez preklapanja).
  */
 @Composable
 fun LiveTvScreen(
@@ -312,12 +312,25 @@ fun LiveTvScreen(
                     )
                 }
 
-                // — Logo kanala gore desno
+                // — Pill + sat
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .padding(start = 48.dp, end = 48.dp, top = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LivePill(pillFocus = pillFocus, onOpenNav = { navOpen = true })
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(clockText, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // ✅ Logo kanala — ISPOD sata (više se ne preklapa)
                 if (!heroChannel?.logoUrl.isNullOrBlank()) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(end = 48.dp, top = 30.dp)
+                            .padding(end = 48.dp, top = 58.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(Color.Black.copy(alpha = 0.6f))
                             .padding(6.dp)
@@ -331,19 +344,6 @@ fun LiveTvScreen(
                             contentScale = ContentScale.Fit
                         )
                     }
-                }
-
-                // — Pill + sat
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .fillMaxWidth()
-                        .padding(start = 48.dp, end = 48.dp, top = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    LivePill(pillFocus = pillFocus, onOpenNav = { navOpen = true })
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(clockText, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }
 
                 // — Info (kompaktno)
@@ -448,12 +448,11 @@ fun LiveTvScreen(
             }
 
             // =============================================================
-            // ✅ KATALOZI — SAMO OVO SKROLUJE (5 kanala po redu, bez praznog prostora)
+            // ✅ KATALOZI — SAMO OVO SKROLUJE (5 kanala po redu)
             // =============================================================
             LazyColumn(modifier = Modifier.weight(1f)) {
                 groups.forEach { (group, groupChannels) ->
                     item(key = "group_$group") {
-                        // ✅ Smanjen prazan prostor: top 2dp (bilo 4dp)
                         Column(modifier = Modifier.padding(top = 2.dp)) {
                             Text(
                                 group,
@@ -549,8 +548,8 @@ private fun LivePill(
 }
 
 /**
- * ✅ Kartica kanala — veličina izračunata da TAČNO 5 stane u red.
- *    Ime kanala + vreme emisije ZBIJENI (2dp razmak) — oba vidljiva.
+ * ✅ Kartica kanala — TAČNO 5 po redu.
+ *    DOLE SAMO IME KANALA (vreme izbačeno — nije se videlo).
  */
 @Composable
 private fun LiveChannelCard(
@@ -690,7 +689,7 @@ private fun LiveChannelCard(
             }
         }
 
-        // ✅ ZBIJENO: kartica → ime (4dp) → vreme (2dp) — sve vidljivo
+        // ✅ SAMO IME KANALA (vreme izbačeno)
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
@@ -700,13 +699,6 @@ private fun LiveChannelCard(
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            program?.let { "${fmtTime(it.startMs)} – ${fmtTime(it.endMs)}" } ?: " ",
-            color = Color.White.copy(alpha = 0.5f),
-            fontSize = 10.sp,
-            maxLines = 1
         )
     }
 }
