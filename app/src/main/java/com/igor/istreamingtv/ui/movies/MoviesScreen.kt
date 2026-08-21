@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -44,8 +45,8 @@ private val CardBg = Color(0xFF151A21)
 private val CardBorder = Color.White.copy(alpha = 0.06f)
 
 /**
- * ✅ FILMOVI — Apple TV+ stil: pill + naslov gore,
- *    19 žanr kataloga (redovi postera), bez dupliranja, progresivno učitavanje.
+ * ✅ FILMOVI — Apple TV+ stil: pill + veliki naslov + gradient,
+ *    19 PUNIH žanr kataloga (15 postera po redu).
  */
 @Composable
 fun MoviesScreen(
@@ -70,37 +71,51 @@ fun MoviesScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(MoviesBg)) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            // ✅ VRH: pill + naslov
+            // ✅ VRH: pill + veliki naslov (Apple TV+ stil)
             item(key = "top") {
-                Column(modifier = Modifier.padding(top = 24.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 48.dp, end = 48.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        MoviesPill(pillFocus = pillFocus, onOpenNav = { navOpen = true })
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    Text(
-                        "Filmovi",
-                        color = Color.White,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(start = 48.dp)
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .height(180.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFF1A1F2A), MoviesBg)
+                                )
+                            )
                     )
+                    Column(modifier = Modifier.padding(top = 24.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 48.dp, end = 48.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            MoviesPill(pillFocus = pillFocus, onOpenNav = { navOpen = true })
+                        }
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            "Filmovi",
+                            color = Color.White,
+                            fontSize = 36.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(start = 48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Svi žanrovi · najsvežiji naslovi",
+                            color = Color.White.copy(alpha = 0.55f),
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(start = 48.dp)
+                        )
+                    }
                 }
             }
 
-            // ✅ Spinner dok nema nijednog reda
+            // ✅ Spinner dok nema redova
             if (loading && catalogs.isEmpty()) {
                 item(key = "loading") {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 120.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 100.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
@@ -108,7 +123,7 @@ fun MoviesScreen(
                 }
             }
 
-            // ✅ ŽANR KATALOZI — stižu jedan po jedan
+            // ✅ ŽANR KATALOZI — puni redovi, stižu progresivno
             catalogs.forEach { catalog ->
                 item(key = "genre_${catalog.id}") {
                     Column(modifier = Modifier.padding(top = 32.dp)) {
@@ -119,7 +134,6 @@ fun MoviesScreen(
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(start = 48.dp, bottom = 12.dp)
                         )
-
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(14.dp),
                             contentPadding = PaddingValues(start = 48.dp, end = 48.dp)
@@ -132,16 +146,18 @@ fun MoviesScreen(
                 }
             }
 
-            // ✅ Spinner na dnu dok se učitavaju ostali redovi
+            // ✅ Spinner na dnu dok stižu ostali redovi
             if (loading && catalogs.isNotEmpty()) {
                 item(key = "loading-more") {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 40.dp, bottom = 20.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 40.dp, bottom = 20.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(color = Color.White.copy(alpha = 0.5f), strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
+                        CircularProgressIndicator(
+                            color = Color.White.copy(alpha = 0.5f),
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
                 }
             }
@@ -149,7 +165,7 @@ fun MoviesScreen(
             item(key = "bottom-spacer") { Spacer(modifier = Modifier.height(60.dp)) }
         }
 
-        // ✅ Navigaciona traka — "Filmovi" selektovani
+        // ✅ NAV BAR — "Filmovi" selektovani
         NavBarDrawer(
             open = navOpen,
             current = NavDestination.MOVIES,
@@ -175,7 +191,6 @@ private fun MoviesPill(
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(180), label = "")
-
     Row(
         modifier = Modifier
             .focusRequester(pillFocus)
@@ -200,7 +215,7 @@ private fun MoviesPill(
     }
 }
 
-/** ✅ Poster kartica (kao na početnoj) */
+/** ✅ Poster kartica (Apple TV+ stil) */
 @Composable
 private fun MovieCard(
     movie: TmdbMovie,
@@ -209,9 +224,7 @@ private fun MovieCard(
     Column(modifier = Modifier.width(150.dp)) {
         TvFocusableButton(
             onClick = onClick,
-            modifier = Modifier
-                .width(150.dp)
-                .height(225.dp)
+            modifier = Modifier.width(150.dp).height(225.dp)
         ) { focused ->
             val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(220), label = "")
             Box(
@@ -226,13 +239,11 @@ private fun MovieCard(
                     )
             ) {
                 AsyncImage(
-                    model = androidx.compose.ui.platform.LocalContext.current.let { ctx ->
-                        ImageRequest.Builder(ctx)
-                            .data("https://image.tmdb.org/t/p/w342${movie.posterPath}")
-                            .crossfade(false)
-                            .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
-                            .build()
-                    },
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data("https://image.tmdb.org/t/p/w342${movie.posterPath}")
+                        .crossfade(false)
+                        .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+                        .build(),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
