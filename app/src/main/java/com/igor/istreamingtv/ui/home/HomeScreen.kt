@@ -95,7 +95,6 @@ private fun TmdbMovie.displayGenre(): String =
 
 private data class HeroItem(val movie: TmdbMovie, val isTv: Boolean)
 
-/** ✅ Fuzzy EPG lookup */
 private fun nowProgram(epg: Map<String, List<EpgProgram>>, ch: LiveChannel): EpgProgram? {
     val now = System.currentTimeMillis()
     return epgListFor(epg, ch)?.firstOrNull { now >= it.startMs && now < it.endMs }
@@ -123,10 +122,6 @@ private fun FastImage(
     )
 }
 
-// =====================================================================
-// ✅ HOME PILL (Apple TV+ stil)
-// =====================================================================
-
 @Composable
 private fun HomePill(
     pillFocus: FocusRequester,
@@ -150,10 +145,7 @@ private fun HomePill(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(Color.White),
+            modifier = Modifier.size(28.dp).clip(CircleShape).background(Color.White),
             contentAlignment = Alignment.Center
         ) {
             Icon(Icons.Default.Home, null, tint = Color(0xFF1C1C1E), modifier = Modifier.size(16.dp))
@@ -168,6 +160,7 @@ fun HomeScreen(
     onAddToLibrary: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenLiveTv: () -> Unit = {},
+    onOpenMovies: () -> Unit = {},
     viewModel: HomeViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -263,7 +256,8 @@ fun HomeScreen(
                 onOpenNav = { navOpen = true },
                 onCloseNav = closeNav,
                 onOpenSearch = onOpenSearch,
-                onOpenLiveTv = onOpenLiveTv
+                onOpenLiveTv = onOpenLiveTv,
+                onOpenMovies = onOpenMovies
             )
         }
     }
@@ -292,7 +286,8 @@ private fun AppleTvHomeContent(
     onOpenNav: () -> Unit,
     onCloseNav: () -> Unit,
     onOpenSearch: () -> Unit,
-    onOpenLiveTv: () -> Unit
+    onOpenLiveTv: () -> Unit,
+    onOpenMovies: () -> Unit
 ) {
     val heroItems = remember(movies, series) {
         movies.take(5).map { HeroItem(it, isTv = false) } +
@@ -380,7 +375,7 @@ private fun AppleTvHomeContent(
             item(key = "bottom-spacer") { Spacer(modifier = Modifier.height(60.dp)) }
         }
 
-        // ✅ DELJENI NAV BAR — "Početna" selektovana
+        // ✅ DELJENI NAV BAR — "Početna" selektovana + MOVIES grana
         NavBarDrawer(
             open = navOpen,
             current = NavDestination.HOME,
@@ -390,6 +385,7 @@ private fun AppleTvHomeContent(
                 when (dest) {
                     NavDestination.SEARCH -> onOpenSearch()
                     NavDestination.LIVE -> onOpenLiveTv()
+                    NavDestination.MOVIES -> onOpenMovies()
                     NavDestination.HOME -> scope.launch { listState.animateScrollToItem(0) }
                     else -> {}
                 }
@@ -397,10 +393,6 @@ private fun AppleTvHomeContent(
         )
     }
 }
-
-// =====================================================================
-// UŽIVO TV — RED KANALA
-// =====================================================================
 
 @Composable
 private fun LiveRowSection(
@@ -442,9 +434,7 @@ private fun LiveChannelCard(
     Column(modifier = Modifier.width(240.dp)) {
         TvFocusableButton(
             onClick = onWatch,
-            modifier = Modifier
-                .width(240.dp)
-                .height(135.dp)
+            modifier = Modifier.width(240.dp).height(135.dp)
         ) { f ->
             Box(
                 modifier = Modifier
@@ -512,10 +502,6 @@ private fun LiveChannelCard(
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
-
-// =====================================================================
-// OSTALI REDOVI
-// =====================================================================
 
 @Composable
 private fun ContinueRowSection(
