@@ -17,15 +17,14 @@ import retrofit2.http.GET
 import retrofit2.http.Query
 import java.util.Collections
 
-/** ✅ Zaseban API za discover po žanru (ne dira TmdbApi/ContentRepository) */
 private interface GenreApi {
     @GET("discover/movie")
     suspend fun discover(
         @Query("with_genres") genreId: Int,
         @Query("sort_by") sortBy: String = "popularity.desc",
-        @Query("vote_count.gte") voteCountGte: Int = 100,
+        @Query("vote_count.gte") voteCountGte: Int = 50,
         @Query("language") language: String = "sr-RS",
-        @Query("page") page: Int = 1
+        @Query("page") page: Int
     ): MovieResponse
 }
 
@@ -36,8 +35,10 @@ data class GenreCatalog(
 )
 
 /**
- * ✅ FILMOVI — 19 žanr kataloga, BEZ DUPLIRANJA (globalni seen set),
- *    progresivno učitavanje (chunk po 4 paralelna zahteva) — glatko na slabim TV.
+ * ✅ FILMOVI — 19 žanrova, PUNI katalozi (15 filmova po redu):
+ *    - 2 strane po žanru (~40 kandidata)
+ *    - prvo SVEŽI filmovi (bez dupliranja), pa DOPUNA ako je red kratak
+ *    - progresivno učitavanje (chunk po 3) — glatko na slabim TV
  */
 class MoviesViewModel : ViewModel() {
 
@@ -51,7 +52,6 @@ class MoviesViewModel : ViewModel() {
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    // ✅ 19 žanrova — što više kataloga
     private val genres = listOf(
         28 to "Akcija",
         35 to "Komedija",
@@ -80,27 +80,39 @@ class MoviesViewModel : ViewModel() {
 
     private fun load() {
         viewModelScope.launch {
-            // ✅ Thread-safe set za deduplikaciju između žanrova
             val seen = Collections.synchronizedSet(mutableSetOf<Int>())
             _loading.value = true
 
-            // ✅ Chunk po 4 paralelna zahteva — redovi stižu jedan po jedan
-            genres.chunked(4).forEach { chunk ->
+            genres.chunked(3).forEach { chunk ->
                 val loaded = chunk.map { (id, title) ->
                     async(Dispatchers.IO) {
                         try {
-                            val res = api.discover(genreId = id)
-                            val filtered = res.results.filter { m ->
-                                m.posterPath != null && seen.add(m.id)
+                            val p1 = api.discover(genreId = id, page = 1)
+                            val p2 = try {
+                                api.discover(genreId = id, page = 2)
+                            } catch (_: Exception) { null }
+
+                            val all = (p1.results + (p2?.results ?: emptyList()))
+                                .distinctBy { it.id }
+                                .filter { it.posterPath != null }
+
+                            // ✅ Prvo sveži (ne viđeni), ostali kao dopuna
+                            val fresh = mutableListOf<TmdbMovie>()
+                            val dup = mutableListOf<TmdbMovie>()
+                            for (m in all) {
+                                if (seen.add(m.id)) fresh.add(m) else dup.add(m)
                             }
-                            GenreCatalog(id, title, filtered.take(15))
+                            // ✅ PUN RED: sveži + dopuna do 15
+                            val items = (fresh + dup).take(15)
+
+                            GenreCatalog(id, title, items)
                         } catch (_: Exception) {
                             GenreCatalog(id, title, emptyList())
                         }
                     }
                 }.awaitAll()
 
-                _catalogs.value = _catalogs.value + loaded.filter { it.items.isNotEmpty() }
+                _catalogs.value = _catalogs.value + loaded.filter { it.items.size >= 4 }
             }
 
             _loading.value = false
