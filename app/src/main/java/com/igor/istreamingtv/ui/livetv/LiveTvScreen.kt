@@ -91,8 +91,8 @@ private fun remainingMin(endMs: Long, nowMs: Long): Long =
 
 /**
  * ✅ UŽIVO TV — Apple TV+ stil:
- *    HERO FIKSIRAN GORE (69%) + KATALOZI DOLE (31%) — bez praznog prostora,
- *    ime kanala i vreme emisije VIDLJIVI, TAČNO 5 KANALA PO REDU.
+ *    HERO FIKSIRAN GORE (70%) + KATALOZI DOLE (30%) — bez praznog prostora,
+ *    ime kanala I vreme emisije VIDLJIVI, TAČNO 5 KANALA PO REDU.
  */
 @Composable
 fun LiveTvScreen(
@@ -229,10 +229,10 @@ fun LiveTvScreen(
         context.startActivity(intent)
     }
 
-    // ✅ PROPORCIJE: hero 69% fiksno + TAČNO 5 KANALA PO REDU
+    // ✅ PROPORCIJE: hero 70% fiksno + TAČNO 5 KANALA PO REDU
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
     val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
-    val heroH = screenHeightDp * 0.69f
+    val heroH = screenHeightDp * 0.70f
     // širina ekrana - padding (48+48) - 4 razmaka (12dp) podeljeno sa 5 kartica
     val cardW = (screenWidthDp - 96.dp - 48.dp) / 5f
     val cardH = cardW / 1.7f
@@ -246,7 +246,7 @@ fun LiveTvScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =============================================================
-            // ✅ HERO — FIKSIRAN GORE (69%)
+            // ✅ HERO — FIKSIRAN GORE (70%)
             // =============================================================
             Box(
                 modifier = Modifier
@@ -453,13 +453,14 @@ fun LiveTvScreen(
             LazyColumn(modifier = Modifier.weight(1f)) {
                 groups.forEach { (group, groupChannels) ->
                     item(key = "group_$group") {
-                        Column(modifier = Modifier.padding(top = 4.dp)) {
+                        // ✅ Smanjen prazan prostor: top 2dp (bilo 4dp)
+                        Column(modifier = Modifier.padding(top = 2.dp)) {
                             Text(
                                 group,
                                 color = Color.White,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(start = 48.dp, bottom = 6.dp)
+                                modifier = Modifier.padding(start = 48.dp, bottom = 4.dp)
                             )
 
                             LazyRow(
@@ -547,7 +548,10 @@ private fun LivePill(
     }
 }
 
-/** ✅ Kartica kanala — veličina izračunata da TAČNO 5 stane u red */
+/**
+ * ✅ Kartica kanala — veličina izračunata da TAČNO 5 stane u red.
+ *    Ime kanala + vreme emisije ZBIJENI (2dp razmak) — oba vidljiva.
+ */
 @Composable
 private fun LiveChannelCard(
     channel: LiveChannel,
@@ -686,7 +690,8 @@ private fun LiveChannelCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(5.dp))
+        // ✅ ZBIJENO: kartica → ime (4dp) → vreme (2dp) — sve vidljivo
+        Spacer(modifier = Modifier.height(4.dp))
 
         Text(
             channel.name,
@@ -696,6 +701,7 @@ private fun LiveChannelCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
             program?.let { "${fmtTime(it.startMs)} – ${fmtTime(it.endMs)}" } ?: " ",
             color = Color.White.copy(alpha = 0.5f),
