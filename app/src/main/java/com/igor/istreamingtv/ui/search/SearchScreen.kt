@@ -67,48 +67,28 @@ import com.igor.istreamingtv.ui.components.TvFocusableButton
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-private val SearchBg = Color(0xFF020204)
+private val SearchBg = Color(0xFF05070B)
 
-/** ✅ Custom mikrofon ikonica */
 @Composable
 private fun MicIcon(modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val w = size.width; val h = size.height
         val s = w * 0.11f
-        drawRoundRect(
-            Color.White,
-            Offset(w * 0.33f, h * 0.06f),
-            Size(w * 0.34f, h * 0.46f),
-            cornerRadius = CornerRadius(w * 0.17f),
-            style = Stroke(s)
-        )
-        drawArc(
-            Color.White,
-            startAngle = 0f,
-            sweepAngle = 180f,
-            useCenter = false,
-            topLeft = Offset(w * 0.16f, h * 0.28f),
-            size = Size(w * 0.68f, h * 0.46f),
-            style = Stroke(s)
-        )
-        drawLine(
-            Color.White,
-            Offset(w * 0.5f, h * 0.74f),
-            Offset(w * 0.5f, h * 0.94f),
-            strokeWidth = s
-        )
+        drawRoundRect(Color.White, Offset(w * 0.33f, h * 0.06f), Size(w * 0.34f, h * 0.46f),
+            cornerRadius = CornerRadius(w * 0.17f), style = Stroke(s))
+        drawArc(Color.White, startAngle = 0f, sweepAngle = 180f, useCenter = false,
+            topLeft = Offset(w * 0.16f, h * 0.28f), size = Size(w * 0.68f, h * 0.46f), style = Stroke(s))
+        drawLine(Color.White, Offset(w * 0.5f, h * 0.74f), Offset(w * 0.5f, h * 0.94f), strokeWidth = s)
     }
 }
 
-/**
- * ✅ PRETRAGA — Apple TV+ stil + GLASOVNA PRETRAGA 🎤
- */
 @Composable
 fun SearchScreen(
     onMovieClick: (TmdbMovie) -> Unit,
     onBack: () -> Unit,
-    onOpenHome: () -> Unit,
-    onOpenLiveTv: () -> Unit = {}
+    onOpenHome: () -> Unit = {},
+    onOpenLiveTv: () -> Unit = {},
+    onOpenMovies: () -> Unit = {}
 ) {
     val viewModel: SearchViewModel = viewModel()
     val query by viewModel.query.collectAsState()
@@ -130,9 +110,6 @@ fun SearchScreen(
 
     BackHandler(enabled = navOpen) { closeNav() }
 
-    // =====================================================================
-    // ✅ GLASOVNA PRETRAGA
-    // =====================================================================
     var listening by remember { mutableStateOf(false) }
     var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
 
@@ -202,8 +179,6 @@ fun SearchScreen(
     DisposableEffect(Unit) {
         onDispose { speechRecognizer?.destroy() }
     }
-
-    // =====================================================================
 
     Box(modifier = Modifier.fillMaxSize().background(SearchBg)) {
         Column(
@@ -293,7 +268,7 @@ fun SearchScreen(
             }
         }
 
-        // ✅ NAV BAR — "Pretraga" selektovana
+        // ✅ NAV BAR — "Pretraga" selektovana + MOVIES grana
         NavBarDrawer(
             open = navOpen,
             current = NavDestination.SEARCH,
@@ -303,6 +278,7 @@ fun SearchScreen(
                 when (dest) {
                     NavDestination.HOME -> onOpenHome()
                     NavDestination.LIVE -> onOpenLiveTv()
+                    NavDestination.MOVIES -> onOpenMovies()
                     NavDestination.SEARCH -> {}
                     else -> {}
                 }
@@ -311,7 +287,6 @@ fun SearchScreen(
     }
 }
 
-/** ✅ Polje za pretragu + 🎤 mikrofon dugme */
 @Composable
 private fun SearchField(
     query: String,
@@ -370,7 +345,6 @@ private fun SearchField(
             modifier = Modifier.weight(1f)
         )
 
-        // ✅ MIKROFON dugme
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -399,7 +373,6 @@ private fun SearchField(
     }
 }
 
-/** ✅ Grid postera */
 @Composable
 private fun ResultsGrid(
     items: List<TmdbMovie>,
@@ -425,9 +398,7 @@ private fun SearchPosterCard(
     Column(modifier = Modifier.width(150.dp)) {
         TvFocusableButton(
             onClick = onClick,
-            modifier = Modifier
-                .width(150.dp)
-                .height(225.dp)
+            modifier = Modifier.width(150.dp).height(225.dp)
         ) { focused ->
             val scale by animateFloatAsState(
                 if (focused) 1.08f else 1f,
